@@ -23,6 +23,7 @@ export default function AchievementsPage() {
   const [weeklyPct, setWeeklyPct] = useState(0);
   const [rank, setRank] = useState<Rank>('E');
   const [recentStats, setRecentStats] = useState<Record<string, number>>({});
+  const [recent30Stats, setRecent30Stats] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -106,6 +107,18 @@ export default function AchievementsPage() {
     recent7.PER = (await db.perLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length;
     setRecentStats(recent7);
 
+    // Recent stats (last 30 days)
+    const recent30: Record<string, number> = { STR: 0, AGI: 0, VIT: 0, INT: 0, PER: 0 };
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyStr = thirtyDaysAgo.toISOString().split('T')[0];
+    recent30.STR = (await db.strSessions.where('date').above(thirtyStr).toArray()).filter(s => s.completed && !s.isRestDay).length;
+    recent30.AGI = (await db.agiLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
+    recent30.VIT = (await db.vitLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
+    recent30.INT = (await db.intLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
+    recent30.PER = (await db.perLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
+    setRecent30Stats(recent30);
+
     setLoaded(true);
   }, []);
 
@@ -149,6 +162,19 @@ export default function AchievementsPage() {
             {Object.entries(recentStats).map(([stat, count]) => (
               <div key={stat}>
                 <p className="text-glow text-lg font-bold">{count}</p>
+                <p className="text-text-muted text-xs">{stat}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 30-day feats */}
+        <div className="stat-card rounded-lg p-4 glow-border">
+          <h3 className="text-sm font-medium text-text-dim mb-3">LAST 30 DAYS</h3>
+          <div className="grid grid-cols-5 gap-2 text-center">
+            {Object.entries(recent30Stats).map(([stat, count]) => (
+              <div key={stat}>
+                <p className="text-glow-bright text-lg font-bold">{count}</p>
                 <p className="text-text-muted text-xs">{stat}</p>
               </div>
             ))}

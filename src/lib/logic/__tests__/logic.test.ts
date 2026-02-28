@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
+import { evaluationDecision, addDays } from '../rankOrchestrator';
 import type { StrSession, ExerciseRecord } from '@/types';
 
 // ===== Levels ===== //
@@ -220,18 +221,18 @@ describe('getNextTemplate', () => {
 });
 
 describe('getDefaultExercises', () => {
-  it('Workout A has 4 exercises', () => {
+  it('Workout A has 6 exercises', () => {
     const exercises = getDefaultExercises('A');
-    expect(exercises).toHaveLength(4);
-    expect(exercises[0].name).toBe('Back Squat');
+    expect(exercises).toHaveLength(6);
+    expect(exercises[0].name).toBe('Goblet Squat');
     expect(exercises[0].sets).toHaveLength(3);
   });
 
-  it('Workout B has 4 exercises', () => {
+  it('Workout B has 6 exercises', () => {
     const exercises = getDefaultExercises('B');
-    expect(exercises).toHaveLength(4);
-    expect(exercises[0].name).toBe('Deadlift');
-    expect(exercises[0].sets).toHaveLength(2);
+    expect(exercises).toHaveLength(6);
+    expect(exercises[0].name).toBe('Romanian Deadlift (RDL)');
+    expect(exercises[0].sets).toHaveLength(3);
   });
 });
 
@@ -269,5 +270,99 @@ describe('course percentage', () => {
   it('StageAcademy baseline', () => {
     const pct = Math.round((26 / 144) * 100);
     expect(pct).toBe(18);
+  });
+});
+
+// ===== Rank Orchestration ===== //
+
+describe('evaluationDecision', () => {
+  // Week starts on Monday. 2025-03-01 is a Saturday.
+  // getWeekStart('2025-03-01') => '2025-02-24' (Monday)
+  // If today is Monday 2025-03-03, previousWeek = '2025-02-24'
+
+  it('starting on Saturday: partial first week is skipped', () => {
+    // firstUseDate = Saturday 2025-03-01
+    // today = Monday 2025-03-03 (new week)
+    // previousWeekStart = 2025-02-24, firstUseWeekStart = 2025-02-24
+    // firstUseDate (03-01) > previousWeekStart (02-24) => partial => skip
+    const result = evaluationDecision('2025-03-03', '2025-03-01', false);
+    expect(result).toBe('skip_partial');
+  });
+
+  it('starting on Monday: first full week is evaluated', () => {
+    // firstUseDate = Monday 2025-02-24
+    // today = Monday 2025-03-03
+    // previousWeekStart = 2025-02-24, firstUseWeekStart = 2025-02-24
+    // firstUseDate === previousWeekStart => NOT partial => evaluate
+    const result = evaluationDecision('2025-03-03', '2025-02-24', false);
+    expect(result).toBe('evaluate');
+  });
+
+  it('returns null when already evaluated', () => {
+    const result = evaluationDecision('2025-03-03', '2025-02-24', true);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when previous week is before first use', () => {
+    // firstUseDate = 2025-03-03 (Monday)
+    // today = 2025-03-05 (Wednesday, same week)
+    // previousWeekStart = 2025-02-24, firstUseWeekStart = 2025-03-03
+    // previousWeekStart < firstUseWeekStart => null
+    const result = evaluationDecision('2025-03-05', '2025-03-03', false);
+    expect(result).toBeNull();
+  });
+
+  it('second full week is evaluated normally', () => {
+    // firstUseDate = 2025-02-24 (Monday)
+    // today = 2025-03-10 (Monday, week 3)
+    // previousWeekStart = 2025-03-03
+    // firstUseWeekStart = 2025-02-24
+    // previousWeekStart > firstUseWeekStart => evaluate
+    const result = evaluationDecision('2025-03-10', '2025-02-24', false);
+    expect(result).toBe('evaluate');
+  });
+});
+
+describe('rank promotion via computeRankUpdate over multiple weeks', () => {
+  it('2 consecutive weeks >=80% promotes E to D', () => {
+    // Week 1: 85%, consecutive = 0 => stays E, consecutive becomes 1
+    const week1 = computeRankUpdate('E', 85, 0);
+    expect(week1.newRank).toBe('E');
+    expect(week1.newConsecutiveWeeks).toBe(1);
+
+    // Week 2: 82%, consecutive = 1 => promotes to D
+    const week2 = computeRankUpdate('E', 82, week1.newConsecutiveWeeks);
+    expect(week2.newRank).toBe('D');
+    expect(week2.newConsecutiveWeeks).toBe(0);
+  });
+
+  it('<60% drops rank by 1 tier', () => {
+    const result = computeRankUpdate('D', 45, 0);
+    expect(result.newRank).toBe('E');
+  });
+
+  it('a week at 70% between two 80%+ weeks resets consecutive counter', () => {
+    const week1 = computeRankUpdate('E', 85, 0);
+    expect(week1.newConsecutiveWeeks).toBe(1);
+
+    // Interrupting week at 70%
+    const week2 = computeRankUpdate('E', 70, week1.newConsecutiveWeeks);
+    expect(week2.newRank).toBe('E');
+    expect(week2.newConsecutiveWeeks).toBe(0);
+
+    // Back to 85% but counter reset
+    const week3 = computeRankUpdate('E', 85, week2.newConsecutiveWeeks);
+    expect(week3.newRank).toBe('E');
+    expect(week3.newConsecutiveWeeks).toBe(1);
+  });
+});
+
+describe('addDays', () => {
+  it('adds 7 days correctly', () => {
+    expect(addDays('2025-02-24', 7)).toBe('2025-03-03');
+  });
+
+  it('subtracts 7 days correctly', () => {
+    expect(addDays('2025-03-03', -7)).toBe('2025-02-24');
   });
 });

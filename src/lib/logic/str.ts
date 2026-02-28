@@ -37,7 +37,7 @@ export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[]
   if (template === 'A') {
     return [
       {
-        name: 'Back Squat',
+        name: 'Goblet Squat',
         sets: [
           { setNumber: 1, completed: false },
           { setNumber: 2, completed: false },
@@ -46,7 +46,7 @@ export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[]
         isRequired: true,
       },
       {
-        name: 'Bench Press',
+        name: 'Incline Dumbbell Press',
         sets: [
           { setNumber: 1, completed: false },
           { setNumber: 2, completed: false },
@@ -55,7 +55,7 @@ export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[]
         isRequired: true,
       },
       {
-        name: 'Row',
+        name: 'Chest-Supported Dumbbell Row',
         sets: [
           { setNumber: 1, completed: false },
           { setNumber: 2, completed: false },
@@ -64,23 +64,37 @@ export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[]
         isRequired: true,
       },
       {
-        name: 'Push-ups (100 total)',
-        sets: [{ setNumber: 1, completed: false }],
+        name: 'Pull-Ups',
+        sets: [
+          { setNumber: 1, completed: false },
+          { setNumber: 2, completed: false },
+          { setNumber: 3, completed: false },
+        ],
+        isRequired: true,
+      },
+      {
+        name: 'Lateral Raises',
+        sets: [
+          { setNumber: 1, completed: false },
+          { setNumber: 2, completed: false },
+          { setNumber: 3, completed: false },
+        ],
+        isRequired: true,
+      },
+      {
+        name: 'Core',
+        sets: [
+          { setNumber: 1, completed: false },
+          { setNumber: 2, completed: false },
+          { setNumber: 3, completed: false },
+        ],
         isRequired: true,
       },
     ];
   }
   return [
     {
-      name: 'Deadlift',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Overhead Press',
+      name: 'Romanian Deadlift (RDL)',
       sets: [
         { setNumber: 1, completed: false },
         { setNumber: 2, completed: false },
@@ -89,7 +103,34 @@ export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[]
       isRequired: true,
     },
     {
-      name: 'Pull-ups / Lat Pulldown',
+      name: 'Neutral-Grip Dumbbell Shoulder Press',
+      sets: [
+        { setNumber: 1, completed: false },
+        { setNumber: 2, completed: false },
+        { setNumber: 3, completed: false },
+      ],
+      isRequired: true,
+    },
+    {
+      name: 'Cable Row',
+      sets: [
+        { setNumber: 1, completed: false },
+        { setNumber: 2, completed: false },
+        { setNumber: 3, completed: false },
+      ],
+      isRequired: true,
+    },
+    {
+      name: 'Push-Ups',
+      sets: [
+        { setNumber: 1, completed: false },
+        { setNumber: 2, completed: false },
+        { setNumber: 3, completed: false },
+      ],
+      isRequired: true,
+    },
+    {
+      name: 'Face Pulls',
       sets: [
         { setNumber: 1, completed: false },
         { setNumber: 2, completed: false },

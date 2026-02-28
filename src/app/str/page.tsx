@@ -181,7 +181,7 @@ export default function StrPage() {
                         onChange={() => toggleSet(eIdx, sIdx)}
                         label={`Set ${set.setNumber}`}
                       />
-                      {exercise.name !== 'Push-ups (100 total)' && exercise.name !== 'Core' && (
+                      {exercise.name !== 'Core' && exercise.name !== 'Push-Ups' && exercise.name !== 'Push-ups (100 total)' && (
                         <input
                           type="number"
                           placeholder="lbs"
