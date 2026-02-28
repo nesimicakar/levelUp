@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0a0e17"/>
+  <text x="256" y="256" text-anchor="middle" dominant-baseline="central" font-family="monospace" font-size="128" font-weight="bold" fill="#3b82f6">LU</text>
+  <rect x="106" y="345" width="300" height="8" rx="4" fill="#1d4ed8"/>
+</svg>

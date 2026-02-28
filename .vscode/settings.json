@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^python3 << 'PYEOF'\ncontent = \"\"\"'use client';\n\ninterface ToggleProps \\{\n  checked: boolean;\n  onChange: \\(checked: boolean\\) => void;\n  label: string;\n  sublabel\\?: string;\n  disabled\\?: boolean;\n\\}\n\nexport function Toggle\\(\\{ checked, onChange, label, sublabel, disabled \\}: ToggleProps\\) \\{\n  return \\(\n    <button\n      disabled=\\{disabled\\}\n      onClick=\\{\\(\\) => onChange\\(!checked\\)\\}\n      className=\\{`flex items-center justify-between w-full p-3 rounded-lg border transition-all \\$\\{\n        checked\n          \\? 'border-glow/30 bg-glow/5 glow-border-active'\n          : 'border-border bg-surface'\n      \\} \\$\\{disabled \\? 'opacity-50' : ''\\}`\\}\n    >\n      <div className=\"text-left\">\n        <span className=\\{`text-sm \\$\\{checked \\? 'text-glow-bright' : 'text-text'\\}`\\}>\n          \\{label\\}\n        </span>\n        \\{sublabel && \\(\n          <span className=\"block text-xs text-text-muted mt-0\\.5\">\\{sublabel\\}</span>\n        \\)\\}\n      </div>\n      <div\n        className=\\{`w-5 h-5 rounded border-2 flex items-center justify-center transition-all \\$\\{\n          checked\n            \\? 'border-glow bg-glow/20 text-glow-bright'\n            : 'border-text-muted'\n        \\}`\\}\n      >\n        \\{checked && <span className=\"text-xs\">✓</span>\\}\n      </div>\n    </button>\n  \\);\n\\}\n\"\"\"\nwith open\\('/Users/ncakar/Desktop/levelUp/src/components/Toggle\\.tsx', 'w'\\) as f:\n    f\\.write\\(content\\)\nprint\\('done'\\)\nPYEOF$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
