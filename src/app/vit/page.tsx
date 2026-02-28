@@ -15,7 +15,7 @@ export default function VitPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [sleepHours, setSleepHours] = useState(0);
   const [proteinMet, setProteinMet] = useState(false);
-  const [hydrationMet, setHydrationMet] = useState(false);
+  const [postureMet, setPostureMet] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -28,7 +28,7 @@ export default function VitPage() {
       setTodayLog(existing);
       setSleepHours(existing.sleepHours);
       setProteinMet(existing.proteinGoalMet);
-      setHydrationMet(existing.hydrationGoalMet);
+      setPostureMet(existing.postureMobilityMet ?? false);
     }
 
     const completedDays = await db.vitLogs.where('completed').equals(1).count();
@@ -43,22 +43,22 @@ export default function VitPage() {
 
   const save = async () => {
     const today = getToday();
-    const completed = sleepHours >= 7 && proteinMet && hydrationMet;
+    const completed = sleepHours >= 7 && proteinMet && postureMet;
 
     if (todayLog?.id) {
       await db.vitLogs.update(todayLog.id, {
         sleepHours,
         proteinGoalMet: proteinMet,
-        hydrationGoalMet: hydrationMet,
+        postureMobilityMet: postureMet,
         completed,
       });
-      setTodayLog({ ...todayLog, sleepHours, proteinGoalMet: proteinMet, hydrationGoalMet: hydrationMet, completed });
+      setTodayLog({ ...todayLog, sleepHours, proteinGoalMet: proteinMet, postureMobilityMet: postureMet, completed });
     } else {
       const log: VitLog = {
         date: today,
         sleepHours,
         proteinGoalMet: proteinMet,
-        hydrationGoalMet: hydrationMet,
+        postureMobilityMet: postureMet,
         completed,
         createdAt: Date.now(),
       };
@@ -71,8 +71,8 @@ export default function VitPage() {
 
   if (!loaded || !settings) return null;
 
-  const allMet = sleepHours >= 7 && proteinMet && hydrationMet;
-  const checkCount = [sleepHours >= 7, proteinMet, hydrationMet].filter(Boolean).length;
+  const allMet = sleepHours >= 7 && proteinMet && postureMet;
+  const checkCount = [sleepHours >= 7, proteinMet, postureMet].filter(Boolean).length;
 
   return (
     <div>
@@ -117,10 +117,10 @@ export default function VitPage() {
           />
 
           <Toggle
-            checked={hydrationMet}
-            onChange={setHydrationMet}
-            label={`Hydration goal (${settings.hydrationGoalLiters}L)`}
-            sublabel="Did you drink enough water?"
+            checked={postureMet}
+            onChange={setPostureMet}
+            label="Posture & Mobility Block"
+            sublabel="Did you complete your mobility work?"
           />
 
           <button

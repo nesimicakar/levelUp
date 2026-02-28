@@ -38,6 +38,9 @@ export class LevelUpDB extends Dexie {
       achievements: '++id, key, stat, unlockedAt',
       settings: '++id',
     });
+    this.version(3).stores({
+      rankHistory: '++id, &weekStart, rank, createdAt',
+    });
   }
 }
 

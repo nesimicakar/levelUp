@@ -134,11 +134,21 @@ export default function GrowthPage() {
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
         {statKeys.map(key => {
           const data = stats[key];
+          const wb = data.weeklyBreakdown;
+          const delta = wb.length >= 2 ? wb[wb.length - 1].completed - wb[0].completed : 0;
+          const trend = delta > 0 ? { arrow: '\u2191', color: 'text-success' }
+            : delta < 0 ? { arrow: '\u2193', color: 'text-danger' }
+            : { arrow: '\u2192', color: 'text-text-muted' };
           return (
             <div key={key} className="stat-card rounded-lg p-4 glow-border animate-fade-in">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-glow font-bold">{key}</span>
-                <span className="text-text-dim text-sm">Lv.{data.level.level}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-medium ${trend.color}`}>
+                    {delta > 0 ? '+' : ''}{delta} {trend.arrow}
+                  </span>
+                  <span className="text-text-dim text-sm">Lv.{data.level.level}</span>
+                </div>
               </div>
               <ProgressBar value={data.level.progressPct} className="mb-3" />
               <div className="space-y-1">

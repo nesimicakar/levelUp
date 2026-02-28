@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { db, getToday, getSettings } from '@/lib/db';
 import { computeLevel, computeAgiXP } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
@@ -17,6 +17,9 @@ export default function AgiPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [minutes, setMinutes] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
     const today = getToday();
@@ -64,6 +67,32 @@ export default function AgiPage() {
       setTodayLog(log);
     }
     await loadData();
+  };
+
+  useEffect(() => {
+    if (timerRunning) {
+      timerRef.current = setInterval(() => setTimerSeconds(s => s + 1), 1000);
+    } else if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [timerRunning]);
+
+  const toggleTimer = () => {
+    if (timerRunning) {
+      setTimerRunning(false);
+      setMinutes(Math.floor(timerSeconds / 60));
+    } else {
+      setTimerSeconds(0);
+      setTimerRunning(true);
+    }
+  };
+
+  const formatTimer = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
 
   if (!loaded || !settings) return null;
@@ -118,6 +147,21 @@ export default function AgiPage() {
 
           <div className="text-xs text-text-muted">
             Target: {settings.agiMinMinutes} minutes minimum
+          </div>
+
+          {/* Stopwatch */}
+          <div className="flex items-center justify-between">
+            <span className="text-2xl font-mono text-glow tabular-nums">{formatTimer(timerSeconds)}</span>
+            <button
+              onClick={toggleTimer}
+              className={`px-4 py-2 rounded-lg text-sm font-medium tracking-wider transition-colors ${
+                timerRunning
+                  ? 'bg-danger/10 border border-danger/30 text-danger'
+                  : 'bg-glow/10 border border-glow/30 text-glow'
+              }`}
+            >
+              {timerRunning ? 'STOP' : 'START'}
+            </button>
           </div>
 
           <button

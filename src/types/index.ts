@@ -43,7 +43,8 @@ export interface VitLog {
   date: string;
   sleepHours: number;
   proteinGoalMet: boolean;
-  hydrationGoalMet: boolean;
+  hydrationGoalMet?: boolean;
+  postureMobilityMet?: boolean;
   completed: boolean;
   createdAt: number;
 }
@@ -92,8 +93,11 @@ export interface CourseProgress {
 export interface RankRecord {
   id?: number;
   rank: Rank;
+  rankBefore: Rank;
   weekStart: string;
+  weekEnd: string;
   completionPct: number;
+  reason: 'promoted' | 'demoted' | 'maintained' | 'skipped';
   createdAt: number;
 }
 
@@ -118,6 +122,7 @@ export interface UserSettings {
   agiMinMinutes: number;
   strUpperIncrement: number;
   strLowerIncrement: number;
+  firstUseDate?: string; // ISO date, set once on first app load
 }
 
 export interface StatLevel {
