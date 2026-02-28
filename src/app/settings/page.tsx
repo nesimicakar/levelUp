@@ -81,6 +81,20 @@ export default function SettingsPage() {
           />
         </section>
 
+        {/* Spirituality */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium text-text-dim">PER // SPIRITUALITY</h3>
+          <NumberInput
+            value={settings.quranPagesPerDay}
+            onChange={v => update({ quranPagesPerDay: v })}
+            label="Quran pages / day"
+            min={1}
+            max={20}
+            step={1}
+            unit="pg"
+          />
+        </section>
+
         {/* VIT */}
         <section className="space-y-3">
           <h3 className="text-sm font-medium text-text-dim">VIT // NUTRITION</h3>
@@ -92,15 +106,6 @@ export default function SettingsPage() {
             max={300}
             step={10}
             unit="g"
-          />
-          <NumberInput
-            value={settings.hydrationGoalLiters}
-            onChange={v => update({ hydrationGoalLiters: v })}
-            label="Hydration target"
-            min={0.5}
-            max={5}
-            step={0.5}
-            unit="L"
           />
         </section>
 

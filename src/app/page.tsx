@@ -62,7 +62,7 @@ export default function Dashboard() {
     const vitDays = await db.vitLogs.where('completed').equals(1).count();
     const vitXP = computeVitXP(vitDays);
     const vitLevel = computeLevel(vitXP);
-    const vitChecked = todayVit ? [todayVit.sleepHours >= 7, todayVit.proteinGoalMet, todayVit.hydrationGoalMet].filter(Boolean).length : 0;
+    const vitChecked = todayVit ? [todayVit.sleepHours >= 7, todayVit.proteinGoalMet, todayVit.postureMobilityMet === true].filter(Boolean).length : 0;
 
     // INT
     const todayInt = await db.intLogs.where('date').equals(today).first();
@@ -76,6 +76,10 @@ export default function Dashboard() {
 
     // PER
     const todayPer = await db.perLogs.where('date').equals(today).first();
+    const perLessonsMet = (todayPer?.lessonsCompleted ?? 0) >= settings.lessonsPerDay;
+    const perPrayersMet = (todayPer?.prayersCount ?? 0) >= 5;
+    const perQuranMet = (todayPer?.quranPages ?? 0) >= settings.quranPagesPerDay;
+    const perChecked = [perLessonsMet, perPrayersMet, perQuranMet].filter(Boolean).length;
     const perStatus: DayStatus = todayPer?.completed ? 'complete' : 'incomplete';
     const saCourse = await getCourseProgress('stage-academy');
     const perXP = computePerXP(saCourse.completedUnits);
@@ -109,7 +113,7 @@ export default function Dashboard() {
       per: {
         level: perLevel,
         status: perStatus,
-        subtitle: `StageAcademy ${todayPer?.lessonsCompleted ?? 0}/${settings.lessonsPerDay} lessons today`,
+        subtitle: `${perChecked}/3 completed today`,
       },
       rank: latestRank?.rank ?? 'E',
       loaded: true,

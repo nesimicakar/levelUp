@@ -62,6 +62,8 @@ export interface PerLog {
   id?: number;
   date: string;
   lessonsCompleted: number;
+  prayersCount?: number;
+  quranPages?: number;
   completed: boolean;
   createdAt: number;
 }
@@ -116,6 +118,7 @@ export interface UserSettings {
   readingPagesPerDay: number;
   courseUnitsPerDay: number;
   lessonsPerDay: number;
+  quranPagesPerDay: number;
   proteinGoalGrams: number;
   hydrationGoalLiters: number;
   agiActivityType: string;
@@ -144,6 +147,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   readingPagesPerDay: 20,
   courseUnitsPerDay: 4,
   lessonsPerDay: 2,
+  quranPagesPerDay: 1,
   proteinGoalGrams: 130,
   hydrationGoalLiters: 2.0,
   agiActivityType: 'Rowing',

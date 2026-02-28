@@ -48,11 +48,15 @@ export const db = new LevelUpDB();
 
 export async function getSettings(): Promise<UserSettings> {
   const s = await db.settings.toCollection().first();
-  if (s) return s;
+  if (s) {
+    if (s.quranPagesPerDay === undefined) s.quranPagesPerDay = 1;
+    return s;
+  }
   const defaults: UserSettings = {
     readingPagesPerDay: 20,
     courseUnitsPerDay: 4,
     lessonsPerDay: 2,
+    quranPagesPerDay: 1,
     proteinGoalGrams: 130,
     hydrationGoalLiters: 2.0,
     agiActivityType: 'Rowing',
@@ -96,7 +100,11 @@ export async function updateCourseProgress(courseId: string, additionalUnits: nu
 }
 
 export function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 export function getWeekStart(dateStr: string): string {
