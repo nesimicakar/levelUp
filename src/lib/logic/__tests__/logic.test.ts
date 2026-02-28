@@ -117,8 +117,14 @@ describe('computeRankUpdate', () => {
     expect(result.newConsecutiveWeeks).toBe(1);
   });
 
-  it('promotes after 2 consecutive weeks at 80%+', () => {
+  it('does not promote after only 2 consecutive weeks at 80%+', () => {
     const result = computeRankUpdate('C', 85, 1);
+    expect(result.newRank).toBe('C');
+    expect(result.newConsecutiveWeeks).toBe(2);
+  });
+
+  it('promotes after 4 consecutive weeks at 80%+', () => {
+    const result = computeRankUpdate('C', 85, 3);
     expect(result.newRank).toBe('B');
     expect(result.newConsecutiveWeeks).toBe(0);
   });
@@ -324,16 +330,26 @@ describe('evaluationDecision', () => {
 });
 
 describe('rank promotion via computeRankUpdate over multiple weeks', () => {
-  it('2 consecutive weeks >=80% promotes E to D', () => {
+  it('4 consecutive weeks >=80% promotes E to D', () => {
     // Week 1: 85%, consecutive = 0 => stays E, consecutive becomes 1
     const week1 = computeRankUpdate('E', 85, 0);
     expect(week1.newRank).toBe('E');
     expect(week1.newConsecutiveWeeks).toBe(1);
 
-    // Week 2: 82%, consecutive = 1 => promotes to D
+    // Week 2: 82%, consecutive = 1 => stays E, consecutive becomes 2
     const week2 = computeRankUpdate('E', 82, week1.newConsecutiveWeeks);
-    expect(week2.newRank).toBe('D');
-    expect(week2.newConsecutiveWeeks).toBe(0);
+    expect(week2.newRank).toBe('E');
+    expect(week2.newConsecutiveWeeks).toBe(2);
+
+    // Week 3: 90%, consecutive = 2 => stays E, consecutive becomes 3
+    const week3 = computeRankUpdate('E', 90, week2.newConsecutiveWeeks);
+    expect(week3.newRank).toBe('E');
+    expect(week3.newConsecutiveWeeks).toBe(3);
+
+    // Week 4: 80%, consecutive = 3 => promotes to D
+    const week4 = computeRankUpdate('E', 80, week3.newConsecutiveWeeks);
+    expect(week4.newRank).toBe('D');
+    expect(week4.newConsecutiveWeeks).toBe(0);
   });
 
   it('<60% drops rank by 1 tier', () => {

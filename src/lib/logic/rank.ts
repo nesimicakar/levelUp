@@ -30,7 +30,7 @@ export function computeRankUpdate(
 
   if (completionPct >= 80) {
     const newConsec = consecutiveWeeksAbove80 + 1;
-    if (newConsec >= 2 && idx < RANK_ORDER.length - 1) {
+    if (newConsec >= 4 && idx < RANK_ORDER.length - 1) {
       return { newRank: RANK_ORDER[idx + 1], newConsecutiveWeeks: 0 };
     }
     return { newRank: currentRank, newConsecutiveWeeks: newConsec };
