@@ -133,6 +133,11 @@ export default function StrPage() {
               <span className="text-text-muted text-sm">/3 rest tokens</span>
             </div>
           </div>
+          {todaySession?.completed && (
+            <p className="text-text-muted text-xs mt-3">
+              Next session: Workout {getNextTemplate(weekSessions)} (available tomorrow)
+            </p>
+          )}
         </div>
 
         {/* Today's session */}

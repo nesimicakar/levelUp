@@ -12,6 +12,7 @@ export async function seedIfNeeded(): Promise<void> {
       readingPagesPerDay: 20,
       courseUnitsPerDay: 4,
       lessonsPerDay: 2,
+      quranPagesPerDay: 1,
       proteinGoalGrams: 130,
       hydrationGoalLiters: 2.0,
       agiActivityType: 'Rowing',

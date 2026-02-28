@@ -14,6 +14,8 @@ export default function PerPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [courseProgress, setCourseProgress] = useState<CourseProgress | null>(null);
   const [lessonsToday, setLessonsToday] = useState(0);
+  const [prayers, setPrayers] = useState(0);
+  const [quranPages, setQuranPages] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -25,6 +27,8 @@ export default function PerPage() {
     if (existing) {
       setTodayLog(existing);
       setLessonsToday(existing.lessonsCompleted);
+      setPrayers(existing.prayersCount ?? 0);
+      setQuranPages(existing.quranPages ?? 0);
     }
 
     const cp = await getCourseProgress('stage-academy');
@@ -42,7 +46,10 @@ export default function PerPage() {
   const save = async () => {
     if (!settings) return;
     const today = getToday();
-    const completed = lessonsToday >= settings.lessonsPerDay;
+    const lessonsMet = lessonsToday >= settings.lessonsPerDay;
+    const prayersMet = prayers >= 5;
+    const quranMet = quranPages >= settings.quranPagesPerDay;
+    const completed = lessonsMet && prayersMet && quranMet;
 
     if (todayLog?.id) {
       const oldLessons = todayLog.lessonsCompleted;
@@ -52,9 +59,11 @@ export default function PerPage() {
       }
       await db.perLogs.update(todayLog.id, {
         lessonsCompleted: lessonsToday,
+        prayersCount: prayers,
+        quranPages,
         completed,
       });
-      setTodayLog({ ...todayLog, lessonsCompleted: lessonsToday, completed });
+      setTodayLog({ ...todayLog, lessonsCompleted: lessonsToday, prayersCount: prayers, quranPages, completed });
     } else {
       if (lessonsToday > 0) {
         await updateCourseProgress('stage-academy', lessonsToday);
@@ -62,6 +71,8 @@ export default function PerPage() {
       const log: PerLog = {
         date: today,
         lessonsCompleted: lessonsToday,
+        prayersCount: prayers,
+        quranPages,
         completed,
         createdAt: Date.now(),
       };
@@ -74,7 +85,11 @@ export default function PerPage() {
 
   if (!loaded || !settings || !courseProgress) return null;
 
-  const targetMet = lessonsToday >= settings.lessonsPerDay;
+  const lessonsMet = lessonsToday >= settings.lessonsPerDay;
+  const prayersMet = prayers >= 5;
+  const quranMet = quranPages >= settings.quranPagesPerDay;
+  const allMet = lessonsMet && prayersMet && quranMet;
+  const checkCount = [lessonsMet, prayersMet, quranMet].filter(Boolean).length;
   const saPct = Math.round((courseProgress.completedUnits / courseProgress.totalUnits) * 100);
 
   return (
@@ -104,9 +119,9 @@ export default function PerPage() {
         <div className="stat-card rounded-lg p-4 glow-border space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-dim">TODAY&apos;S PROTOCOL</h3>
-            {targetMet && (
-              <span className="text-success text-xs font-medium tracking-wider">COMPLETE</span>
-            )}
+            <span className={`text-xs font-medium tracking-wider ${allMet ? 'text-success' : 'text-warning'}`}>
+              {checkCount}/3
+            </span>
           </div>
 
           <NumberInput
@@ -119,15 +134,49 @@ export default function PerPage() {
             unit="lessons"
           />
           <div className="text-xs text-text-muted ml-1">
-            {targetMet
-              ? '✓ Daily target met'
+            {lessonsMet
+              ? '\u2713 Daily target met'
               : `${settings.lessonsPerDay - lessonsToday} lessons to go`}
+          </div>
+
+          {/* Spirituality */}
+          <div className="border-t border-border pt-3">
+            <h4 className="text-xs font-medium text-text-dim mb-3">SPIRITUALITY</h4>
+            <div className="text-[10px] text-text-muted mb-3">Daily reset.</div>
+
+            <NumberInput
+              value={prayers}
+              onChange={setPrayers}
+              label="Prayers"
+              min={0}
+              max={5}
+              step={1}
+              unit={`/ 5`}
+            />
+            <div className="text-xs text-text-muted ml-1 mb-3">
+              {prayersMet ? '\u2713 All prayers completed' : `${5 - prayers} remaining`}
+            </div>
+
+            <NumberInput
+              value={quranPages}
+              onChange={setQuranPages}
+              label="Quran pages"
+              min={0}
+              max={100}
+              step={1}
+              unit="pg"
+            />
+            <div className="text-xs text-text-muted ml-1">
+              {quranMet
+                ? '\u2713 Quran target met'
+                : `${settings.quranPagesPerDay - quranPages} pages to go`}
+            </div>
           </div>
 
           <button
             onClick={save}
             className={`w-full p-3 rounded-lg font-medium tracking-wider transition-colors ${
-              targetMet
+              allMet
                 ? 'bg-glow/10 border border-glow/30 text-glow hover:bg-glow/20'
                 : 'bg-surface border border-border text-text-dim'
             }`}
