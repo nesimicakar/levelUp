@@ -24,6 +24,7 @@ export default function AchievementsPage() {
   const [rank, setRank] = useState<Rank>('E');
   const [recentStats, setRecentStats] = useState<Record<string, number>>({});
   const [recent30Stats, setRecent30Stats] = useState<Record<string, number>>({});
+  const [lifetimeTotals, setLifetimeTotals] = useState({ strSessions: 0, cardioMinutes: 0, bookPages: 0, quranPages: 0 });
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -119,6 +120,16 @@ export default function AchievementsPage() {
     recent30.PER = (await db.perLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
     setRecent30Stats(recent30);
 
+    // Lifetime totals
+    const allPerLogs = await db.perLogs.toArray();
+    const totalQuranPages = allPerLogs.reduce((s, l) => s + (l.quranPages ?? 0), 0);
+    setLifetimeTotals({
+      strSessions: strSessions,
+      cardioMinutes: totalAgiMinutes,
+      bookPages: totalPages,
+      quranPages: totalQuranPages,
+    });
+
     setLoaded(true);
   }, []);
 
@@ -209,6 +220,15 @@ export default function AchievementsPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* Lifetime totals */}
+        <h3 className="text-sm font-medium text-text-dim mt-6">LIFETIME TOTALS</h3>
+        <div className="space-y-1 text-sm text-text-muted">
+          <div className="flex justify-between"><span>STR Sessions</span><span className="text-text">{lifetimeTotals.strSessions}</span></div>
+          <div className="flex justify-between"><span>Total Cardio Minutes</span><span className="text-text">{lifetimeTotals.cardioMinutes}</span></div>
+          <div className="flex justify-between"><span>Book Pages</span><span className="text-text">{lifetimeTotals.bookPages}</span></div>
+          <div className="flex justify-between"><span>Quran Pages</span><span className="text-text">{lifetimeTotals.quranPages}</span></div>
         </div>
       </main>
     </div>
