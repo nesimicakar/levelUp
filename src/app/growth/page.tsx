@@ -43,7 +43,7 @@ export default function GrowthPage() {
     const agiStreak = await computeAgiStreak();
     const agiLevel = computeLevel(computeAgiXP(cappedAgiMin, agiStreak));
 
-    const vitCount = await db.vitLogs.where('completed').equals(1).count();
+    const vitCount = (await db.vitLogs.toArray()).filter(l => l.completed).length;
     const vitLevel = computeLevel(computeVitXP(vitCount));
 
     const allInt = await db.intLogs.toArray();

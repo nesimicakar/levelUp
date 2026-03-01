@@ -37,7 +37,7 @@ export default function Dashboard() {
     const settings = await getSettings();
 
     // STR
-    const allStrSessions = await db.strSessions.where('completed').equals(1).count();
+    const allStrSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
     const weekStrSessions = await db.strSessions
       .where('date')
       .between(weekStart, today + '\uffff')
@@ -62,7 +62,7 @@ export default function Dashboard() {
     // VIT
     const todayVit = await db.vitLogs.where('date').equals(today).first();
     const vitStatus: DayStatus = todayVit?.completed ? 'complete' : 'incomplete';
-    const vitDays = await db.vitLogs.where('completed').equals(1).count();
+    const vitDays = (await db.vitLogs.toArray()).filter(l => l.completed).length;
     const vitXP = computeVitXP(vitDays);
     const vitLevel = computeLevel(vitXP);
     const vitChecked = todayVit ? [todayVit.sleepHours >= 7, todayVit.proteinGoalMet, todayVit.postureMobilityMet === true].filter(Boolean).length : 0;
