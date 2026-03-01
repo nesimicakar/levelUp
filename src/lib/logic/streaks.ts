@@ -1,7 +1,7 @@
 import { db } from '@/lib/db';
 
 export async function computeAgiStreak(): Promise<number> {
-  const logs = await db.agiLogs.where('completed').equals(1).sortBy('date');
+  const logs = (await db.agiLogs.toArray()).filter(l => l.completed).sort((a, b) => a.date.localeCompare(b.date));
   if (logs.length === 0) return 0;
 
   let streak = 0;
@@ -30,5 +30,5 @@ export async function computeStatCompletedDays(
     : stat === 'vit' ? db.vitLogs
     : stat === 'int' ? db.intLogs
     : db.perLogs;
-  return table.where('completed').equals(1).count();
+  return (await table.toArray()).filter(l => l.completed).length;
 }

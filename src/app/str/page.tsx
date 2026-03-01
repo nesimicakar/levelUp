@@ -27,7 +27,7 @@ export default function StrPage() {
     const existing = sessions.find(s => s.date === today);
     setTodaySession(existing ?? null);
 
-    const totalCompleted = await db.strSessions.where('completed').equals(1).count();
+    const totalCompleted = (await db.strSessions.toArray()).filter(s => s.completed).length;
     const xp = computeStrXP(totalCompleted, 0);
     setLevel(computeLevel(xp));
     setLoaded(true);

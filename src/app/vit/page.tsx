@@ -31,7 +31,7 @@ export default function VitPage() {
       setPostureMet(existing.postureMobilityMet ?? false);
     }
 
-    const completedDays = await db.vitLogs.where('completed').equals(1).count();
+    const completedDays = (await db.vitLogs.toArray()).filter(l => l.completed).length;
     const xp = computeVitXP(completedDays);
     setLevel(computeLevel(xp));
     setLoaded(true);

@@ -32,7 +32,7 @@ export default function AchievementsPage() {
     const all = await db.achievements.toArray();
 
     // Check for new ones
-    const strSessions = await db.strSessions.where('completed').equals(1).count();
+    const strSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
     const allAgiLogs = await db.agiLogs.toArray();
     const totalAgiMinutes = allAgiLogs.reduce((s, l) => s + l.minutes, 0);
     const agiStreak = await computeAgiStreak();
