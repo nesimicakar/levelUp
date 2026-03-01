@@ -55,7 +55,7 @@ export default function Dashboard() {
     const totalAgiMinutes = allAgiLogs.reduce((sum, l) => sum + l.minutes, 0);
     const agiCap = getAgiDailyCap(settings.agiMinMinutes);
     const cappedAgiMinutes = allAgiLogs.reduce((sum, l) => sum + Math.min(l.minutes, agiCap), 0);
-    const agiStreak = await computeAgiStreak();
+    const agiStreak = await computeAgiStreak(today);
     const agiXP = computeAgiXP(cappedAgiMinutes, agiStreak);
     const agiLevel = computeLevel(agiXP);
 

@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getToday, getWeekStart } from '@/lib/db';
+import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
 import { computeWeeklyCompletionPct, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { getAllAchievementDefs, checkAndUnlockAchievements } from '@/lib/logic/achievements';
-import { computeAgiStreak, computeStatCompletedDays } from '@/lib/logic/streaks';
+import { computeAgiStreak, computeStatCompletedDays, daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
 import { getCourseProgress } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -25,6 +25,7 @@ export default function AchievementsPage() {
   const [recentStats, setRecentStats] = useState<Record<string, number>>({});
   const [recent30Stats, setRecent30Stats] = useState<Record<string, number>>({});
   const [lifetimeTotals, setLifetimeTotals] = useState({ strSessions: 0, cardioMinutes: 0, bookPages: 0, quranPages: 0 });
+  const [consistency, setConsistency] = useState({ startedDate: '', daysSinceStart: 0, activeDays: 0, systemStreak: 0 });
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -35,7 +36,7 @@ export default function AchievementsPage() {
     const strSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
     const allAgiLogs = await db.agiLogs.toArray();
     const totalAgiMinutes = allAgiLogs.reduce((s, l) => s + l.minutes, 0);
-    const agiStreak = await computeAgiStreak();
+    const agiStreak = await computeAgiStreak(getToday());
     const vitDays = await computeStatCompletedDays('vit');
     const allIntLogs = await db.intLogs.toArray();
     const totalMinutes = allIntLogs.reduce((s, l) => s + (l.learningMinutes ?? 0), 0);
@@ -130,6 +131,36 @@ export default function AchievementsPage() {
       quranPages: totalQuranPages,
     });
 
+    // Consistency
+    const settings = await getSettings();
+    const firstUse = settings.firstUseDate ?? today;
+    const startedDate = new Date(firstUse + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const daysCount = daysBetween(firstUse, today);
+
+    const allStrSessions = await db.strSessions.toArray();
+    const allVitLogs = await db.vitLogs.toArray();
+    const allPerLogsAll = allPerLogs;
+    const activeDays = countActiveDays([
+      allStrSessions.map(s => s.date),
+      allAgiLogs.map(l => l.date),
+      allVitLogs.map(l => l.date),
+      allIntLogs.map(l => l.date),
+      allPerLogsAll.map(l => l.date),
+    ]);
+
+    const strCompletedDates = new Set(allStrSessions.filter(s => s.completed && !s.isRestDay).map(s => s.date));
+    const agiCompletedDates = new Set(allAgiLogs.filter(l => l.completed).map(l => l.date));
+    const vitCompletedDates = new Set(allVitLogs.filter(l => l.completed).map(l => l.date));
+    const intCompletedDates = new Set(allIntLogs.filter(l => l.completed).map(l => l.date));
+    const perCompletedDates = new Set(allPerLogsAll.filter(l => l.completed).map(l => l.date));
+
+    const systemStreak = computeSystemStreak(
+      [strCompletedDates, agiCompletedDates, vitCompletedDates, intCompletedDates, perCompletedDates],
+      today
+    );
+
+    setConsistency({ startedDate, daysSinceStart: daysCount, activeDays, systemStreak });
+
     setLoaded(true);
   }, []);
 
@@ -220,6 +251,15 @@ export default function AchievementsPage() {
               </div>
             );
           })}
+        </div>
+
+        {/* Consistency */}
+        <h3 className="text-sm font-medium text-text-dim mt-6">CONSISTENCY</h3>
+        <div className="space-y-1 text-sm text-text-muted">
+          <div className="flex justify-between"><span>Started</span><span className="text-text">{consistency.startedDate}</span></div>
+          <div className="flex justify-between"><span>Days Since Start</span><span className="text-text">{consistency.daysSinceStart}</span></div>
+          <div className="flex justify-between"><span>Active Days</span><span className="text-text">{consistency.activeDays} / {consistency.daysSinceStart}</span></div>
+          <div className="flex justify-between"><span>System Streak</span><span className="text-text">{consistency.systemStreak} days</span></div>
         </div>
 
         {/* Lifetime totals */}

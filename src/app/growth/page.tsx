@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getWeekStart, getCourseProgress, getSettings } from '@/lib/db';
+import { db, getToday, getWeekStart, getCourseProgress, getSettings } from '@/lib/db';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { PageHeader } from '@/components/PageHeader';
@@ -40,7 +40,7 @@ export default function GrowthPage() {
     const allAgi = await db.agiLogs.toArray();
     const agiCap = getAgiDailyCap(settings.agiMinMinutes);
     const cappedAgiMin = allAgi.reduce((s, l) => s + Math.min(l.minutes, agiCap), 0);
-    const agiStreak = await computeAgiStreak();
+    const agiStreak = await computeAgiStreak(getToday());
     const agiLevel = computeLevel(computeAgiXP(cappedAgiMin, agiStreak));
 
     const vitCount = (await db.vitLogs.toArray()).filter(l => l.completed).length;
