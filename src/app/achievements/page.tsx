@@ -38,7 +38,7 @@ export default function AchievementsPage() {
     const agiStreak = await computeAgiStreak();
     const vitDays = await computeStatCompletedDays('vit');
     const allIntLogs = await db.intLogs.toArray();
-    const totalPages = allIntLogs.reduce((s, l) => s + l.pagesRead, 0);
+    const totalMinutes = allIntLogs.reduce((s, l) => s + (l.learningMinutes ?? 0), 0);
     const reCourse = await getCourseProgress('real-estate');
     const saCourse = await getCourseProgress('stage-academy');
     const latestRank = await db.rankHistory.orderBy('createdAt').last();
@@ -48,7 +48,7 @@ export default function AchievementsPage() {
       agiMinutes: totalAgiMinutes,
       agiStreak,
       vitDays,
-      intPages: totalPages,
+      intPages: totalMinutes,
       intCourseUnits: reCourse.completedUnits,
       perLessons: saCourse.completedUnits,
       totalWeeks: 0,
@@ -126,7 +126,7 @@ export default function AchievementsPage() {
     setLifetimeTotals({
       strSessions: strSessions,
       cardioMinutes: totalAgiMinutes,
-      bookPages: totalPages,
+      bookPages: totalMinutes,
       quranPages: totalQuranPages,
     });
 
@@ -227,7 +227,7 @@ export default function AchievementsPage() {
         <div className="space-y-1 text-sm text-text-muted">
           <div className="flex justify-between"><span>STR Sessions</span><span className="text-text">{lifetimeTotals.strSessions}</span></div>
           <div className="flex justify-between"><span>Total Cardio Minutes</span><span className="text-text">{lifetimeTotals.cardioMinutes}</span></div>
-          <div className="flex justify-between"><span>Book Pages</span><span className="text-text">{lifetimeTotals.bookPages}</span></div>
+          <div className="flex justify-between"><span>Total Book Minutes</span><span className="text-text">{lifetimeTotals.bookPages}</span></div>
           <div className="flex justify-between"><span>Quran Pages</span><span className="text-text">{lifetimeTotals.quranPages}</span></div>
         </div>
       </main>

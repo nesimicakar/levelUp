@@ -50,10 +50,12 @@ export async function getSettings(): Promise<UserSettings> {
   const s = await db.settings.toCollection().first();
   if (s) {
     if (s.quranPagesPerDay === undefined) s.quranPagesPerDay = 1;
+    if (s.learningMinutesPerDay === undefined) s.learningMinutesPerDay = 20;
     return s;
   }
   const defaults: UserSettings = {
     readingPagesPerDay: 20,
+    learningMinutesPerDay: 20,
     courseUnitsPerDay: 4,
     lessonsPerDay: 2,
     quranPagesPerDay: 1,

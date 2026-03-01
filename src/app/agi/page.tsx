@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { db, getToday, getSettings } from '@/lib/db';
-import { computeLevel, computeAgiXP } from '@/lib/logic/levels';
+import { computeLevel, computeAgiXP, getAgiDailyCap } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -37,7 +37,9 @@ export default function AgiPage() {
     const currentStreak = await computeAgiStreak();
     setStreak(currentStreak);
 
-    const xp = computeAgiXP(total, currentStreak);
+    const agiCap = getAgiDailyCap(s.agiMinMinutes);
+    const cappedTotal = allLogs.reduce((sum, l) => sum + Math.min(l.minutes, agiCap), 0);
+    const xp = computeAgiXP(cappedTotal, currentStreak);
     setLevel(computeLevel(xp));
     setLoaded(true);
   }, []);

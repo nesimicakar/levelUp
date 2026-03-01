@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getWeekStart, getSettings, getCourseProgress } from '@/lib/db';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP } from '@/lib/logic/levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { StatCard } from '@/components/StatCard';
@@ -51,9 +51,12 @@ export default function Dashboard() {
     // AGI
     const todayAgi = await db.agiLogs.where('date').equals(today).first();
     const agiStatus: DayStatus = todayAgi?.completed ? 'complete' : 'incomplete';
-    const totalAgiMinutes = (await db.agiLogs.toArray()).reduce((sum, l) => sum + l.minutes, 0);
+    const allAgiLogs = await db.agiLogs.toArray();
+    const totalAgiMinutes = allAgiLogs.reduce((sum, l) => sum + l.minutes, 0);
+    const agiCap = getAgiDailyCap(settings.agiMinMinutes);
+    const cappedAgiMinutes = allAgiLogs.reduce((sum, l) => sum + Math.min(l.minutes, agiCap), 0);
     const agiStreak = await computeAgiStreak();
-    const agiXP = computeAgiXP(totalAgiMinutes, agiStreak);
+    const agiXP = computeAgiXP(cappedAgiMinutes, agiStreak);
     const agiLevel = computeLevel(agiXP);
 
     // VIT
@@ -68,9 +71,10 @@ export default function Dashboard() {
     const todayInt = await db.intLogs.where('date').equals(today).first();
     const intStatus: DayStatus = todayInt?.completed ? 'complete' : 'incomplete';
     const allIntLogs = await db.intLogs.toArray();
-    const totalPages = allIntLogs.reduce((s, l) => s + l.pagesRead, 0);
+    const intCap = getIntDailyCap(settings.learningMinutesPerDay);
+    const cappedIntMinutes = allIntLogs.reduce((s, l) => s + Math.min(l.learningMinutes ?? 0, intCap), 0);
     const reCourse = await getCourseProgress('real-estate');
-    const intXP = computeIntXP(totalPages, reCourse.completedUnits);
+    const intXP = computeIntXP(cappedIntMinutes, reCourse.completedUnits);
     const intLevel = computeLevel(intXP);
     const rePct = Math.round((reCourse.completedUnits / reCourse.totalUnits) * 100);
 
@@ -108,7 +112,7 @@ export default function Dashboard() {
       int: {
         level: intLevel,
         status: intStatus,
-        subtitle: `${todayInt?.pagesRead ?? 0}/${settings.readingPagesPerDay} pages · RE ${todayInt?.courseUnitsCompleted ?? 0}/${settings.courseUnitsPerDay} units`,
+        subtitle: `${todayInt?.learningMinutes ?? 0}/${settings.learningMinutesPerDay} min · RE ${todayInt?.courseUnitsCompleted ?? 0}/${settings.courseUnitsPerDay} units`,
       },
       per: {
         level: perLevel,

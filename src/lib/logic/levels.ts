@@ -1,5 +1,17 @@
 import type { StatLevel } from '@/types';
 
+export function clamp(x: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, x));
+}
+
+export function getIntDailyCap(learningMinutesPerDay: number): number {
+  return clamp(learningMinutesPerDay * 3, 45, 180);
+}
+
+export function getAgiDailyCap(agiMinMinutes: number): number {
+  return clamp(agiMinMinutes * 3, 30, 120);
+}
+
 // XP required per level: level N requires N*100 XP
 function xpForLevel(level: number): number {
   return level * 100;
@@ -36,9 +48,9 @@ export function computeVitXP(completedDays: number): number {
   return completedDays * 15;
 }
 
-// INT: 2 XP per page read, 5 XP per course unit
-export function computeIntXP(totalPages: number, courseUnits: number): number {
-  return totalPages * 2 + courseUnits * 5;
+// INT: 2 XP per learning minute, 5 XP per course unit
+export function computeIntXP(totalMinutes: number, courseUnits: number): number {
+  return totalMinutes * 2 + courseUnits * 5;
 }
 
 // PER: 8 XP per lesson completed

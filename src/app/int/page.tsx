@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getSettings, getCourseProgress, updateCourseProgress } from '@/lib/db';
-import { computeLevel, computeIntXP } from '@/lib/logic/levels';
+import { computeLevel, computeIntXP, getIntDailyCap } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
@@ -13,7 +13,7 @@ export default function IntPage() {
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [courseProgress, setCourseProgress] = useState<CourseProgress | null>(null);
-  const [pagesRead, setPagesRead] = useState(0);
+  const [learningMinutes, setLearningMinutes] = useState(0);
   const [unitsToday, setUnitsToday] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
@@ -25,7 +25,7 @@ export default function IntPage() {
     const existing = await db.intLogs.where('date').equals(today).first();
     if (existing) {
       setTodayLog(existing);
-      setPagesRead(existing.pagesRead);
+      setLearningMinutes(existing.learningMinutes ?? 0);
       setUnitsToday(existing.courseUnitsCompleted);
     }
 
@@ -33,8 +33,9 @@ export default function IntPage() {
     setCourseProgress(cp);
 
     const allLogs = await db.intLogs.toArray();
-    const totalPages = allLogs.reduce((s, l) => s + l.pagesRead, 0);
-    const xp = computeIntXP(totalPages, cp.completedUnits);
+    const intCap = getIntDailyCap(s.learningMinutesPerDay);
+    const cappedMinutes = allLogs.reduce((sum, l) => sum + Math.min(l.learningMinutes ?? 0, intCap), 0);
+    const xp = computeIntXP(cappedMinutes, cp.completedUnits);
     setLevel(computeLevel(xp));
     setLoaded(true);
   }, []);
@@ -46,28 +47,28 @@ export default function IntPage() {
   const save = async () => {
     if (!settings) return;
     const today = getToday();
-    const completed = pagesRead >= settings.readingPagesPerDay && unitsToday >= settings.courseUnitsPerDay;
+    const completed = learningMinutes >= settings.learningMinutesPerDay && unitsToday >= settings.courseUnitsPerDay;
 
     if (todayLog?.id) {
-      // Calculate delta: difference between new and old units
       const oldUnits = todayLog.courseUnitsCompleted;
       const delta = unitsToday - oldUnits;
       if (delta > 0) {
         await updateCourseProgress('real-estate', delta);
       }
       await db.intLogs.update(todayLog.id, {
-        pagesRead,
+        learningMinutes,
         courseUnitsCompleted: unitsToday,
         completed,
       });
-      setTodayLog({ ...todayLog, pagesRead, courseUnitsCompleted: unitsToday, completed });
+      setTodayLog({ ...todayLog, learningMinutes, courseUnitsCompleted: unitsToday, completed });
     } else {
       if (unitsToday > 0) {
         await updateCourseProgress('real-estate', unitsToday);
       }
       const log: IntLog = {
         date: today,
-        pagesRead,
+        pagesRead: 0,
+        learningMinutes,
         courseUnitsCompleted: unitsToday,
         completed,
         createdAt: Date.now(),
@@ -81,7 +82,7 @@ export default function IntPage() {
 
   if (!loaded || !settings || !courseProgress) return null;
 
-  const readingMet = pagesRead >= settings.readingPagesPerDay;
+  const minutesMet = learningMinutes >= settings.learningMinutesPerDay;
   const unitsMet = unitsToday >= settings.courseUnitsPerDay;
   const rePct = Math.round((courseProgress.completedUnits / courseProgress.totalUnits) * 100);
 
@@ -112,23 +113,23 @@ export default function IntPage() {
         <div className="stat-card rounded-lg p-4 glow-border space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-dim">TODAY&apos;S PROTOCOL</h3>
-            {readingMet && unitsMet && (
+            {minutesMet && unitsMet && (
               <span className="text-success text-xs font-medium tracking-wider">COMPLETE</span>
             )}
           </div>
 
           <div>
             <NumberInput
-              value={pagesRead}
-              onChange={setPagesRead}
-              label="Pages read"
+              value={learningMinutes}
+              onChange={setLearningMinutes}
+              label="Learning minutes"
               min={0}
-              max={500}
+              max={600}
               step={5}
-              unit="pg"
+              unit="min"
             />
             <div className="text-xs text-text-muted mt-1 ml-1">
-              {readingMet ? '✓ Target met' : `${settings.readingPagesPerDay - pagesRead} pages to go`}
+              {minutesMet ? '\u2713 Target met' : `${settings.learningMinutesPerDay - learningMinutes} min to go`}
             </div>
           </div>
 
@@ -143,14 +144,14 @@ export default function IntPage() {
               unit="units"
             />
             <div className="text-xs text-text-muted mt-1 ml-1">
-              {unitsMet ? '✓ Target met' : `${settings.courseUnitsPerDay - unitsToday} units to go`}
+              {unitsMet ? '\u2713 Target met' : `${settings.courseUnitsPerDay - unitsToday} units to go`}
             </div>
           </div>
 
           <button
             onClick={save}
             className={`w-full p-3 rounded-lg font-medium tracking-wider transition-colors ${
-              readingMet && unitsMet
+              minutesMet && unitsMet
                 ? 'bg-glow/10 border border-glow/30 text-glow hover:bg-glow/20'
                 : 'bg-surface border border-border text-text-dim'
             }`}

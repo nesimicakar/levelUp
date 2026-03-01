@@ -53,6 +53,7 @@ export interface IntLog {
   id?: number;
   date: string;
   pagesRead: number;
+  learningMinutes?: number;
   courseUnitsCompleted: number;
   completed: boolean;
   createdAt: number;
@@ -116,6 +117,7 @@ export interface Achievement {
 export interface UserSettings {
   id?: number;
   readingPagesPerDay: number;
+  learningMinutesPerDay: number;
   courseUnitsPerDay: number;
   lessonsPerDay: number;
   quranPagesPerDay: number;
@@ -145,6 +147,7 @@ export interface StrWeeklyStatus {
 
 export const DEFAULT_SETTINGS: UserSettings = {
   readingPagesPerDay: 20,
+  learningMinutesPerDay: 20,
   courseUnitsPerDay: 4,
   lessonsPerDay: 2,
   quranPagesPerDay: 1,
