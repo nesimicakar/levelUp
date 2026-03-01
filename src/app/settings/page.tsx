@@ -39,17 +39,17 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* Reading */}
+        {/* Learning */}
         <section className="space-y-3">
-          <h3 className="text-sm font-medium text-text-dim">INT // READING</h3>
+          <h3 className="text-sm font-medium text-text-dim">INT // LEARNING</h3>
           <NumberInput
-            value={settings.readingPagesPerDay}
-            onChange={v => update({ readingPagesPerDay: v })}
-            label="Pages / day"
-            min={1}
-            max={200}
+            value={settings.learningMinutesPerDay}
+            onChange={v => update({ learningMinutesPerDay: v })}
+            label="Minutes / day"
+            min={5}
+            max={120}
             step={5}
-            unit="pg"
+            unit="min"
           />
         </section>
 

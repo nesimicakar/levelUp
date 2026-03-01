@@ -10,6 +10,7 @@ export async function seedIfNeeded(): Promise<void> {
   if (!settings) {
     await db.settings.add({
       readingPagesPerDay: 20,
+      learningMinutesPerDay: 20,
       courseUnitsPerDay: 4,
       lessonsPerDay: 2,
       quranPagesPerDay: 1,

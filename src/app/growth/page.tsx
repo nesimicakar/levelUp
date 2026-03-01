@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getWeekStart, getCourseProgress } from '@/lib/db';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP } from '@/lib/logic/levels';
+import { db, getWeekStart, getCourseProgress, getSettings } from '@/lib/db';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -30,24 +30,27 @@ export default function GrowthPage() {
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
+    const settings = await getSettings();
+
     // Compute levels
     const allStr = await db.strSessions.toArray();
     const strCompleted = allStr.filter(s => s.completed && !s.isRestDay).length;
     const strLevel = computeLevel(computeStrXP(strCompleted, 0));
 
     const allAgi = await db.agiLogs.toArray();
-    const totalAgiMin = allAgi.reduce((s, l) => s + l.minutes, 0);
+    const agiCap = getAgiDailyCap(settings.agiMinMinutes);
+    const cappedAgiMin = allAgi.reduce((s, l) => s + Math.min(l.minutes, agiCap), 0);
     const agiStreak = await computeAgiStreak();
-    const agiLevel = computeLevel(computeAgiXP(totalAgiMin, agiStreak));
+    const agiLevel = computeLevel(computeAgiXP(cappedAgiMin, agiStreak));
 
-    const vitDays = allAgi.length > 0 ? await db.vitLogs.where('completed').equals(1).count() : 0;
     const vitCount = await db.vitLogs.where('completed').equals(1).count();
     const vitLevel = computeLevel(computeVitXP(vitCount));
 
     const allInt = await db.intLogs.toArray();
-    const totalPages = allInt.reduce((s, l) => s + l.pagesRead, 0);
+    const intCap = getIntDailyCap(settings.learningMinutesPerDay);
+    const cappedIntMin = allInt.reduce((s, l) => s + Math.min(l.learningMinutes ?? 0, intCap), 0);
     const reCourse = await getCourseProgress('real-estate');
-    const intLevel = computeLevel(computeIntXP(totalPages, reCourse.completedUnits));
+    const intLevel = computeLevel(computeIntXP(cappedIntMin, reCourse.completedUnits));
 
     const saCourse = await getCourseProgress('stage-academy');
     const perLevel = computeLevel(computePerXP(saCourse.completedUnits));

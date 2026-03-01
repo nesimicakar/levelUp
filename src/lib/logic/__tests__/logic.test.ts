@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP } from '../levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
@@ -59,11 +59,33 @@ describe('XP computation functions', () => {
   });
 
   it('computeIntXP', () => {
-    expect(computeIntXP(50, 10)).toBe(150); // 50*2 + 10*5
+    expect(computeIntXP(50, 10)).toBe(150); // 50min*2 + 10units*5
   });
 
   it('computePerXP', () => {
     expect(computePerXP(10)).toBe(80); // 10*8
+  });
+});
+
+describe('daily XP caps', () => {
+  it('getIntDailyCap with default 20 min setting', () => {
+    // clamp(20*3=60, 45, 180) = 60
+    expect(getIntDailyCap(20)).toBe(60);
+  });
+
+  it('getIntDailyCap clamps high setting to 180', () => {
+    // clamp(90*3=270, 45, 180) = 180
+    expect(getIntDailyCap(90)).toBe(180);
+  });
+
+  it('getAgiDailyCap with default 15 min setting', () => {
+    // clamp(15*3=45, 30, 120) = 45
+    expect(getAgiDailyCap(15)).toBe(45);
+  });
+
+  it('getAgiDailyCap clamps high setting to 120', () => {
+    // clamp(50*3=150, 30, 120) = 120
+    expect(getAgiDailyCap(50)).toBe(120);
   });
 });
 
