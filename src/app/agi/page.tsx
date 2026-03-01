@@ -34,7 +34,7 @@ export default function AgiPage() {
     const total = allLogs.reduce((sum, l) => sum + l.minutes, 0);
     setTotalMinutes(total);
 
-    const currentStreak = await computeAgiStreak();
+    const currentStreak = await computeAgiStreak(today);
     setStreak(currentStreak);
 
     const agiCap = getAgiDailyCap(s.agiMinMinutes);

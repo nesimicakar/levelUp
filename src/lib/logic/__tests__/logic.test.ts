@@ -3,6 +3,7 @@ import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, c
 import { computeWeeklyCompletionPct, computeRankUpdate } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
+import { computeStreakThroughYesterday, daysBetween, countActiveDays, computeSystemStreak } from '../streaks';
 import type { StrSession, ExerciseRecord } from '@/types';
 
 // ===== Levels ===== //
@@ -402,5 +403,103 @@ describe('addDays', () => {
 
   it('subtracts 7 days correctly', () => {
     expect(addDays('2025-03-03', -7)).toBe('2025-02-24');
+  });
+});
+
+// ===== Streak (through yesterday) ===== //
+
+describe('computeStreakThroughYesterday', () => {
+  it('returns 0 when no logs exist', () => {
+    expect(computeStreakThroughYesterday([], '2025-03-05')).toBe(0);
+  });
+
+  it('returns 1 when only yesterday is completed', () => {
+    expect(computeStreakThroughYesterday(['2025-03-04'], '2025-03-05')).toBe(1);
+  });
+
+  it('counts consecutive days ending at yesterday', () => {
+    const dates = ['2025-03-02', '2025-03-03', '2025-03-04'];
+    expect(computeStreakThroughYesterday(dates, '2025-03-05')).toBe(3);
+  });
+
+  it('returns 0 when yesterday has no log even if older days do', () => {
+    const dates = ['2025-03-02', '2025-03-03'];
+    expect(computeStreakThroughYesterday(dates, '2025-03-05')).toBe(0);
+  });
+
+  it('gap in sequence breaks streak', () => {
+    // day-1 and day-3 present, day-2 missing => streak is 1 (only yesterday counts)
+    const dates = ['2025-03-02', '2025-03-04'];
+    expect(computeStreakThroughYesterday(dates, '2025-03-05')).toBe(1);
+  });
+
+  it('does not count today even if completed', () => {
+    const dates = ['2025-03-05'];
+    expect(computeStreakThroughYesterday(dates, '2025-03-05')).toBe(0);
+  });
+});
+
+// ===== Consistency helpers ===== //
+
+describe('daysBetween', () => {
+  it('same day = 1', () => {
+    expect(daysBetween('2025-03-05', '2025-03-05')).toBe(1);
+  });
+
+  it('7 days apart = 8 (inclusive)', () => {
+    expect(daysBetween('2025-03-01', '2025-03-08')).toBe(8);
+  });
+
+  it('multi-month span', () => {
+    expect(daysBetween('2025-02-28', '2025-03-02')).toBe(3);
+  });
+});
+
+describe('countActiveDays', () => {
+  it('returns 0 for empty arrays', () => {
+    expect(countActiveDays([])).toBe(0);
+    expect(countActiveDays([[], []])).toBe(0);
+  });
+
+  it('counts unique dates from a single array', () => {
+    expect(countActiveDays([['2025-03-01', '2025-03-02', '2025-03-03']])).toBe(3);
+  });
+
+  it('deduplicates overlapping dates across arrays', () => {
+    expect(countActiveDays([
+      ['2025-03-01', '2025-03-02'],
+      ['2025-03-02', '2025-03-03'],
+      ['2025-03-01'],
+    ])).toBe(3);
+  });
+});
+
+describe('computeSystemStreak', () => {
+  it('returns 0 with no date sets', () => {
+    expect(computeSystemStreak([], '2025-03-05')).toBe(0);
+  });
+
+  it('counts consecutive days when all sets present', () => {
+    const dates = ['2025-03-03', '2025-03-04'];
+    const sets = [new Set(dates), new Set(dates), new Set(dates), new Set(dates), new Set(dates)];
+    expect(computeSystemStreak(sets, '2025-03-05')).toBe(2);
+  });
+
+  it('returns 0 when yesterday missing from all sets', () => {
+    const dates = ['2025-03-02', '2025-03-03'];
+    const sets = [new Set(dates), new Set(dates), new Set(dates), new Set(dates), new Set(dates)];
+    expect(computeSystemStreak(sets, '2025-03-05')).toBe(0);
+  });
+
+  it('missing from one set breaks streak at that day', () => {
+    const full = new Set(['2025-03-03', '2025-03-04']);
+    const partial = new Set(['2025-03-04']); // missing 03-03
+    const sets = [full, full, full, full, partial];
+    expect(computeSystemStreak(sets, '2025-03-05')).toBe(1);
+  });
+
+  it('excludes today even if all sets have it', () => {
+    const sets = [new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05'])];
+    expect(computeSystemStreak(sets, '2025-03-05')).toBe(0);
   });
 });

@@ -122,7 +122,7 @@ export default function IntPage() {
             <NumberInput
               value={learningMinutes}
               onChange={setLearningMinutes}
-              label="Learning minutes"
+              label="Book minutes"
               min={0}
               max={600}
               step={5}
