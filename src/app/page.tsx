@@ -145,7 +145,7 @@ export default function Dashboard() {
 
   return (
     <main className="max-w-lg mx-auto px-4 pt-6 pb-4">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-xl font-bold tracking-widest glow-text">SYSTEM</h1>
           <p className="text-text-muted text-xs mt-1">Daily Protocol Status</p>
@@ -161,7 +161,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-5">
+      <div className="mb-4">
         <CircularProgress
           percentage={Math.round((state.dailyCompleted / 5) * 100)}
           completed={state.dailyCompleted}
