@@ -1,4 +1,4 @@
-import type { Rank } from '@/types';
+import type { Rank, RankRecord } from '@/types';
 import { RANK_ORDER } from '@/types';
 
 export interface WeeklyCompletionInput {
@@ -50,4 +50,26 @@ export function getRankColor(rank: Rank): string {
     S: 'var(--color-rank-s)',
   };
   return colors[rank];
+}
+
+/** Count consecutive evaluated (non-skipped) weeks with >=80%, newest first. */
+export function countConsecutiveWeeksAbove80(records: RankRecord[]): number {
+  let count = 0;
+  for (const r of records) {
+    if (r.reason === 'skipped') continue;
+    if (r.completionPct >= 80) {
+      count++;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
+
+/** Get the completion % of the most recent evaluated (non-skipped) week, or null. */
+export function getLastEvaluatedPct(records: RankRecord[]): number | null {
+  for (const r of records) {
+    if (r.reason !== 'skipped') return r.completionPct;
+  }
+  return null;
 }

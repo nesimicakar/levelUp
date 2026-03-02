@@ -13,6 +13,7 @@ export default function StrPage() {
   const [weekSessions, setWeekSessions] = useState<StrSession[]>([]);
   const [todaySession, setTodaySession] = useState<StrSession | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
+  const [totalCompletedSessions, setTotalCompletedSessions] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -27,7 +28,10 @@ export default function StrPage() {
     const existing = sessions.find(s => s.date === today);
     setTodaySession(existing ?? null);
 
-    const totalCompleted = (await db.strSessions.toArray()).filter(s => s.completed).length;
+    const allSessions = await db.strSessions.toArray();
+    const totalCompleted = allSessions.filter(s => s.completed).length;
+    const totalNonRest = allSessions.filter(s => s.completed && !s.isRestDay).length;
+    setTotalCompletedSessions(totalNonRest);
     const xp = computeStrXP(totalCompleted, 0);
     setLevel(computeLevel(xp));
     setLoaded(true);
@@ -39,7 +43,7 @@ export default function StrPage() {
 
   const startSession = async () => {
     const today = getToday();
-    const template = getNextTemplate(weekSessions);
+    const template = getNextTemplate(totalCompletedSessions);
     const exercises = getDefaultExercises(template);
     const session: StrSession = {
       date: today,
@@ -141,7 +145,7 @@ export default function StrPage() {
           </div>
           {todaySession?.completed && (
             <p className="text-text-muted text-xs mt-3">
-              Next session: Workout {getNextTemplate(weekSessions)} (available tomorrow)
+              Next session: Workout {getNextTemplate(totalCompletedSessions)} (available tomorrow)
             </p>
           )}
         </div>
@@ -153,7 +157,7 @@ export default function StrPage() {
               onClick={startSession}
               className="w-full p-4 rounded-lg bg-glow/10 border border-glow/30 text-glow font-medium tracking-wider hover:bg-glow/20 transition-colors"
             >
-              START SESSION ({getNextTemplate(weekSessions)})
+              START SESSION ({getNextTemplate(totalCompletedSessions)})
             </button>
             {canRest && (
               <button

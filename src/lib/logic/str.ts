@@ -27,10 +27,9 @@ export function isSessionComplete(exercises: ExerciseRecord[]): boolean {
   );
 }
 
-export function getNextTemplate(weekSessions: StrSession[]): WorkoutTemplate {
-  const completedSessions = weekSessions.filter(s => s.completed && !s.isRestDay);
-  // A/B/A/B pattern
-  return completedSessions.length % 2 === 0 ? 'A' : 'B';
+export function getNextTemplate(totalCompletedSessions: number): WorkoutTemplate {
+  // A/B/A/B pattern based on lifetime completed sessions
+  return totalCompletedSessions % 2 === 0 ? 'A' : 'B';
 }
 
 export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[] {

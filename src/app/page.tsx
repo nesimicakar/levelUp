@@ -6,6 +6,7 @@ import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, c
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { StatCard } from '@/components/StatCard';
+import { CircularProgress } from '@/components/CircularProgress';
 import type { DayStatus, StatLevel, UserSettings } from '@/types';
 
 interface DashboardState {
@@ -15,6 +16,7 @@ interface DashboardState {
   int: { level: StatLevel; status: DayStatus; subtitle: string };
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
+  dailyCompleted: number;
   loaded: boolean;
 }
 
@@ -28,6 +30,7 @@ export default function Dashboard() {
     int: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
+    dailyCompleted: 0,
     loaded: false,
   });
 
@@ -93,6 +96,15 @@ export default function Dashboard() {
     // Rank
     const latestRank = await db.rankHistory.orderBy('createdAt').last();
 
+    // Daily completion
+    const dailyCompleted = [
+      strStatus === 'complete' || strStatus === 'rest',
+      agiStatus === 'complete',
+      vitStatus === 'complete',
+      intStatus === 'complete',
+      perStatus === 'complete',
+    ].filter(Boolean).length;
+
     setState({
       str: {
         level: strLevel,
@@ -120,6 +132,7 @@ export default function Dashboard() {
         subtitle: `${perChecked}/3 completed today`,
       },
       rank: latestRank?.rank ?? 'E',
+      dailyCompleted,
       loaded: true,
     });
   }, []);
@@ -146,6 +159,14 @@ export default function Dashboard() {
             {state.rank}
           </span>
         </div>
+      </div>
+
+      <div className="mb-5">
+        <CircularProgress
+          percentage={Math.round((state.dailyCompleted / 5) * 100)}
+          completed={state.dailyCompleted}
+          total={5}
+        />
       </div>
 
       <div className="space-y-3">
