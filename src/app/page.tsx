@@ -17,7 +17,6 @@ interface DashboardState {
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
   dailyPct: number;
-  domainProgress: number[];
   loaded: boolean;
 }
 
@@ -32,7 +31,6 @@ export default function Dashboard() {
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
     dailyPct: 0,
-    domainProgress: [0, 0, 0, 0, 0],
     loaded: false,
   });
 
@@ -137,7 +135,6 @@ export default function Dashboard() {
       },
       rank: latestRank?.rank ?? 'E',
       dailyPct,
-      domainProgress,
       loaded: true,
     });
   }, []);
@@ -169,7 +166,6 @@ export default function Dashboard() {
       <div className="mb-4">
         <CircularProgress
           percentage={state.dailyPct}
-          domainProgress={state.domainProgress}
         />
       </div>
 
