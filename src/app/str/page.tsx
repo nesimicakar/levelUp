@@ -102,6 +102,12 @@ export default function StrPage() {
     setTodaySession({ ...todaySession, exercises });
   };
 
+  const cancelSession = async () => {
+    if (!todaySession?.id || todaySession.completed || todaySession.isRestDay) return;
+    await db.strSessions.delete(todaySession.id);
+    await loadData();
+  };
+
   if (!loaded) return null;
 
   const weekly = getStrWeeklyStatus(weekSessions);
@@ -203,6 +209,14 @@ export default function StrPage() {
                 </div>
               </div>
             ))}
+            {!todaySession.completed && (
+              <button
+                onClick={cancelSession}
+                className="w-full p-3 rounded-lg bg-surface border border-border text-text-muted text-sm hover:text-text transition-colors"
+              >
+                CANCEL SESSION
+              </button>
+            )}
           </div>
         )}
       </main>
