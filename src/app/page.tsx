@@ -16,7 +16,8 @@ interface DashboardState {
   int: { level: StatLevel; status: DayStatus; subtitle: string };
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
-  dailyCompleted: number;
+  dailyPct: number;
+  domainProgress: number[];
   loaded: boolean;
 }
 
@@ -30,7 +31,8 @@ export default function Dashboard() {
     int: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
-    dailyCompleted: 0,
+    dailyPct: 0,
+    domainProgress: [0, 0, 0, 0, 0],
     loaded: false,
   });
 
@@ -96,14 +98,16 @@ export default function Dashboard() {
     // Rank
     const latestRank = await db.rankHistory.orderBy('createdAt').last();
 
-    // Daily completion
-    const dailyCompleted = [
-      strStatus === 'complete' || strStatus === 'rest',
-      agiStatus === 'complete',
-      vitStatus === 'complete',
-      intStatus === 'complete',
-      perStatus === 'complete',
-    ].filter(Boolean).length;
+    // Weighted daily progress (Model C)
+    const strDomainProgress = (strStatus === 'complete' || strStatus === 'rest') ? 1 : 0;
+    const agiDomainProgress = Math.min((todayAgi?.minutes ?? 0) / settings.agiMinMinutes, 1);
+    const vitDomainProgress = vitChecked / 3;
+    const intBookProgress = Math.min((todayInt?.learningMinutes ?? 0) / settings.learningMinutesPerDay, 1);
+    const intReProgress = Math.min((todayInt?.courseUnitsCompleted ?? 0) / settings.courseUnitsPerDay, 1);
+    const intDomainProgress = (intBookProgress + intReProgress) / 2;
+    const perDomainProgress = perChecked / 3;
+    const domainProgress = [strDomainProgress, agiDomainProgress, vitDomainProgress, intDomainProgress, perDomainProgress];
+    const dailyPct = Math.min(Math.round(domainProgress.reduce((sum, p) => sum + p * 20, 0)), 100);
 
     setState({
       str: {
@@ -132,7 +136,8 @@ export default function Dashboard() {
         subtitle: `${perChecked}/3 completed today`,
       },
       rank: latestRank?.rank ?? 'E',
-      dailyCompleted,
+      dailyPct,
+      domainProgress,
       loaded: true,
     });
   }, []);
@@ -163,9 +168,8 @@ export default function Dashboard() {
 
       <div className="mb-4">
         <CircularProgress
-          percentage={Math.round((state.dailyCompleted / 5) * 100)}
-          completed={state.dailyCompleted}
-          total={5}
+          percentage={state.dailyPct}
+          domainProgress={state.domainProgress}
         />
       </div>
 
