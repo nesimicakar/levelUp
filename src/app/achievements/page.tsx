@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
-import { computeWeeklyCompletionPct, type WeeklyCompletionInput } from '@/lib/logic/rank';
+import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, getLastEvaluatedPct, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { getAllAchievementDefs, checkAndUnlockAchievements } from '@/lib/logic/achievements';
 import { computeAgiStreak, computeStatCompletedDays, daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
 import { getCourseProgress } from '@/lib/db';
@@ -22,6 +22,8 @@ export default function AchievementsPage() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [weeklyPct, setWeeklyPct] = useState(0);
   const [rank, setRank] = useState<Rank>('E');
+  const [promotionWeeks, setPromotionWeeks] = useState(0);
+  const [lastEvalPct, setLastEvalPct] = useState<number | null>(null);
   const [recentStats, setRecentStats] = useState<Record<string, number>>({});
   const [recent30Stats, setRecent30Stats] = useState<Record<string, number>>({});
   const [lifetimeTotals, setLifetimeTotals] = useState({ strSessions: 0, cardioMinutes: 0, bookPages: 0, quranPages: 0 });
@@ -96,6 +98,10 @@ export default function AchievementsPage() {
     };
     setWeeklyPct(computeWeeklyCompletionPct(input));
     setRank(latestRank?.rank ?? 'E');
+
+    const rankRecords = await db.rankHistory.orderBy('weekStart').reverse().toArray();
+    setPromotionWeeks(countConsecutiveWeeksAbove80(rankRecords));
+    setLastEvalPct(getLastEvaluatedPct(rankRecords));
 
     // Recent stats (last 7 days)
     const recent7: Record<string, number> = { STR: 0, AGI: 0, VIT: 0, INT: 0, PER: 0 };
@@ -195,6 +201,10 @@ export default function AchievementsPage() {
             </div>
           </div>
           <ProgressBar value={weeklyPct} variant={weeklyPct >= 80 ? 'success' : 'default'} />
+          <div className="mt-3 space-y-0.5 text-xs text-text-muted">
+            <p>Rank streak: {promotionWeeks} / 4</p>
+            <p>Last eval: {lastEvalPct !== null ? `${lastEvalPct}%` : '\u2014'}</p>
+          </div>
         </div>
 
         {/* Recent feats */}
@@ -203,8 +213,8 @@ export default function AchievementsPage() {
           <div className="grid grid-cols-5 gap-2 text-center">
             {Object.entries(recentStats).map(([stat, count]) => (
               <div key={stat}>
-                <p className="text-glow text-lg font-bold">{count}</p>
-                <p className="text-text-muted text-xs">{stat}</p>
+                <p className="text-glow text-lg font-bold">{count}<span className="text-text-muted text-xs font-normal">/{stat === 'STR' ? 4 : 7}</span></p>
+                <p className="text-text-muted text-xs">{stat === 'STR' ? 'sessions' : 'days'}</p>
               </div>
             ))}
           </div>
@@ -217,7 +227,7 @@ export default function AchievementsPage() {
             {Object.entries(recent30Stats).map(([stat, count]) => (
               <div key={stat}>
                 <p className="text-glow-bright text-lg font-bold">{count}</p>
-                <p className="text-text-muted text-xs">{stat}</p>
+                <p className="text-text-muted text-xs">{stat === 'STR' ? 'sessions' : 'days'}</p>
               </div>
             ))}
           </div>

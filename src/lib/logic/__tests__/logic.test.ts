@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '../levels';
-import { computeWeeklyCompletionPct, computeRankUpdate } from '../rank';
+import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, getLastEvaluatedPct } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
 import { computeStreakThroughYesterday, daysBetween, countActiveDays, computeSystemStreak } from '../streaks';
-import type { StrSession, ExerciseRecord } from '@/types';
+import type { StrSession, ExerciseRecord, RankRecord } from '@/types';
 
 // ===== Levels ===== //
 
@@ -234,18 +234,20 @@ describe('isSessionComplete', () => {
 });
 
 describe('getNextTemplate', () => {
-  it('starts with A', () => {
-    expect(getNextTemplate([])).toBe('A');
+  it('starts with A when 0 completed', () => {
+    expect(getNextTemplate(0)).toBe('A');
   });
 
-  it('alternates A/B', () => {
-    const sessions = [makeSession({ completed: true })];
-    expect(getNextTemplate(sessions)).toBe('B');
+  it('returns B after 1 completed', () => {
+    expect(getNextTemplate(1)).toBe('B');
   });
 
-  it('skips rest days', () => {
-    const sessions = [makeSession({ completed: true }), makeSession({ isRestDay: true })];
-    expect(getNextTemplate(sessions)).toBe('B');
+  it('returns A after 2 completed', () => {
+    expect(getNextTemplate(2)).toBe('A');
+  });
+
+  it('returns B after 3 completed', () => {
+    expect(getNextTemplate(3)).toBe('B');
   });
 });
 
@@ -501,5 +503,97 @@ describe('computeSystemStreak', () => {
   it('excludes today even if all sets have it', () => {
     const sets = [new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05']), new Set(['2025-03-05'])];
     expect(computeSystemStreak(sets, '2025-03-05')).toBe(0);
+  });
+});
+
+// ===== Rank progress helpers ===== //
+
+function makeRankRecord(overrides: Partial<RankRecord> = {}): RankRecord {
+  return {
+    rank: 'E',
+    rankBefore: 'E',
+    weekStart: '2025-03-03',
+    weekEnd: '2025-03-09',
+    completionPct: 85,
+    reason: 'maintained',
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+describe('countConsecutiveWeeksAbove80', () => {
+  it('returns 0 with no records', () => {
+    expect(countConsecutiveWeeksAbove80([])).toBe(0);
+  });
+
+  it('returns 1 when most recent evaluated week is >=80%', () => {
+    const records = [makeRankRecord({ completionPct: 85 })];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(1);
+  });
+
+  it('counts consecutive >=80% weeks', () => {
+    const records = [
+      makeRankRecord({ completionPct: 90 }),
+      makeRankRecord({ completionPct: 82 }),
+      makeRankRecord({ completionPct: 80 }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(3);
+  });
+
+  it('resets after a <60% week', () => {
+    const records = [
+      makeRankRecord({ completionPct: 85 }),
+      makeRankRecord({ completionPct: 45, reason: 'demoted' }),
+      makeRankRecord({ completionPct: 90 }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(1);
+  });
+
+  it('resets after a 60-79% week', () => {
+    const records = [
+      makeRankRecord({ completionPct: 85 }),
+      makeRankRecord({ completionPct: 70 }),
+      makeRankRecord({ completionPct: 90 }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(1);
+  });
+
+  it('skips records with reason "skipped"', () => {
+    const records = [
+      makeRankRecord({ completionPct: 85 }),
+      makeRankRecord({ completionPct: 0, reason: 'skipped' }),
+      makeRankRecord({ completionPct: 90 }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(2);
+  });
+});
+
+describe('getLastEvaluatedPct', () => {
+  it('returns null with no records', () => {
+    expect(getLastEvaluatedPct([])).toBeNull();
+  });
+
+  it('returns pct of most recent evaluated week', () => {
+    const records = [
+      makeRankRecord({ completionPct: 72 }),
+      makeRankRecord({ completionPct: 85 }),
+    ];
+    expect(getLastEvaluatedPct(records)).toBe(72);
+  });
+
+  it('skips "skipped" records', () => {
+    const records = [
+      makeRankRecord({ completionPct: 0, reason: 'skipped' }),
+      makeRankRecord({ completionPct: 88 }),
+    ];
+    expect(getLastEvaluatedPct(records)).toBe(88);
+  });
+
+  it('returns null when all records are skipped', () => {
+    const records = [
+      makeRankRecord({ completionPct: 0, reason: 'skipped' }),
+      makeRankRecord({ completionPct: 0, reason: 'skipped' }),
+    ];
+    expect(getLastEvaluatedPct(records)).toBeNull();
   });
 });
