@@ -50,9 +50,9 @@ export function CircularProgress({ percentage, overcharge = false }: CircularPro
   const useSubtleGlow = overcharge && !isComplete;
 
   return (
-    <div className="flex justify-center">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size}>
+    <div className="flex justify-center" style={{ pointerEvents: 'none' }}>
+      <div className="relative" style={{ width: size, height: size, pointerEvents: 'none' }}>
+        <svg width={size} height={size} style={{ pointerEvents: 'none' }}>
           <defs>
             <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation="1.5" result="blur" />
@@ -146,7 +146,7 @@ export function CircularProgress({ percentage, overcharge = false }: CircularPro
         </svg>
 
         {/* Center text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: 'none' }}>
           <span
             className="text-4xl font-bold tracking-tight"
             style={{ color: isComplete ? '#bbf7d0' : undefined }}
