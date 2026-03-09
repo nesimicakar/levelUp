@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '../levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, getLastEvaluatedPct } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
@@ -595,5 +595,38 @@ describe('getLastEvaluatedPct', () => {
       makeRankRecord({ completionPct: 0, reason: 'skipped' }),
     ];
     expect(getLastEvaluatedPct(records)).toBeNull();
+  });
+});
+
+// ===== Custom Task Bonus ===== //
+
+describe('computeCustomTaskBonusPct', () => {
+  it('returns 0 when no enabled tasks (0,0)', () => {
+    expect(computeCustomTaskBonusPct(0, 0)).toBe(0);
+  });
+
+  it('returns 0 when none checked (1,0)', () => {
+    expect(computeCustomTaskBonusPct(1, 0)).toBe(0);
+  });
+
+  it('returns 10 when single task checked (1,1)', () => {
+    expect(computeCustomTaskBonusPct(1, 1)).toBe(10);
+  });
+
+  it('returns 5 for half checked (2,1)', () => {
+    expect(computeCustomTaskBonusPct(2, 1)).toBe(5);
+  });
+
+  it('returns 7 for 2/3 checked (3,2)', () => {
+    // Math.round((2/3)*10) = Math.round(6.666) = 7
+    expect(computeCustomTaskBonusPct(3, 2)).toBe(7);
+  });
+
+  it('returns 10 when all checked (3,3)', () => {
+    expect(computeCustomTaskBonusPct(3, 3)).toBe(10);
+  });
+
+  it('clamps to 10 when checked exceeds enabled (2,5)', () => {
+    expect(computeCustomTaskBonusPct(2, 5)).toBe(10);
   });
 });

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getToday, getWeekStart, getSettings, getCourseProgress } from '@/lib/db';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap } from '@/lib/logic/levels';
+import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate } from '@/lib/db';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { StatCard } from '@/components/StatCard';
@@ -17,6 +17,7 @@ interface DashboardState {
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
   dailyPct: number;
+  overcharge: boolean;
   loaded: boolean;
 }
 
@@ -31,6 +32,7 @@ export default function Dashboard() {
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
     dailyPct: 0,
+    overcharge: false,
     loaded: false,
   });
 
@@ -38,6 +40,7 @@ export default function Dashboard() {
     const today = getToday();
     const weekStart = getWeekStart(today);
     const settings = await getSettings();
+    const intCourseAbbr = (settings.intCourseName ?? 'Primary Study').split(' ').map(w => w[0]).join('').toUpperCase();
 
     // STR
     const allStrSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
@@ -105,7 +108,25 @@ export default function Dashboard() {
     const intDomainProgress = (intBookProgress + intReProgress) / 2;
     const perDomainProgress = perChecked / 3;
     const domainProgress = [strDomainProgress, agiDomainProgress, vitDomainProgress, intDomainProgress, perDomainProgress];
-    const dailyPct = Math.min(Math.round(domainProgress.reduce((sum, p) => sum + p * 20, 0)), 100);
+    const basePctRaw = Math.min(Math.round(domainProgress.reduce((sum, p) => sum + p * 20, 0)), 100);
+
+    // Custom task bonus (up to +10%)
+    const enabledTasks = (settings.customTasks ?? []).filter(t => t.enabled);
+    const enabledCount = enabledTasks.length;
+    let dailyPct: number;
+    let overcharge = false;
+
+    if (enabledCount === 0) {
+      dailyPct = basePctRaw;
+    } else {
+      const basePct = Math.min(basePctRaw, 90);
+      const todayLogs = await getCustomTaskChecksForDate(today);
+      const enabledIds = new Set(enabledTasks.map(t => t.id));
+      const checkedEnabledCount = todayLogs.filter(l => l.checked && enabledIds.has(l.taskId)).length;
+      const bonusPct = computeCustomTaskBonusPct(enabledCount, checkedEnabledCount);
+      dailyPct = Math.min(basePct + bonusPct, 100);
+      overcharge = bonusPct > 0;
+    }
 
     setState({
       str: {
@@ -126,7 +147,7 @@ export default function Dashboard() {
       int: {
         level: intLevel,
         status: intStatus,
-        subtitle: `${todayInt?.learningMinutes ?? 0}/${settings.learningMinutesPerDay} min · RE ${todayInt?.courseUnitsCompleted ?? 0}/${settings.courseUnitsPerDay} units`,
+        subtitle: `${todayInt?.learningMinutes ?? 0}/${settings.learningMinutesPerDay} min · ${intCourseAbbr} ${todayInt?.courseUnitsCompleted ?? 0}/${settings.courseUnitsPerDay} units`,
       },
       per: {
         level: perLevel,
@@ -135,6 +156,7 @@ export default function Dashboard() {
       },
       rank: latestRank?.rank ?? 'E',
       dailyPct,
+      overcharge,
       loaded: true,
     });
   }, []);
@@ -166,6 +188,7 @@ export default function Dashboard() {
       <div className="mb-4">
         <CircularProgress
           percentage={state.dailyPct}
+          overcharge={state.overcharge}
         />
       </div>
 

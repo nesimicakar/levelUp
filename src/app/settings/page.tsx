@@ -1,14 +1,18 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { getSettings, updateSettings } from '@/lib/db';
+import { getSettings, updateSettings, deleteCustomTask } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
 import { NumberInput } from '@/components/NumberInput';
-import type { UserSettings } from '@/types';
+import type { UserSettings, CustomTask, StatType } from '@/types';
+
+const SKILL_OPTIONS: StatType[] = ['STR', 'AGI', 'VIT', 'INT', 'PER'];
 
 export default function SettingsPage() {
   const [settings, setSettingsState] = useState<UserSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [newTaskSkill, setNewTaskSkill] = useState<StatType>('STR');
+  const [newTaskLabel, setNewTaskLabel] = useState('');
 
   const loadSettings = useCallback(async () => {
     const s = await getSettings();
@@ -27,7 +31,47 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const addCustomTask = async () => {
+    if (!settings || !newTaskLabel.trim()) return;
+    const task: CustomTask = {
+      id: crypto.randomUUID(),
+      skill: newTaskSkill,
+      label: newTaskLabel.trim(),
+      enabled: true,
+      createdAt: Date.now(),
+    };
+    const updated = [...(settings.customTasks ?? []), task];
+    await update({ customTasks: updated });
+    setNewTaskLabel('');
+  };
+
+  const toggleCustomTask = async (taskId: string) => {
+    if (!settings) return;
+    const updated = (settings.customTasks ?? []).map(t =>
+      t.id === taskId ? { ...t, enabled: !t.enabled } : t
+    );
+    await update({ customTasks: updated });
+  };
+
+  const removeCustomTask = async (taskId: string) => {
+    if (!settings) return;
+    await deleteCustomTask(taskId);
+    setSettingsState({
+      ...settings,
+      customTasks: (settings.customTasks ?? []).filter(t => t.id !== taskId),
+    });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   if (!settings) return null;
+
+  const customTasks = settings.customTasks ?? [];
+  const groupedTasks = SKILL_OPTIONS.reduce((acc, skill) => {
+    const tasks = customTasks.filter(t => t.skill === skill);
+    if (tasks.length > 0) acc[skill] = tasks;
+    return acc;
+  }, {} as Record<StatType, CustomTask[]>);
 
   return (
     <div>
@@ -38,6 +82,29 @@ export default function SettingsPage() {
             CONFIGURATION SAVED
           </div>
         )}
+
+        {/* Program Names */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium text-text-dim">PROGRAM NAMES</h3>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
+            <span className="text-sm text-text">INT Course Name</span>
+            <input
+              type="text"
+              value={settings.intCourseName ?? 'Primary Study'}
+              onChange={e => update({ intCourseName: e.target.value })}
+              className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow w-40 text-right"
+            />
+          </div>
+          <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
+            <span className="text-sm text-text">PER Program Name</span>
+            <input
+              type="text"
+              value={settings.perProgramName ?? 'Skill Development'}
+              onChange={e => update({ perProgramName: e.target.value })}
+              className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow w-40 text-right"
+            />
+          </div>
+        </section>
 
         {/* Learning */}
         <section className="space-y-3">
@@ -55,7 +122,7 @@ export default function SettingsPage() {
 
         {/* Course */}
         <section className="space-y-3">
-          <h3 className="text-sm font-medium text-text-dim">INT // REAL ESTATE COURSE</h3>
+          <h3 className="text-sm font-medium text-text-dim">INT // {(settings.intCourseName ?? 'Primary Study').toUpperCase()} COURSE</h3>
           <NumberInput
             value={settings.courseUnitsPerDay}
             onChange={v => update({ courseUnitsPerDay: v })}
@@ -67,9 +134,9 @@ export default function SettingsPage() {
           />
         </section>
 
-        {/* StageAcademy */}
+        {/* Skill Development */}
         <section className="space-y-3">
-          <h3 className="text-sm font-medium text-text-dim">PER // STAGEACADEMY</h3>
+          <h3 className="text-sm font-medium text-text-dim">PER // {(settings.perProgramName ?? 'Skill Development').toUpperCase()}</h3>
           <NumberInput
             value={settings.lessonsPerDay}
             onChange={v => update({ lessonsPerDay: v })}
@@ -157,6 +224,77 @@ export default function SettingsPage() {
             step={1}
             unit="lbs"
           />
+        </section>
+
+        {/* Custom Tasks */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium text-text-dim">CUSTOM TASKS</h3>
+
+          {/* Add new task */}
+          <div className="p-3 rounded-lg border border-border bg-surface space-y-2">
+            <div className="flex items-center gap-2">
+              <select
+                value={newTaskSkill}
+                onChange={e => setNewTaskSkill(e.target.value as StatType)}
+                className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow"
+              >
+                {SKILL_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={newTaskLabel}
+                onChange={e => setNewTaskLabel(e.target.value)}
+                placeholder="Task label"
+                className="flex-1 bg-surface-light border border-border rounded px-2 py-1 text-sm text-text focus:outline-none focus:border-glow"
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTask(); }}
+              />
+              <button
+                onClick={addCustomTask}
+                disabled={!newTaskLabel.trim()}
+                className="px-3 py-1 rounded text-sm font-medium tracking-wider bg-glow/10 border border-glow/30 text-glow hover:bg-glow/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ADD
+              </button>
+            </div>
+          </div>
+
+          {/* Task list grouped by skill */}
+          {Object.entries(groupedTasks).map(([skill, tasks]) => (
+            <div key={skill} className="space-y-1">
+              <p className="text-xs text-text-muted">{skill}</p>
+              {tasks.map(task => (
+                <div key={task.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-surface">
+                  <span className={`text-sm ${task.enabled ? 'text-text' : 'text-text-muted line-through'}`}>
+                    {task.label}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => toggleCustomTask(task.id)}
+                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                        task.enabled
+                          ? 'border-glow/30 text-glow'
+                          : 'border-border text-text-muted'
+                      }`}
+                    >
+                      {task.enabled ? 'ON' : 'OFF'}
+                    </button>
+                    <button
+                      onClick={() => removeCustomTask(task.id)}
+                      className="text-xs px-2 py-0.5 rounded border border-danger/30 text-danger hover:bg-danger/10 transition-colors"
+                    >
+                      DEL
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {customTasks.length === 0 && (
+            <p className="text-xs text-text-muted text-center py-2">No custom tasks yet</p>
+          )}
         </section>
       </main>
     </div>

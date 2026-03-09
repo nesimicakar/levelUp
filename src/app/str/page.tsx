@@ -7,6 +7,7 @@ import { computeLevel, computeStrXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
+import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { StrSession, ExerciseRecord, WorkoutTemplate, StatLevel } from '@/types';
 
 export default function StrPage() {
@@ -45,6 +46,28 @@ export default function StrPage() {
     const today = getToday();
     const template = getNextTemplate(totalCompletedSessions);
     const exercises = getDefaultExercises(template);
+
+    // Prefill weights from most recent completed non-rest sessions
+    const pastSessions = (await db.strSessions.toArray())
+      .filter(s => s.completed && !s.isRestDay)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+
+    const lastWeightByExercise: Record<string, number> = {};
+    for (const session of pastSessions) {
+      for (const ex of session.exercises) {
+        if (lastWeightByExercise[ex.name] !== undefined) continue;
+        const weight = ex.sets.find(s => s.weight != null)?.weight;
+        if (weight != null) lastWeightByExercise[ex.name] = weight;
+      }
+    }
+
+    for (const ex of exercises) {
+      const lastWeight = lastWeightByExercise[ex.name];
+      if (lastWeight != null) {
+        ex.sets = ex.sets.map(s => ({ ...s, weight: lastWeight }));
+      }
+    }
+
     const session: StrSession = {
       date: today,
       template,
@@ -223,6 +246,8 @@ export default function StrPage() {
             )}
           </div>
         )}
+
+        <CustomTasksSection skill="STR" />
       </main>
     </div>
   );

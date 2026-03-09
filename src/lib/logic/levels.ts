@@ -57,3 +57,9 @@ export function computeIntXP(totalMinutes: number, courseUnits: number): number 
 export function computePerXP(totalLessons: number): number {
   return totalLessons * 8;
 }
+
+// Custom task bonus: up to +10% daily based on proportion of enabled tasks checked
+export function computeCustomTaskBonusPct(enabledCount: number, checkedCount: number): number {
+  if (enabledCount <= 0) return 0;
+  return clamp(Math.round((checkedCount / enabledCount) * 10), 0, 10);
+}
