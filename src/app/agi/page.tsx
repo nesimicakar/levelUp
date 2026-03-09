@@ -7,6 +7,7 @@ import { computeAgiStreak } from '@/lib/logic/streaks';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
+import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { AgiLog, StatLevel, UserSettings } from '@/types';
 
 export default function AgiPage() {
@@ -177,6 +178,8 @@ export default function AgiPage() {
             {todayLog ? 'UPDATE LOG' : 'LOG SESSION'}
           </button>
         </div>
+
+        <CustomTasksSection skill="AGI" />
       </main>
     </div>
   );

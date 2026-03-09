@@ -6,6 +6,11 @@
         },
         ".": true,
         "nvm": true,
-        "npx vitest": true
+        "npx vitest": true,
+        "npx next": true,
+        "/^source ~/\\.nvm/nvm\\.sh && nvm use 20\\.20\\.0 && npx next build 2>&1 \\| tail -20$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }

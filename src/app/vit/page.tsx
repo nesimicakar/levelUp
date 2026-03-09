@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
 import { NumberInput } from '@/components/NumberInput';
+import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { VitLog, StatLevel, UserSettings } from '@/types';
 
 export default function VitPage() {
@@ -134,6 +135,8 @@ export default function VitPage() {
             {todayLog ? 'UPDATE' : 'LOG TODAY'}
           </button>
         </div>
+
+        <CustomTasksSection skill="VIT" />
       </main>
     </div>
   );

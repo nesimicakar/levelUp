@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 
 interface CircularProgressProps {
   percentage: number;
+  overcharge?: boolean;
 }
 
-export function CircularProgress({ percentage }: CircularProgressProps) {
+export function CircularProgress({ percentage, overcharge = false }: CircularProgressProps) {
   const size = 148;
   const center = size / 2;
   const strokeWidth = 5;
@@ -45,6 +46,9 @@ export function CircularProgress({ percentage }: CircularProgressProps) {
   const nodeX = center + mainRadius * Math.cos(endRad);
   const nodeY = center + mainRadius * Math.sin(endRad);
 
+  // Determine glow usage: none at 100%, subtle when overcharging below 100%
+  const useSubtleGlow = overcharge && !isComplete;
+
   return (
     <div className="flex justify-center">
       <div className="relative" style={{ width: size, height: size }}>
@@ -57,6 +61,15 @@ export function CircularProgress({ percentage }: CircularProgressProps) {
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
+            {useSubtleGlow && (
+              <filter id="subtleGlow" x="-60%" y="-60%" width="220%" height="220%">
+                <feGaussianBlur stdDeviation="1.8" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            )}
           </defs>
 
           {/* Outer ultra-thin static ring */}
@@ -95,6 +108,7 @@ export function CircularProgress({ percentage }: CircularProgressProps) {
             transform={`rotate(-90 ${center} ${center})`}
             className={showCompletePulse ? 'seal-complete-pulse' : ''}
             style={{ transition: 'stroke-dashoffset 0.6s ease-out' }}
+            filter={useSubtleGlow ? 'url(#subtleGlow)' : undefined}
           />
 
           {/* Endpoint node */}
@@ -102,10 +116,10 @@ export function CircularProgress({ percentage }: CircularProgressProps) {
             <circle
               cx={nodeX}
               cy={nodeY}
-              r={2.5}
+              r={isComplete ? 2.5 : useSubtleGlow ? 3 : 2.5}
               fill={arcColor}
-              opacity={0.9}
-              filter="url(#nodeGlow)"
+              opacity={1}
+              filter={useSubtleGlow ? 'url(#subtleGlow)' : !isComplete ? 'url(#nodeGlow)' : undefined}
               style={{ transition: 'cx 0.6s ease-out, cy 0.6s ease-out' }}
             />
           )}
@@ -124,7 +138,7 @@ export function CircularProgress({ percentage }: CircularProgressProps) {
                 cy={my}
                 r={1.8}
                 fill={arcColor}
-                opacity={passed ? 0.55 : 0.12}
+                opacity={passed ? (isComplete ? 0.7 : useSubtleGlow ? 0.7 : 0.55) : 0.12}
                 style={{ transition: 'opacity 0.4s ease-out' }}
               />
             );

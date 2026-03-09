@@ -6,6 +6,7 @@ import { computeLevel, computeIntXP, getIntDailyCap } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
+import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { IntLog, StatLevel, UserSettings, CourseProgress } from '@/types';
 
 export default function IntPage() {
@@ -101,7 +102,7 @@ export default function IntPage() {
 
         {/* Course overall progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
-          <h3 className="text-sm font-medium text-text-dim mb-2">REAL ESTATE COURSE</h3>
+          <h3 className="text-sm font-medium text-text-dim mb-2">{(settings.intCourseName ?? 'Primary Study').toUpperCase()} COURSE</h3>
           <div className="flex justify-between text-sm mb-2">
             <span className="text-text">{courseProgress.completedUnits}/{courseProgress.totalUnits} units</span>
             <span className="text-glow-bright">{rePct}%</span>
@@ -159,6 +160,8 @@ export default function IntPage() {
             {todayLog ? 'UPDATE' : 'LOG TODAY'}
           </button>
         </div>
+
+        <CustomTasksSection skill="INT" />
       </main>
     </div>
   );

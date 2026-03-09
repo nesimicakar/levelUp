@@ -6,6 +6,7 @@ import { computeLevel, computePerXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
+import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { PerLog, StatLevel, UserSettings, CourseProgress } from '@/types';
 
 export default function PerPage() {
@@ -107,7 +108,7 @@ export default function PerPage() {
 
         {/* Course overall progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
-          <h3 className="text-sm font-medium text-text-dim mb-2">STAGEACADEMY</h3>
+          <h3 className="text-sm font-medium text-text-dim mb-2">{(settings.perProgramName ?? 'Skill Development').toUpperCase()}</h3>
           <div className="flex justify-between text-sm mb-2">
             <span className="text-text">{courseProgress.completedUnits}/{courseProgress.totalUnits} lessons</span>
             <span className="text-glow-bright">{saPct}%</span>
@@ -184,6 +185,8 @@ export default function PerPage() {
             {todayLog ? 'UPDATE' : 'LOG TODAY'}
           </button>
         </div>
+
+        <CustomTasksSection skill="PER" />
       </main>
     </div>
   );

@@ -10,6 +10,8 @@ import type {
   RankRecord,
   Achievement,
   UserSettings,
+  CustomTaskLog,
+  StatType,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
@@ -23,6 +25,7 @@ export class LevelUpDB extends Dexie {
   rankHistory!: Table<RankRecord, number>;
   achievements!: Table<Achievement, number>;
   settings!: Table<UserSettings, number>;
+  customTaskLogs!: Table<CustomTaskLog, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -39,7 +42,29 @@ export class LevelUpDB extends Dexie {
       settings: '++id',
     });
     this.version(3).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
       rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+    });
+    this.version(4).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
     });
   }
 }
@@ -51,6 +76,9 @@ export async function getSettings(): Promise<UserSettings> {
   if (s) {
     if (s.quranPagesPerDay === undefined) s.quranPagesPerDay = 1;
     if (s.learningMinutesPerDay === undefined) s.learningMinutesPerDay = 20;
+    if (s.intCourseName === undefined) s.intCourseName = 'Primary Study';
+    if (s.perProgramName === undefined) s.perProgramName = 'Skill Development';
+    if (s.customTasks === undefined) s.customTasks = [];
     return s;
   }
   const defaults: UserSettings = {
@@ -65,6 +93,9 @@ export async function getSettings(): Promise<UserSettings> {
     agiMinMinutes: 10,
     strUpperIncrement: 5,
     strLowerIncrement: 10,
+    intCourseName: 'Primary Study',
+    perProgramName: 'Skill Development',
+    customTasks: [],
   };
   await db.settings.add(defaults);
   return defaults;
@@ -81,8 +112,8 @@ export async function getCourseProgress(courseId: string): Promise<CourseProgres
   const existing = await db.courseProgress.where('courseId').equals(courseId).first();
   if (existing) return existing;
   const defaults: Record<string, CourseProgress> = {
-    'real-estate': { courseId: 'real-estate', totalUnits: 200, completedUnits: 41, lastUpdated: Date.now() },
-    'stage-academy': { courseId: 'stage-academy', totalUnits: 144, completedUnits: 26, lastUpdated: Date.now() },
+    'real-estate': { courseId: 'real-estate', totalUnits: 200, completedUnits: 0, lastUpdated: Date.now() },
+    'stage-academy': { courseId: 'stage-academy', totalUnits: 144, completedUnits: 0, lastUpdated: Date.now() },
   };
   const d = defaults[courseId];
   if (d) {
@@ -115,4 +146,31 @@ export function getWeekStart(dateStr: string): string {
   const diff = day === 0 ? 6 : day - 1; // Monday = 0
   d.setDate(d.getDate() - diff);
   return d.toISOString().split('T')[0];
+}
+
+// ===== Custom Task Helpers ===== //
+
+export async function getEnabledCustomTasksForSkill(skill: StatType) {
+  const settings = await getSettings();
+  return (settings.customTasks ?? []).filter(t => t.skill === skill && t.enabled);
+}
+
+export async function getCustomTaskChecksForDate(date: string): Promise<CustomTaskLog[]> {
+  return db.customTaskLogs.where('date').equals(date).toArray();
+}
+
+export async function setCustomTaskCheck(date: string, taskId: string, checked: boolean): Promise<void> {
+  const existing = await db.customTaskLogs.where('[date+taskId]').equals([date, taskId]).first();
+  if (existing?.id) {
+    await db.customTaskLogs.update(existing.id, { checked, updatedAt: Date.now() });
+  } else {
+    await db.customTaskLogs.add({ date, taskId, checked, updatedAt: Date.now() });
+  }
+}
+
+export async function deleteCustomTask(taskId: string): Promise<void> {
+  const settings = await getSettings();
+  const updated = (settings.customTasks ?? []).filter(t => t.id !== taskId);
+  await updateSettings({ customTasks: updated });
+  await db.customTaskLogs.where('taskId').equals(taskId).delete();
 }

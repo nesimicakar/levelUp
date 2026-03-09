@@ -114,6 +114,22 @@ export interface Achievement {
   stat?: StatType;
 }
 
+export interface CustomTask {
+  id: string;
+  skill: StatType;
+  label: string;
+  enabled: boolean;
+  createdAt: number;
+}
+
+export interface CustomTaskLog {
+  id?: number;
+  date: string;
+  taskId: string;
+  checked: boolean;
+  updatedAt: number;
+}
+
 export interface UserSettings {
   id?: number;
   readingPagesPerDay: number;
@@ -128,6 +144,9 @@ export interface UserSettings {
   strUpperIncrement: number;
   strLowerIncrement: number;
   firstUseDate?: string; // ISO date, set once on first app load
+  intCourseName?: string;
+  perProgramName?: string;
+  customTasks?: CustomTask[];
 }
 
 export interface StatLevel {
