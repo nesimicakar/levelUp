@@ -20,6 +20,9 @@ export async function seedIfNeeded(): Promise<void> {
       agiMinMinutes: 10,
       strUpperIncrement: 5,
       strLowerIncrement: 10,
+      hasOnboarded: false,
+      enableSpirituality: false,
+      exerciseNames: {},
     });
   }
 }

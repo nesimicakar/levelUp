@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { db, getSettings, getToday, updateSettings, deleteCustomTask } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
 import { NumberInput } from '@/components/NumberInput';
+import { Toggle } from '@/components/Toggle';
+import { TEMPLATE_A, TEMPLATE_B } from '@/lib/logic/str';
+import { CollapsibleSection } from '@/components/CollapsibleSection';
 import type { UserSettings, CustomTask, StatType } from '@/types';
 
 const SKILL_OPTIONS: StatType[] = ['STR', 'AGI', 'VIT', 'INT', 'PER'];
@@ -188,6 +191,19 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* Protocol */}
+        <section className="space-y-3">
+          <h3 className="text-sm font-medium text-text-dim">PROTOCOL</h3>
+          <div className="p-3 rounded-lg border border-border bg-surface">
+            <Toggle
+              checked={settings.strictMode ?? false}
+              onChange={v => update({ strictMode: v })}
+              label="Strict Mode"
+              sublabel="Weekly rank evaluation and daily protocol scoring are stricter."
+            />
+          </div>
+        </section>
+
         {/* Program Names */}
         <section className="space-y-3">
           <h3 className="text-sm font-medium text-text-dim">PROGRAM NAMES</h3>
@@ -256,15 +272,25 @@ export default function SettingsPage() {
         {/* Spirituality */}
         <section className="space-y-3">
           <h3 className="text-sm font-medium text-text-dim">PER // SPIRITUALITY</h3>
-          <NumberInput
-            value={settings.quranPagesPerDay}
-            onChange={v => update({ quranPagesPerDay: v })}
-            label="Quran pages / day"
-            min={1}
-            max={20}
-            step={1}
-            unit="pg"
-          />
+          <div className="p-3 rounded-lg border border-border bg-surface">
+            <Toggle
+              checked={settings.enableSpirituality ?? false}
+              onChange={v => update({ enableSpirituality: v })}
+              label="Enable Spirituality"
+              sublabel="Track prayers and Quran pages as part of PER completion."
+            />
+          </div>
+          {(settings.enableSpirituality ?? false) && (
+            <NumberInput
+              value={settings.quranPagesPerDay}
+              onChange={v => update({ quranPagesPerDay: v })}
+              label="Quran pages / day"
+              min={1}
+              max={20}
+              step={1}
+              unit="pg"
+            />
+          )}
         </section>
 
         {/* VIT */}
@@ -306,6 +332,43 @@ export default function SettingsPage() {
               <option value="Swimming">Swimming</option>
             </select>
           </div>
+        </section>
+
+        {/* STR exercise names */}
+        <section>
+          {(() => {
+            const renamedCount = Object.values(settings.exerciseNames ?? {}).filter(v => v).length;
+            const rightLabel = renamedCount > 0 ? `${renamedCount} renamed` : 'Using defaults';
+            return (
+              <CollapsibleSection title="STR // EXERCISE NAMES" right={rightLabel} defaultOpen={false}>
+                <p className="text-xs text-text-muted mb-3">Rename exercises. Changes take effect on the next session.</p>
+                <div className="space-y-3">
+                  {[{ label: 'WORKOUT A', template: TEMPLATE_A }, { label: 'WORKOUT B', template: TEMPLATE_B }].map(({ label, template }) => (
+                    <div key={label} className="space-y-1">
+                      <p className="text-xs text-text-dim">{label}</p>
+                      {template.map(t => (
+                        <div key={t.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-surface gap-2">
+                          <span className="text-xs text-text-muted w-28 shrink-0">{t.name}</span>
+                          <input
+                            type="text"
+                            value={(settings.exerciseNames ?? {})[t.id] ?? ''}
+                            placeholder={t.name}
+                            onChange={e => {
+                              const names = { ...(settings.exerciseNames ?? {}) };
+                              const v = e.target.value.trim();
+                              if (v) names[t.id] = v; else delete names[t.id];
+                              update({ exerciseNames: names });
+                            }}
+                            className="flex-1 min-w-0 bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow text-right"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleSection>
+            );
+          })()}
         </section>
 
         {/* STR increments */}

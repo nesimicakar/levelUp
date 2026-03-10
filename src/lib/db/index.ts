@@ -79,6 +79,10 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.intCourseName === undefined) s.intCourseName = 'Primary Study';
     if (s.perProgramName === undefined) s.perProgramName = 'Skill Development';
     if (s.customTasks === undefined) s.customTasks = [];
+    if (s.strictMode === undefined) s.strictMode = false;
+    if (s.hasOnboarded === undefined) s.hasOnboarded = true; // existing users skip onboarding
+    if (s.enableSpirituality === undefined) s.enableSpirituality = true; // existing users keep spirituality
+    if (s.exerciseNames === undefined) s.exerciseNames = {};
     return s;
   }
   const defaults: UserSettings = {
@@ -96,6 +100,10 @@ export async function getSettings(): Promise<UserSettings> {
     intCourseName: 'Primary Study',
     perProgramName: 'Skill Development',
     customTasks: [],
+    strictMode: false,
+    hasOnboarded: false,
+    enableSpirituality: false,
+    exerciseNames: {},
   };
   await db.settings.add(defaults);
   return defaults;
@@ -145,7 +153,10 @@ export function getWeekStart(dateStr: string): string {
   const day = d.getDay();
   const diff = day === 0 ? 6 : day - 1; // Monday = 0
   d.setDate(d.getDate() - diff);
-  return d.toISOString().split('T')[0];
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // ===== Custom Task Helpers ===== //
