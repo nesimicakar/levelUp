@@ -14,9 +14,19 @@ export interface SetRecord {
 }
 
 export interface ExerciseRecord {
+  id?: string; // stable template id; absent on sessions created before this change
   name: string;
   sets: SetRecord[];
   isRequired: boolean;
+  noWeight?: boolean;
+}
+
+/** A template slot definition (not stored in DB — used only to build new sessions). */
+export interface StrTemplateExercise {
+  id: string;
+  name: string;
+  sets: number;
+  noWeight?: boolean;
 }
 
 export interface StrSession {
@@ -147,6 +157,10 @@ export interface UserSettings {
   intCourseName?: string;
   perProgramName?: string;
   customTasks?: CustomTask[];
+  strictMode?: boolean;
+  hasOnboarded?: boolean;
+  enableSpirituality?: boolean;
+  exerciseNames?: Record<string, string>; // exercise id → custom display name
 }
 
 export interface StatLevel {

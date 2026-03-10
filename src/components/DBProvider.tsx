@@ -2,16 +2,22 @@
 
 import { useEffect, useState } from 'react';
 import { seedIfNeeded } from '@/lib/db/seed';
-import { getToday } from '@/lib/db';
+import { getToday, getSettings } from '@/lib/db';
 import { evaluateRankIfNeeded } from '@/lib/logic/rankOrchestrator';
+import { OnboardingModal } from '@/components/OnboardingModal';
 
 export function DBProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     seedIfNeeded()
       .then(() => evaluateRankIfNeeded(getToday()))
-      .then(() => setReady(true));
+      .then(() => getSettings())
+      .then(s => {
+        if (!s.hasOnboarded) setShowOnboarding(true);
+        setReady(true);
+      });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
     }
@@ -25,6 +31,10 @@ export function DBProvider({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
+  }
+
+  if (showOnboarding) {
+    return <OnboardingModal onComplete={() => setShowOnboarding(false)} />;
   }
 
   return <>{children}</>;
