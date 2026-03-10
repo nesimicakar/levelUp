@@ -1,4 +1,4 @@
-import type { ExerciseRecord, StrSession, WorkoutTemplate } from '@/types';
+import type { ExerciseRecord, StrSession, StrTemplateExercise, WorkoutTemplate } from '@/types';
 
 export interface StrWeekData {
   sessions: StrSession[];
@@ -32,121 +32,91 @@ export function getNextTemplate(totalCompletedSessions: number): WorkoutTemplate
   return totalCompletedSessions % 2 === 0 ? 'A' : 'B';
 }
 
+/** Stable template definitions — IDs never change, names can be edited in the future. */
+export const TEMPLATE_A: StrTemplateExercise[] = [
+  { id: 'goblet-squat',     name: 'Goblet Squat',                        sets: 3 },
+  { id: 'incline-db-press', name: 'Incline Dumbbell Press',              sets: 3 },
+  { id: 'cs-row',           name: 'Chest-Supported Dumbbell Row',        sets: 3 },
+  { id: 'pull-ups',         name: 'Pull-Ups',                            sets: 3 },
+  { id: 'lateral-raises',   name: 'Lateral Raises',                      sets: 3 },
+  { id: 'core',             name: 'Core',                                sets: 3, noWeight: true },
+];
+
+export const TEMPLATE_B: StrTemplateExercise[] = [
+  { id: 'rdl',              name: 'Romanian Deadlift (RDL)',             sets: 3 },
+  { id: 'ng-shoulder-press',name: 'Neutral-Grip Dumbbell Shoulder Press',sets: 3 },
+  { id: 'cable-row',        name: 'Cable Row',                           sets: 3 },
+  { id: 'push-ups',         name: 'Push-Ups',                            sets: 3, noWeight: true },
+  { id: 'face-pulls',       name: 'Face Pulls',                          sets: 3 },
+  { id: 'core',             name: 'Core',                                sets: 3, noWeight: true },
+];
+
+function templateToExerciseRecords(template: StrTemplateExercise[]): ExerciseRecord[] {
+  return template.map(t => ({
+    id: t.id,
+    name: t.name,
+    noWeight: t.noWeight,
+    sets: Array.from({ length: t.sets }, (_, i) => ({ setNumber: i + 1, completed: false })),
+    isRequired: true,
+  }));
+}
+
 export function getDefaultExercises(template: WorkoutTemplate): ExerciseRecord[] {
-  if (template === 'A') {
-    return [
-      {
-        name: 'Goblet Squat',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-      {
-        name: 'Incline Dumbbell Press',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-      {
-        name: 'Chest-Supported Dumbbell Row',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-      {
-        name: 'Pull-Ups',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-      {
-        name: 'Lateral Raises',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-      {
-        name: 'Core',
-        sets: [
-          { setNumber: 1, completed: false },
-          { setNumber: 2, completed: false },
-          { setNumber: 3, completed: false },
-        ],
-        isRequired: true,
-      },
-    ];
+  return templateToExerciseRecords(template === 'A' ? TEMPLATE_A : TEMPLATE_B);
+}
+
+/**
+ * Build two lookup maps from past completed sessions (sorted newest-first already).
+ * byId:   keyed by exercise.id  (preferred — survives renames)
+ * byName: keyed by exercise.name (fallback for old sessions without id)
+ */
+export function buildWeightPrefillMaps(
+  pastSessions: StrSession[],
+): { byId: Record<string, number>; byName: Record<string, number> } {
+  const byId: Record<string, number> = {};
+  const byName: Record<string, number> = {};
+  for (const session of pastSessions) {
+    for (const ex of session.exercises) {
+      const weight = ex.sets.find(s => s.weight != null)?.weight;
+      if (weight == null) continue;
+      if (ex.id !== undefined && byId[ex.id] === undefined) byId[ex.id] = weight;
+      if (byName[ex.name] === undefined) byName[ex.name] = weight;
+    }
   }
-  return [
-    {
-      name: 'Romanian Deadlift (RDL)',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Neutral-Grip Dumbbell Shoulder Press',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Cable Row',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Push-Ups',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Face Pulls',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-    {
-      name: 'Core',
-      sets: [
-        { setNumber: 1, completed: false },
-        { setNumber: 2, completed: false },
-        { setNumber: 3, completed: false },
-      ],
-      isRequired: true,
-    },
-  ];
+  return { byId, byName };
+}
+
+/**
+ * Return a new exercises array with weights pre-filled.
+ * Prefers id-match; falls back to name-match for old sessions.
+ */
+export function applyWeightPrefill(
+  exercises: ExerciseRecord[],
+  byId: Record<string, number>,
+  byName: Record<string, number>,
+): ExerciseRecord[] {
+  return exercises.map(ex => {
+    const weight =
+      (ex.id !== undefined ? byId[ex.id] : undefined) ??
+      byName[ex.name];
+    if (weight == null) return ex;
+    return { ...ex, sets: ex.sets.map(s => ({ ...s, weight })) };
+  });
+}
+
+/**
+ * Overlay custom display names onto an exercises array.
+ * Only affects exercises that have an id present in nameMap.
+ * Names in stored sessions are not mutated — call this only for rendering or before creating a new session.
+ */
+export function applyExerciseNames(
+  exercises: ExerciseRecord[],
+  nameMap: Record<string, string>,
+): ExerciseRecord[] {
+  if (Object.keys(nameMap).length === 0) return exercises;
+  return exercises.map(ex =>
+    ex.id !== undefined && nameMap[ex.id] ? { ...ex, name: nameMap[ex.id] } : ex
+  );
 }
 
 // Progressive overload: check if user hit top of rep range for all sets

@@ -69,7 +69,10 @@ export default function PerPage() {
     const lessonsMet = lessonsToday >= settings.lessonsPerDay;
     const prayersMet = prayers >= 5;
     const quranMet = quranPages >= settings.quranPagesPerDay;
-    const completed = lessonsMet && prayersMet && quranMet;
+    const spiritualityEnabled = settings.enableSpirituality ?? false;
+    const completed = spiritualityEnabled
+      ? lessonsMet && prayersMet && quranMet
+      : lessonsMet;
 
     if (todayLog?.id) {
       const oldLessons = todayLog.lessonsCompleted;
@@ -105,11 +108,17 @@ export default function PerPage() {
 
   if (!loaded || !settings || !courseProgress) return null;
 
+  const spiritualityEnabled = settings.enableSpirituality ?? false;
   const lessonsMet = lessonsToday >= settings.lessonsPerDay;
   const prayersMet = prayers >= 5;
   const quranMet = quranPages >= settings.quranPagesPerDay;
-  const allMet = lessonsMet && prayersMet && quranMet;
-  const checkCount = [lessonsMet, prayersMet, quranMet].filter(Boolean).length;
+  const allMet = spiritualityEnabled
+    ? lessonsMet && prayersMet && quranMet
+    : lessonsMet;
+  const checkCount = spiritualityEnabled
+    ? [lessonsMet, prayersMet, quranMet].filter(Boolean).length
+    : [lessonsMet].filter(Boolean).length;
+  const checkTotal = spiritualityEnabled ? 3 : 1;
   const saPct = Math.round((courseProgress.completedUnits / courseProgress.totalUnits) * 100);
 
   return (
@@ -142,7 +151,7 @@ export default function PerPage() {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-text-dim">TODAY&apos;S PROTOCOL</h3>
             <span className={`text-xs font-medium tracking-wider ${allMet ? 'text-success' : 'text-warning'}`}>
-              {checkCount}/3
+              {checkCount}/{checkTotal}
             </span>
           </div>
 
@@ -162,38 +171,40 @@ export default function PerPage() {
           </div>
 
           {/* Spirituality */}
-          <div className="border-t border-border pt-3">
-            <h4 className="text-xs font-medium text-text-dim mb-3">SPIRITUALITY</h4>
-            <div className="text-[10px] text-text-muted mb-3">Daily reset.</div>
+          {spiritualityEnabled && (
+            <div className="border-t border-border pt-3">
+              <h4 className="text-xs font-medium text-text-dim mb-3">SPIRITUALITY</h4>
+              <div className="text-[10px] text-text-muted mb-3">Daily reset.</div>
 
-            <NumberInput
-              value={prayers}
-              onChange={setPrayers}
-              label="Prayers"
-              min={0}
-              max={5}
-              step={1}
-              unit={`/ 5`}
-            />
-            <div className="text-xs text-text-muted ml-1 mb-3">
-              {prayersMet ? '\u2713 All prayers completed' : `${5 - prayers} remaining`}
-            </div>
+              <NumberInput
+                value={prayers}
+                onChange={setPrayers}
+                label="Prayers"
+                min={0}
+                max={5}
+                step={1}
+                unit={`/ 5`}
+              />
+              <div className="text-xs text-text-muted ml-1 mb-3">
+                {prayersMet ? '\u2713 All prayers completed' : `${5 - prayers} remaining`}
+              </div>
 
-            <NumberInput
-              value={quranPages}
-              onChange={setQuranPages}
-              label="Quran pages"
-              min={0}
-              max={100}
-              step={1}
-              unit="pg"
-            />
-            <div className="text-xs text-text-muted ml-1">
-              {quranMet
-                ? '\u2713 Quran target met'
-                : `${settings.quranPagesPerDay - quranPages} pages to go`}
+              <NumberInput
+                value={quranPages}
+                onChange={setQuranPages}
+                label="Quran pages"
+                min={0}
+                max={100}
+                step={1}
+                unit="pg"
+              />
+              <div className="text-xs text-text-muted ml-1">
+                {quranMet
+                  ? '\u2713 Quran target met'
+                  : `${settings.quranPagesPerDay - quranPages} pages to go`}
+              </div>
             </div>
-          </div>
+          )}
 
           <button
             onClick={save}

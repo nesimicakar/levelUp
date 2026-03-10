@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate } from '@/lib/db';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct } from '@/lib/logic/levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { StatCard } from '@/components/StatCard';
@@ -85,11 +85,15 @@ export default function Dashboard() {
     const rePct = Math.round((reCourse.completedUnits / reCourse.totalUnits) * 100);
 
     // PER
+    const spiritualityEnabled = settings.enableSpirituality ?? false;
     const todayPer = await db.perLogs.where('date').equals(today).first();
     const perLessonsMet = (todayPer?.lessonsCompleted ?? 0) >= settings.lessonsPerDay;
     const perPrayersMet = (todayPer?.prayersCount ?? 0) >= 5;
     const perQuranMet = (todayPer?.quranPages ?? 0) >= settings.quranPagesPerDay;
-    const perChecked = [perLessonsMet, perPrayersMet, perQuranMet].filter(Boolean).length;
+    const perChecked = spiritualityEnabled
+      ? [perLessonsMet, perPrayersMet, perQuranMet].filter(Boolean).length
+      : [perLessonsMet].filter(Boolean).length;
+    const perTotal = spiritualityEnabled ? 3 : 1;
     const perStatus: DayStatus = todayPer?.completed ? 'complete' : 'incomplete';
     const saCourse = await getCourseProgress('stage-academy');
     const perXP = computePerXP(saCourse.completedUnits);
@@ -106,7 +110,14 @@ export default function Dashboard() {
     const intBookProgress = Math.min((todayInt?.learningMinutes ?? 0) / settings.learningMinutesPerDay, 1);
     const intReProgress = Math.min((todayInt?.courseUnitsCompleted ?? 0) / settings.courseUnitsPerDay, 1);
     const intDomainProgress = (intBookProgress + intReProgress) / 2;
-    const perDomainProgress = perChecked / 3;
+    const perDomainProgress = computePerDomainProgress(
+      spiritualityEnabled,
+      todayPer?.lessonsCompleted ?? 0,
+      settings.lessonsPerDay,
+      todayPer?.prayersCount ?? 0,
+      todayPer?.quranPages ?? 0,
+      settings.quranPagesPerDay,
+    );
     const domainProgress = [strDomainProgress, agiDomainProgress, vitDomainProgress, intDomainProgress, perDomainProgress];
     const basePctRaw = Math.min(Math.round(domainProgress.reduce((sum, p) => sum + p * 20, 0)), 100);
 
@@ -119,13 +130,16 @@ export default function Dashboard() {
     if (enabledCount === 0) {
       dailyPct = basePctRaw;
     } else {
-      const basePct = Math.min(basePctRaw, 90);
       const todayLogs = await getCustomTaskChecksForDate(today);
       const enabledIds = new Set(enabledTasks.map(t => t.id));
       const checkedEnabledCount = todayLogs.filter(l => l.checked && enabledIds.has(l.taskId)).length;
       const bonusPct = computeCustomTaskBonusPct(enabledCount, checkedEnabledCount);
-      dailyPct = Math.min(basePct + bonusPct, 100);
       overcharge = bonusPct > 0;
+      if (settings.strictMode) {
+        dailyPct = basePctRaw;
+      } else {
+        dailyPct = Math.min(Math.min(basePctRaw, 90) + bonusPct, 100);
+      }
     }
 
     setState({
@@ -152,7 +166,7 @@ export default function Dashboard() {
       per: {
         level: perLevel,
         status: perStatus,
-        subtitle: `${perChecked}/3 completed today`,
+        subtitle: `${perChecked}/${perTotal} completed today`,
       },
       rank: latestRank?.rank ?? 'E',
       dailyPct,
