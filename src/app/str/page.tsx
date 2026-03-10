@@ -1,16 +1,16 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getToday, getWeekStart } from '@/lib/db';
+import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
-import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete } from '@/lib/logic/str';
+import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete, buildWeightPrefillMaps, applyWeightPrefill, applyExerciseNames } from '@/lib/logic/str';
 import { computeLevel, computeStrXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
-import type { StrSession, ExerciseRecord, WorkoutTemplate, StatLevel } from '@/types';
+import type { StrSession, ExerciseRecord, WorkoutTemplate, StatLevel, UserSettings } from '@/types';
 
 export default function StrPage() {
   const { today, yesterday } = getLoggableDates();
@@ -20,9 +20,13 @@ export default function StrPage() {
   const [todaySession, setTodaySession] = useState<StrSession | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
   const [totalCompletedSessions, setTotalCompletedSessions] = useState(0);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
+    const s = await getSettings();
+    setSettings(s);
+
     const realToday = getToday();
     const weekStart = getWeekStart(realToday);
     const sessions = await db.strSessions
@@ -62,28 +66,16 @@ export default function StrPage() {
 
   const startSession = async () => {
     const template = getNextTemplate(totalCompletedSessions);
-    const exercises = getDefaultExercises(template);
+    const baseExercises = getDefaultExercises(template);
 
-    // Prefill weights from most recent completed non-rest sessions
+    // Prefill weights: prefer id-match (survives renames), fall back to name for old sessions
     const pastSessions = (await db.strSessions.toArray())
       .filter(s => s.completed && !s.isRestDay)
       .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 
-    const lastWeightByExercise: Record<string, number> = {};
-    for (const session of pastSessions) {
-      for (const ex of session.exercises) {
-        if (lastWeightByExercise[ex.name] !== undefined) continue;
-        const weight = ex.sets.find(s => s.weight != null)?.weight;
-        if (weight != null) lastWeightByExercise[ex.name] = weight;
-      }
-    }
-
-    for (const ex of exercises) {
-      const lastWeight = lastWeightByExercise[ex.name];
-      if (lastWeight != null) {
-        ex.sets = ex.sets.map(s => ({ ...s, weight: lastWeight }));
-      }
-    }
+    const { byId, byName } = buildWeightPrefillMaps(pastSessions);
+    const nameMap = settings?.exerciseNames ?? {};
+    const exercises = applyWeightPrefill(applyExerciseNames(baseExercises, nameMap), byId, byName);
 
     const session: StrSession = {
       date: logDate,
@@ -155,6 +147,11 @@ export default function StrPage() {
 
   const weekly = getStrWeeklyStatus(weekSessions);
   const canRest = canUseRestToken(weekSessions);
+  const nameMap = settings?.exerciseNames ?? {};
+  // Apply custom names for rendering — works for both new and in-progress sessions
+  const displayExercises = todaySession
+    ? applyExerciseNames(todaySession.exercises, nameMap)
+    : [];
 
   return (
     <div>
@@ -226,7 +223,7 @@ export default function StrPage() {
                 </span>
               )}
             </div>
-            {todaySession.exercises.map((exercise, eIdx) => (
+            {displayExercises.map((exercise, eIdx) => (
               <div key={eIdx} className="stat-card rounded-lg p-3 glow-border">
                 <h4 className="text-sm font-medium text-glow-bright mb-2">{exercise.name}</h4>
                 <div className="space-y-2">
@@ -237,7 +234,7 @@ export default function StrPage() {
                         onChange={() => toggleSet(eIdx, sIdx)}
                         label={`Set ${set.setNumber}`}
                       />
-                      {exercise.name !== 'Core' && exercise.name !== 'Push-Ups' && exercise.name !== 'Push-ups (100 total)' && (
+                      {!(exercise.noWeight ?? (exercise.name === 'Core' || exercise.name === 'Push-Ups' || exercise.name === 'Push-ups (100 total)')) && (
                         <input
                           type="number"
                           placeholder="lbs"

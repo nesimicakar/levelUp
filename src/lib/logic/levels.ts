@@ -63,3 +63,23 @@ export function computeCustomTaskBonusPct(enabledCount: number, checkedCount: nu
   if (enabledCount <= 0) return 0;
   return clamp(Math.round((checkedCount / enabledCount) * 10), 0, 10);
 }
+
+/**
+ * PER domain progress [0..1] for the daily ring.
+ * spiritualityEnabled=false: denominator is 1 (lessons only).
+ * spiritualityEnabled=true:  denominator is 3 (lessons + prayers + quran).
+ */
+export function computePerDomainProgress(
+  enableSpirituality: boolean,
+  lessonsToday: number,
+  lessonsPerDay: number,
+  prayersCount: number,
+  quranPages: number,
+  quranTarget: number,
+): number {
+  const lessonProgress = clamp(lessonsToday / Math.max(lessonsPerDay, 1), 0, 1);
+  if (!enableSpirituality) return lessonProgress;
+  const prayerProgress = clamp(prayersCount / 5, 0, 1);
+  const quranProgress = clamp(quranPages / Math.max(quranTarget, 1), 0, 1);
+  return (lessonProgress + prayerProgress + quranProgress) / 3;
+}

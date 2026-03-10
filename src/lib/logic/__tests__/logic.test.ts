@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct } from '../levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, getLastEvaluatedPct } from '../rank';
-import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises } from '../str';
+import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises, buildWeightPrefillMaps, applyWeightPrefill, TEMPLATE_A, TEMPLATE_B } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
 import { computeStreakThroughYesterday, daysBetween, countActiveDays, computeSystemStreak } from '../streaks';
 import type { StrSession, ExerciseRecord, RankRecord } from '@/types';
@@ -264,6 +264,109 @@ describe('getDefaultExercises', () => {
     expect(exercises).toHaveLength(6);
     expect(exercises[0].name).toBe('Romanian Deadlift (RDL)');
     expect(exercises[0].sets).toHaveLength(3);
+  });
+});
+
+describe('getDefaultExercises stable IDs', () => {
+  it('Workout A exercises all have ids matching TEMPLATE_A', () => {
+    const exercises = getDefaultExercises('A');
+    expect(exercises.map(e => e.id)).toEqual(TEMPLATE_A.map(t => t.id));
+  });
+
+  it('Workout B exercises all have ids matching TEMPLATE_B', () => {
+    const exercises = getDefaultExercises('B');
+    expect(exercises.map(e => e.id)).toEqual(TEMPLATE_B.map(t => t.id));
+  });
+
+  it('Core is noWeight in both templates', () => {
+    const a = getDefaultExercises('A').find(e => e.id === 'core');
+    const b = getDefaultExercises('B').find(e => e.id === 'core');
+    expect(a?.noWeight).toBe(true);
+    expect(b?.noWeight).toBe(true);
+  });
+
+  it('Push-Ups is noWeight in template B', () => {
+    const ex = getDefaultExercises('B').find(e => e.id === 'push-ups');
+    expect(ex?.noWeight).toBe(true);
+  });
+});
+
+describe('buildWeightPrefillMaps', () => {
+  it('returns empty maps when no sessions', () => {
+    const { byId, byName } = buildWeightPrefillMaps([]);
+    expect(byId).toEqual({});
+    expect(byName).toEqual({});
+  });
+
+  it('builds byId and byName from a single session', () => {
+    const sessions = [makeSession({
+      completed: true,
+      exercises: [{ id: 'goblet-squat', name: 'Goblet Squat', isRequired: true,
+        sets: [{ setNumber: 1, completed: true, weight: 50 }] }],
+    })];
+    const { byId, byName } = buildWeightPrefillMaps(sessions);
+    expect(byId['goblet-squat']).toBe(50);
+    expect(byName['Goblet Squat']).toBe(50);
+  });
+
+  it('prefers first entry in array (caller must sort newest-first)', () => {
+    const sessions = [
+      makeSession({ completed: true, exercises: [{ id: 'goblet-squat', name: 'Goblet Squat', isRequired: true,
+        sets: [{ setNumber: 1, completed: true, weight: 60 }] }] }),
+      makeSession({ completed: true, exercises: [{ id: 'goblet-squat', name: 'Goblet Squat', isRequired: true,
+        sets: [{ setNumber: 1, completed: true, weight: 50 }] }] }),
+    ];
+    const { byId } = buildWeightPrefillMaps(sessions);
+    expect(byId['goblet-squat']).toBe(60);
+  });
+
+  it('builds byName even when id is absent (old sessions without id)', () => {
+    const sessions = [makeSession({
+      completed: true,
+      exercises: [{ name: 'Goblet Squat', isRequired: true,
+        sets: [{ setNumber: 1, completed: true, weight: 45 }] }],
+    })];
+    const { byId, byName } = buildWeightPrefillMaps(sessions);
+    expect(Object.keys(byId)).toHaveLength(0);
+    expect(byName['Goblet Squat']).toBe(45);
+  });
+});
+
+describe('applyWeightPrefill', () => {
+  it('prefills weight via id match', () => {
+    const exercises = getDefaultExercises('A');
+    const byId = { 'goblet-squat': 70 };
+    const byName = {};
+    const result = applyWeightPrefill(exercises, byId, byName);
+    const gq = result.find(e => e.id === 'goblet-squat')!;
+    expect(gq.sets[0].weight).toBe(70);
+    expect(gq.sets[2].weight).toBe(70);
+  });
+
+  it('falls back to name match when id absent', () => {
+    // Simulate an old exercise record (no id) in exercises
+    const exercises: ExerciseRecord[] = [{
+      name: 'Goblet Squat', isRequired: true,
+      sets: [{ setNumber: 1, completed: false }],
+    }];
+    const byId = {};
+    const byName = { 'Goblet Squat': 55 };
+    const result = applyWeightPrefill(exercises, byId, byName);
+    expect(result[0].sets[0].weight).toBe(55);
+  });
+
+  it('id match takes precedence over name match', () => {
+    const exercises = getDefaultExercises('A').slice(0, 1); // goblet-squat
+    const byId = { 'goblet-squat': 80 };
+    const byName = { 'Goblet Squat': 40 };
+    const result = applyWeightPrefill(exercises, byId, byName);
+    expect(result[0].sets[0].weight).toBe(80);
+  });
+
+  it('leaves weight undefined when no match', () => {
+    const exercises = getDefaultExercises('A').slice(0, 1);
+    const result = applyWeightPrefill(exercises, {}, {});
+    expect(result[0].sets[0].weight).toBeUndefined();
   });
 });
 
@@ -595,6 +698,51 @@ describe('getLastEvaluatedPct', () => {
       makeRankRecord({ completionPct: 0, reason: 'skipped' }),
     ];
     expect(getLastEvaluatedPct(records)).toBeNull();
+  });
+});
+
+// ===== PER Domain Progress ===== //
+
+describe('computePerDomainProgress', () => {
+  describe('spirituality disabled', () => {
+    it('0/1 when no lessons done', () => {
+      expect(computePerDomainProgress(false, 0, 2, 0, 0, 1)).toBe(0);
+    });
+
+    it('0.5 when half lessons done', () => {
+      expect(computePerDomainProgress(false, 1, 2, 0, 0, 1)).toBe(0.5);
+    });
+
+    it('1.0 (full) when lessons target met', () => {
+      expect(computePerDomainProgress(false, 2, 2, 0, 0, 1)).toBe(1);
+    });
+
+    it('clamps at 1.0 when lessons exceed target', () => {
+      expect(computePerDomainProgress(false, 5, 2, 5, 10, 1)).toBe(1);
+    });
+
+    it('ignores prayers and quran entirely', () => {
+      // lessons not met, prayers/quran done — still 0 if 0 lessons
+      expect(computePerDomainProgress(false, 0, 2, 5, 10, 1)).toBe(0);
+    });
+  });
+
+  describe('spirituality enabled', () => {
+    it('0 when nothing done', () => {
+      expect(computePerDomainProgress(true, 0, 2, 0, 0, 1)).toBe(0);
+    });
+
+    it('1/3 when only lessons met', () => {
+      expect(computePerDomainProgress(true, 2, 2, 0, 0, 1)).toBeCloseTo(1 / 3);
+    });
+
+    it('1.0 when all three met', () => {
+      expect(computePerDomainProgress(true, 2, 2, 5, 1, 1)).toBe(1);
+    });
+
+    it('2/3 when lessons + prayers met, quran not', () => {
+      expect(computePerDomainProgress(true, 2, 2, 5, 0, 1)).toBeCloseTo(2 / 3);
+    });
   });
 });
 
