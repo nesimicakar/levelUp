@@ -1,15 +1,20 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getToday, getSettings, getCourseProgress, updateCourseProgress } from '@/lib/db';
+import { db, getSettings, getCourseProgress, updateCourseProgress } from '@/lib/db';
+import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computeIntXP, getIntDailyCap } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
+import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { IntLog, StatLevel, UserSettings, CourseProgress } from '@/types';
 
 export default function IntPage() {
+  const { today, yesterday } = getLoggableDates();
+  const [logDate, setLogDate] = useState(today);
+
   const [todayLog, setTodayLog] = useState<IntLog | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -19,15 +24,18 @@ export default function IntPage() {
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
-    const today = getToday();
     const s = await getSettings();
     setSettings(s);
 
-    const existing = await db.intLogs.where('date').equals(today).first();
+    const existing = await db.intLogs.where('date').equals(logDate).first();
     if (existing) {
       setTodayLog(existing);
       setLearningMinutes(existing.learningMinutes ?? 0);
       setUnitsToday(existing.courseUnitsCompleted);
+    } else {
+      setTodayLog(null);
+      setLearningMinutes(0);
+      setUnitsToday(0);
     }
 
     const cp = await getCourseProgress('real-estate');
@@ -39,15 +47,25 @@ export default function IntPage() {
     const xp = computeIntXP(cappedMinutes, cp.completedUnits);
     setLevel(computeLevel(xp));
     setLoaded(true);
-  }, []);
+  }, [logDate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Smart default: during grace window, prefer yesterday if today has no log
+  useEffect(() => {
+    if (!yesterday) return;
+    Promise.all([
+      db.intLogs.where('date').equals(today).first(),
+      db.intLogs.where('date').equals(yesterday).first(),
+    ]).then(([todayEntry, yesterdayEntry]) => {
+      if (!todayEntry && yesterdayEntry) setLogDate(yesterday);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const save = async () => {
     if (!settings) return;
-    const today = getToday();
     const completed = learningMinutes >= settings.learningMinutesPerDay && unitsToday >= settings.courseUnitsPerDay;
 
     if (todayLog?.id) {
@@ -67,7 +85,7 @@ export default function IntPage() {
         await updateCourseProgress('real-estate', unitsToday);
       }
       const log: IntLog = {
-        date: today,
+        date: logDate,
         pagesRead: 0,
         learningMinutes,
         courseUnitsCompleted: unitsToday,
@@ -91,6 +109,8 @@ export default function IntPage() {
     <div>
       <PageHeader title="INT // INTELLIGENCE" subtitle={`Level ${level.level}`} />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
+        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
+
         {/* Level progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
           <div className="flex justify-between text-sm mb-2">

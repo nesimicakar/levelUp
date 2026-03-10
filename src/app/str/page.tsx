@@ -2,15 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getWeekStart } from '@/lib/db';
+import { getLoggableDates } from '@/lib/utils/dates';
 import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete } from '@/lib/logic/str';
 import { computeLevel, computeStrXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
+import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { StrSession, ExerciseRecord, WorkoutTemplate, StatLevel } from '@/types';
 
 export default function StrPage() {
+  const { today, yesterday } = getLoggableDates();
+  const [logDate, setLogDate] = useState(today);
+
   const [weekSessions, setWeekSessions] = useState<StrSession[]>([]);
   const [todaySession, setTodaySession] = useState<StrSession | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
@@ -18,15 +23,17 @@ export default function StrPage() {
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
-    const today = getToday();
-    const weekStart = getWeekStart(today);
+    const realToday = getToday();
+    const weekStart = getWeekStart(realToday);
     const sessions = await db.strSessions
       .where('date')
-      .between(weekStart, today + '\uffff')
+      .between(weekStart, realToday + '\uffff')
       .toArray();
     setWeekSessions(sessions);
 
-    const existing = sessions.find(s => s.date === today);
+    const existing = sessions.find(s => s.date === logDate)
+      ?? await db.strSessions.where('date').equals(logDate).first()
+      ?? null;
     setTodaySession(existing ?? null);
 
     const allSessions = await db.strSessions.toArray();
@@ -36,14 +43,24 @@ export default function StrPage() {
     const xp = computeStrXP(totalCompleted, 0);
     setLevel(computeLevel(xp));
     setLoaded(true);
-  }, []);
+  }, [logDate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Smart default: during grace window, prefer yesterday if today has no log
+  useEffect(() => {
+    if (!yesterday) return;
+    Promise.all([
+      db.strSessions.where('date').equals(today).first(),
+      db.strSessions.where('date').equals(yesterday).first(),
+    ]).then(([todayEntry, yesterdayEntry]) => {
+      if (!todayEntry && yesterdayEntry) setLogDate(yesterday);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const startSession = async () => {
-    const today = getToday();
     const template = getNextTemplate(totalCompletedSessions);
     const exercises = getDefaultExercises(template);
 
@@ -69,7 +86,7 @@ export default function StrPage() {
     }
 
     const session: StrSession = {
-      date: today,
+      date: logDate,
       template,
       exercises,
       completed: false,
@@ -83,9 +100,8 @@ export default function StrPage() {
   };
 
   const useRestToken = async () => {
-    const today = getToday();
     const session: StrSession = {
-      date: today,
+      date: logDate,
       template: 'A',
       exercises: [],
       completed: false,
@@ -144,6 +160,8 @@ export default function StrPage() {
     <div>
       <PageHeader title="STR // STRENGTH" subtitle={`Level ${level.level}`} />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
+        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
+
         {/* Level progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
           <div className="flex justify-between text-sm mb-2">
@@ -173,7 +191,7 @@ export default function StrPage() {
           )}
         </div>
 
-        {/* Today's session */}
+        {/* Session for selected date */}
         {!todaySession ? (
           <div className="space-y-3">
             <button

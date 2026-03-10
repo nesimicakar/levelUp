@@ -1,16 +1,21 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { db, getToday, getSettings } from '@/lib/db';
+import { db, getSettings } from '@/lib/db';
+import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computeVitXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
 import { NumberInput } from '@/components/NumberInput';
+import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { VitLog, StatLevel, UserSettings } from '@/types';
 
 export default function VitPage() {
+  const { today, yesterday } = getLoggableDates();
+  const [logDate, setLogDate] = useState(today);
+
   const [todayLog, setTodayLog] = useState<VitLog | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
   const [settings, setSettings] = useState<UserSettings | null>(null);
@@ -20,30 +25,44 @@ export default function VitPage() {
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
-    const today = getToday();
     const s = await getSettings();
     setSettings(s);
 
-    const existing = await db.vitLogs.where('date').equals(today).first();
+    const existing = await db.vitLogs.where('date').equals(logDate).first();
     if (existing) {
       setTodayLog(existing);
       setSleepHours(existing.sleepHours);
       setProteinMet(existing.proteinGoalMet);
       setPostureMet(existing.postureMobilityMet ?? false);
+    } else {
+      setTodayLog(null);
+      setSleepHours(0);
+      setProteinMet(false);
+      setPostureMet(false);
     }
 
     const completedDays = (await db.vitLogs.toArray()).filter(l => l.completed).length;
     const xp = computeVitXP(completedDays);
     setLevel(computeLevel(xp));
     setLoaded(true);
-  }, []);
+  }, [logDate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Smart default: during grace window, prefer yesterday if today has no log
+  useEffect(() => {
+    if (!yesterday) return;
+    Promise.all([
+      db.vitLogs.where('date').equals(today).first(),
+      db.vitLogs.where('date').equals(yesterday).first(),
+    ]).then(([todayEntry, yesterdayEntry]) => {
+      if (!todayEntry && yesterdayEntry) setLogDate(yesterday);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const save = async () => {
-    const today = getToday();
     const completed = sleepHours >= 7 && proteinMet && postureMet;
 
     if (todayLog?.id) {
@@ -56,7 +75,7 @@ export default function VitPage() {
       setTodayLog({ ...todayLog, sleepHours, proteinGoalMet: proteinMet, postureMobilityMet: postureMet, completed });
     } else {
       const log: VitLog = {
-        date: today,
+        date: logDate,
         sleepHours,
         proteinGoalMet: proteinMet,
         postureMobilityMet: postureMet,
@@ -79,6 +98,8 @@ export default function VitPage() {
     <div>
       <PageHeader title="VIT // VITALITY" subtitle={`Level ${level.level}`} />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
+        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
+
         {/* Level progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
           <div className="flex justify-between text-sm mb-2">

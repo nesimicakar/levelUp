@@ -2,15 +2,20 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { db, getToday, getSettings } from '@/lib/db';
+import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computeAgiXP, getAgiDailyCap } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
 import { NumberInput } from '@/components/NumberInput';
+import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { AgiLog, StatLevel, UserSettings } from '@/types';
 
 export default function AgiPage() {
+  const { today, yesterday } = getLoggableDates();
+  const [logDate, setLogDate] = useState(today);
+
   const [todayLog, setTodayLog] = useState<AgiLog | null>(null);
   const [level, setLevel] = useState<StatLevel>({ level: 1, currentXP: 0, xpToNext: 100, progressPct: 0 });
   const [streak, setStreak] = useState(0);
@@ -23,19 +28,20 @@ export default function AgiPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = useCallback(async () => {
-    const today = getToday();
+    const realToday = getToday();
     const s = await getSettings();
     setSettings(s);
 
-    const existing = await db.agiLogs.where('date').equals(today).first();
+    const existing = await db.agiLogs.where('date').equals(logDate).first();
     setTodayLog(existing ?? null);
     if (existing) setMinutes(existing.minutes);
+    else setMinutes(0);
 
     const allLogs = await db.agiLogs.toArray();
     const total = allLogs.reduce((sum, l) => sum + l.minutes, 0);
     setTotalMinutes(total);
 
-    const currentStreak = await computeAgiStreak(today);
+    const currentStreak = await computeAgiStreak(realToday);
     setStreak(currentStreak);
 
     const agiCap = getAgiDailyCap(s.agiMinMinutes);
@@ -43,15 +49,25 @@ export default function AgiPage() {
     const xp = computeAgiXP(cappedTotal, currentStreak);
     setLevel(computeLevel(xp));
     setLoaded(true);
-  }, []);
+  }, [logDate]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
+  // Smart default: during grace window, prefer yesterday if today has no log
+  useEffect(() => {
+    if (!yesterday) return;
+    Promise.all([
+      db.agiLogs.where('date').equals(today).first(),
+      db.agiLogs.where('date').equals(yesterday).first(),
+    ]).then(([todayEntry, yesterdayEntry]) => {
+      if (!todayEntry && yesterdayEntry) setLogDate(yesterday);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const saveLog = async () => {
     if (!settings) return;
-    const today = getToday();
     const completed = minutes >= settings.agiMinMinutes;
 
     if (todayLog?.id) {
@@ -59,7 +75,7 @@ export default function AgiPage() {
       setTodayLog({ ...todayLog, minutes, completed });
     } else {
       const log: AgiLog = {
-        date: today,
+        date: logDate,
         minutes,
         activityType: settings.agiActivityType,
         completed,
@@ -106,6 +122,8 @@ export default function AgiPage() {
     <div>
       <PageHeader title="AGI // AGILITY" subtitle={`Level ${level.level}`} />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
+        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
+
         {/* Level progress */}
         <div className="stat-card rounded-lg p-4 glow-border">
           <div className="flex justify-between text-sm mb-2">
