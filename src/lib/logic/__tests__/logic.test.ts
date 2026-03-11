@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, getLastEvaluatedPct } from '../rank';
-import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises, buildWeightPrefillMaps, applyWeightPrefill, TEMPLATE_A, TEMPLATE_B } from '../str';
+import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, isSessionModeEntry, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises, buildWeightPrefillMaps, applyWeightPrefill, TEMPLATE_A, TEMPLATE_B } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
 import { computeStreakThroughYesterday, daysBetween, countActiveDays, computeSystemStreak } from '../streaks';
 import type { StrSession, ExerciseRecord, RankRecord } from '@/types';
@@ -815,5 +815,103 @@ describe('computeCustomTaskBonusPct', () => {
 
   it('clamps to 10 when checked exceeds enabled (2,5)', () => {
     expect(computeCustomTaskBonusPct(2, 5)).toBe(10);
+  });
+});
+
+// ===== isSessionModeEntry ===== //
+
+describe('isSessionModeEntry', () => {
+  it('returns true when entryMode is explicitly "session"', () => {
+    expect(isSessionModeEntry(makeSession({ entryMode: 'session', completed: true, exercises: [] }))).toBe(true);
+  });
+
+  it('returns false when entryMode is explicitly "workout"', () => {
+    expect(isSessionModeEntry(makeSession({ entryMode: 'workout', completed: true, exercises: [] }))).toBe(false);
+  });
+
+  it('returns true for legacy empty-exercises completed non-rest row (no entryMode)', () => {
+    expect(isSessionModeEntry(makeSession({ completed: true, exercises: [], isRestDay: false }))).toBe(true);
+  });
+
+  it('returns false for rest day even with empty exercises', () => {
+    expect(isSessionModeEntry(makeSession({ isRestDay: true, exercises: [], completed: false }))).toBe(false);
+  });
+
+  it('returns false when exercises array is non-empty (workout-mode row)', () => {
+    const ex: ExerciseRecord[] = [{ name: 'Squat', isRequired: true, sets: [{ setNumber: 1, completed: true }] }];
+    expect(isSessionModeEntry(makeSession({ completed: true, exercises: ex }))).toBe(false);
+  });
+
+  it('returns false for incomplete session with no exercises (not yet committed)', () => {
+    expect(isSessionModeEntry(makeSession({ completed: false, exercises: [], isRestDay: false }))).toBe(false);
+  });
+});
+
+// ===== A/B progression with session-mode entries ===== //
+
+describe('A/B template progression with session-mode entries', () => {
+  it('session-mode entry counts toward totalCompletedSessions for A/B switching', () => {
+    // totalCompletedSessions = allSessions.filter(s => s.completed && !s.isRestDay).length
+    // A session-mode entry has completed:true, isRestDay:false — counts like any workout entry
+    const sessions = [
+      makeSession({ completed: true, isRestDay: false, entryMode: 'session' }),
+    ];
+    const total = sessions.filter(s => s.completed && !s.isRestDay).length;
+    expect(total).toBe(1);
+    expect(getNextTemplate(total)).toBe('B'); // 1 done → next is B
+  });
+
+  it('mix of session-mode and workout-mode entries alternates correctly', () => {
+    const sessions = [
+      makeSession({ completed: true, isRestDay: false, entryMode: 'session' }), // session 1
+      makeSession({ completed: true, isRestDay: false }),                        // session 2 (workout)
+      makeSession({ completed: true, isRestDay: false, entryMode: 'session' }), // session 3
+    ];
+    const total = sessions.filter(s => s.completed && !s.isRestDay).length;
+    expect(total).toBe(3);
+    expect(getNextTemplate(total)).toBe('B'); // 3 done → next is B (odd)
+  });
+
+  it('rest days do not affect A/B template count', () => {
+    const sessions = [
+      makeSession({ completed: true, isRestDay: false }),
+      makeSession({ isRestDay: true }),
+    ];
+    const total = sessions.filter(s => s.completed && !s.isRestDay).length;
+    expect(total).toBe(1);
+    expect(getNextTemplate(total)).toBe('B');
+  });
+});
+
+// ===== Weight prefill unaffected by session-mode entries ===== //
+
+describe('weight prefill unaffected by session-mode entries', () => {
+  it('session-mode entry with empty exercises contributes nothing to prefill maps', () => {
+    const sessions = [
+      makeSession({ completed: true, isRestDay: false, entryMode: 'session', exercises: [] }),
+    ];
+    const { byId, byName } = buildWeightPrefillMaps(sessions);
+    expect(byId).toEqual({});
+    expect(byName).toEqual({});
+  });
+
+  it('workout entry weight is still found after a session-mode entry (newest-first sort)', () => {
+    // Caller sorts newest-first; session-mode entry is newer but has no weights
+    const sessionEntry = makeSession({
+      date: '2025-02-10',
+      completed: true,
+      entryMode: 'session',
+      exercises: [],
+    });
+    const workoutEntry = makeSession({
+      date: '2025-02-03',
+      completed: true,
+      exercises: [{ id: 'goblet-squat', name: 'Goblet Squat', isRequired: true,
+        sets: [{ setNumber: 1, completed: true, weight: 55 }] }],
+    });
+    // sorted newest-first: sessionEntry, then workoutEntry
+    const { byId, byName } = buildWeightPrefillMaps([sessionEntry, workoutEntry]);
+    expect(byId['goblet-squat']).toBe(55);
+    expect(byName['Goblet Squat']).toBe(55);
   });
 });

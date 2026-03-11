@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
-import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete, buildWeightPrefillMaps, applyWeightPrefill, applyExerciseNames } from '@/lib/logic/str';
+import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete, isSessionModeEntry, buildWeightPrefillMaps, applyWeightPrefill, applyExerciseNames } from '@/lib/logic/str';
 import { computeLevel, computeStrXP } from '@/lib/logic/levels';
 import { PageHeader } from '@/components/PageHeader';
 import { ProgressBar } from '@/components/ProgressBar';
@@ -141,6 +141,29 @@ export default function StrPage() {
     setTodaySession({ ...todaySession, exercises });
   };
 
+  const markSessionComplete = async () => {
+    // Block only if already settled — do NOT block on an incomplete session existing
+    if (todaySession?.completed || todaySession?.isRestDay) return;
+    if (todaySession?.id) {
+      // An in-progress workout-mode session exists for this date; complete it in place
+      await db.strSessions.update(todaySession.id, { completed: true });
+    } else {
+      // No session yet — create a minimal session-completion entry
+      const template = getNextTemplate(totalCompletedSessions);
+      await db.strSessions.add({
+        date: logDate,
+        template,
+        exercises: [],
+        completed: true,
+        isRestDay: false,
+        entryMode: 'session',
+        createdAt: Date.now(),
+      });
+    }
+    setShowStrComplete(true);
+    await loadData(); // await so state is fully fresh before any further renders
+  };
+
   const cancelSession = async () => {
     if (!todaySession?.id || todaySession.completed || todaySession.isRestDay) return;
     await db.strSessions.delete(todaySession.id);
@@ -149,6 +172,7 @@ export default function StrPage() {
 
   if (!loaded) return null;
 
+  const strMode = settings?.strMode ?? 'workout';
   const weekly = getStrWeeklyStatus(weekSessions);
   const canRest = canUseRestToken(weekSessions);
   const nameMap = settings?.exerciseNames ?? {};
@@ -199,8 +223,44 @@ export default function StrPage() {
           )}
         </div>
 
-        {/* Session for selected date */}
-        {!todaySession ? (
+        {/* Session for selected date
+            Routing order:
+            1. Rest day — same UI regardless of mode
+            2. Session-mode entry (entryMode='session' or legacy empty-exercises heuristic)
+               — always show simple completed state, even if user switches back to workout mode
+            3. Session mode + no committed entry — show MARK STR COMPLETE
+            4. Workout mode — full exercise checklist */}
+        {todaySession?.isRestDay ? (
+          <div className="stat-card rounded-lg p-6 text-center glow-border">
+            <p className="text-text-muted text-sm tracking-wider">REST DAY</p>
+            <p className="text-text-dim text-xs mt-1">Recovery is part of the protocol</p>
+          </div>
+        ) : todaySession && isSessionModeEntry(todaySession) ? (
+          <div className="stat-card rounded-lg p-6 text-center glow-border">
+            <p className="text-success text-sm font-medium tracking-wider animate-pulse-glow">STRENGTH SESSION COMPLETE</p>
+            <p className="text-text-muted text-xs mt-1">Completed using Session Completion mode</p>
+          </div>
+        ) : strMode === 'session' ? (
+          <div className="space-y-3">
+            <div className="stat-card rounded-lg p-4 glow-border text-center">
+              <p className="text-text-muted text-sm mb-4">Did you complete today's strength session?</p>
+              <button
+                onClick={markSessionComplete}
+                className="w-full p-4 rounded-lg bg-glow/10 border border-glow/30 text-glow font-medium tracking-wider hover:bg-glow/20 transition-colors"
+              >
+                MARK STR COMPLETE
+              </button>
+            </div>
+            {canRest && (
+              <button
+                onClick={useRestToken}
+                className="w-full p-3 rounded-lg bg-surface border border-border text-text-muted text-sm hover:text-text transition-colors"
+              >
+                USE REST TOKEN ({3 - weekly.restTokensUsed} remaining)
+              </button>
+            )}
+          </div>
+        ) : !todaySession ? (
           <div className="space-y-3">
             <button
               onClick={startSession}
@@ -216,11 +276,6 @@ export default function StrPage() {
                 USE REST TOKEN ({3 - weekly.restTokensUsed} remaining)
               </button>
             )}
-          </div>
-        ) : todaySession.isRestDay ? (
-          <div className="stat-card rounded-lg p-6 text-center glow-border">
-            <p className="text-text-muted text-sm tracking-wider">REST DAY</p>
-            <p className="text-text-dim text-xs mt-1">Recovery is part of the protocol</p>
           </div>
         ) : (
           <div className="space-y-3">

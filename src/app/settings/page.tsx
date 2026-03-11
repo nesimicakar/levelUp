@@ -348,6 +348,27 @@ export default function SettingsPage() {
               </div>
             </section>
 
+            {/* STR Mode */}
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-text-dim">STR // MODE</h3>
+              <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
+                <div>
+                  <span className="text-sm text-text">Tracking mode</span>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {(settings.strMode ?? 'workout') === 'workout' ? 'Log sets and weights per exercise' : 'Mark session done with one tap'}
+                  </p>
+                </div>
+                <select
+                  value={settings.strMode ?? 'workout'}
+                  onChange={e => update({ strMode: e.target.value as 'workout' | 'session' })}
+                  className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow"
+                >
+                  <option value="workout">Workout Tracking</option>
+                  <option value="session">Session Completion</option>
+                </select>
+              </div>
+            </section>
+
             {/* STR Exercise Names (collapsible) */}
             <section>
               {(() => {

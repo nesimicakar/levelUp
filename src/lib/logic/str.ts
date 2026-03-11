@@ -27,6 +27,16 @@ export function isSessionComplete(exercises: ExerciseRecord[]): boolean {
   );
 }
 
+/**
+ * Returns true if this session was created via Session Completion mode.
+ * Checks the explicit entryMode tag first; falls back to a safe heuristic
+ * for legacy rows created before the field existed (empty exercises, completed, not a rest day).
+ */
+export function isSessionModeEntry(s: StrSession): boolean {
+  if (s.entryMode === 'session') return true;
+  return !s.entryMode && s.exercises.length === 0 && s.completed && !s.isRestDay;
+}
+
 export function getNextTemplate(totalCompletedSessions: number): WorkoutTemplate {
   // A/B/A/B pattern based on lifetime completed sessions
   return totalCompletedSessions % 2 === 0 ? 'A' : 'B';
