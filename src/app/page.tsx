@@ -7,6 +7,7 @@ import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
+import { SystemMessage } from '@/components/SystemMessage';
 import type { DayStatus, StatLevel, UserSettings } from '@/types';
 
 interface DashboardState {
@@ -18,6 +19,7 @@ interface DashboardState {
   rank: string;
   dailyPct: number;
   overcharge: boolean;
+  requiredComplete: boolean;
   loaded: boolean;
 }
 
@@ -33,8 +35,10 @@ export default function Dashboard() {
     rank: 'E',
     dailyPct: 0,
     overcharge: false,
+    requiredComplete: false,
     loaded: false,
   });
+  const [showDailyComplete, setShowDailyComplete] = useState(false);
 
   const loadData = useCallback(async () => {
     const today = getToday();
@@ -171,6 +175,7 @@ export default function Dashboard() {
       rank: latestRank?.rank ?? 'E',
       dailyPct,
       overcharge,
+      requiredComplete: basePctRaw >= 100,
       loaded: true,
     });
   }, []);
@@ -179,9 +184,30 @@ export default function Dashboard() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!state.loaded) return;
+    const shownKey = `levelup-complete-shown-${getToday()}`;
+    if (state.requiredComplete) {
+      if (!localStorage.getItem(shownKey)) {
+        localStorage.setItem(shownKey, '1');
+        setShowDailyComplete(true);
+      }
+    } else {
+      localStorage.removeItem(shownKey);
+    }
+  }, [state.requiredComplete, state.loaded]);
+
   if (!state.loaded) return null;
 
   return (
+    <>
+    <SystemMessage
+      title="SYSTEM MESSAGE"
+      subtitle="Daily Protocol Cleared"
+      variant="major"
+      visible={showDailyComplete}
+      onDismiss={() => setShowDailyComplete(false)}
+    />
     <main className="max-w-lg mx-auto px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-3">
         <div>
@@ -249,5 +275,6 @@ export default function Dashboard() {
         />
       </div>
     </main>
+    </>
   );
 }
