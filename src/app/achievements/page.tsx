@@ -66,7 +66,7 @@ export default function AchievementsPage() {
     const today = getToday();
     const weekStart = getWeekStart(today);
     const weekStrSessions = await db.strSessions.where('date').between(weekStart, today + '\uffff').toArray();
-    const strCompleted = weekStrSessions.filter(s => s.completed && !s.isRestDay).length;
+    const strCompleted = weekStrSessions.filter(s => s.completed || s.isRestDay).length;
     
     // Count completions this week for daily stats
     const allDates: string[] = [];
