@@ -37,6 +37,8 @@ export interface StrSession {
   completed: boolean;
   isRestDay: boolean;
   createdAt: number;
+  /** Present on entries created via Session Completion mode. Absent on all legacy rows. */
+  entryMode?: 'workout' | 'session';
 }
 
 export interface AgiLog {
@@ -161,6 +163,7 @@ export interface UserSettings {
   hasOnboarded?: boolean;
   enableSpirituality?: boolean;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
+  strMode?: 'workout' | 'session';
 }
 
 export interface StatLevel {
