@@ -10,6 +10,7 @@ import { ProgressBar } from '@/components/ProgressBar';
 import { Toggle } from '@/components/Toggle';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
+import { SystemMessage } from '@/components/SystemMessage';
 import type { StrSession, ExerciseRecord, WorkoutTemplate, StatLevel, UserSettings } from '@/types';
 
 export default function StrPage() {
@@ -22,6 +23,7 @@ export default function StrPage() {
   const [totalCompletedSessions, setTotalCompletedSessions] = useState(0);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [showStrComplete, setShowStrComplete] = useState(false);
 
   const loadData = useCallback(async () => {
     const s = await getSettings();
@@ -118,8 +120,10 @@ export default function StrPage() {
       return { ...e, sets };
     });
     const completed = isSessionComplete(exercises);
+    const wasCompleted = todaySession.completed;
     await db.strSessions.update(todaySession.id, { exercises, completed });
     setTodaySession({ ...updated, exercises, completed });
+    if (completed && !wasCompleted) setShowStrComplete(true);
     if (completed) loadData();
   };
 
@@ -155,6 +159,13 @@ export default function StrPage() {
 
   return (
     <div>
+      <SystemMessage
+        title="SYSTEM MESSAGE"
+        subtitle="STR SESSION LOGGED"
+        variant="minor"
+        visible={showStrComplete}
+        onDismiss={() => setShowStrComplete(false)}
+      />
       <PageHeader title="STR // STRENGTH" subtitle={`Level ${level.level}`} />
       <main className="max-w-lg mx-auto px-4 py-4 space-y-4">
         <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
