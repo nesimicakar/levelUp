@@ -201,6 +201,45 @@ describe('getStrWeeklyStatus', () => {
   });
 });
 
+describe('weekly STR completion counting (rest days count)', () => {
+  // This mirrors the logic in gatherWeekCompletions in rankOrchestrator.ts:
+  //   strCompleted = sessions.filter(s => s.completed || s.isRestDay).length, capped at 4
+  function weeklyStrCompleted(sessions: StrSession[]): number {
+    return Math.min(sessions.filter(s => s.completed || s.isRestDay).length, 4);
+  }
+
+  it('completed workout counts as 1', () => {
+    expect(weeklyStrCompleted([makeSession({ completed: true })])).toBe(1);
+  });
+
+  it('rest day counts as 1 for weekly total', () => {
+    expect(weeklyStrCompleted([makeSession({ isRestDay: true })])).toBe(1);
+  });
+
+  it('mix of workout and rest day both count', () => {
+    expect(weeklyStrCompleted([
+      makeSession({ completed: true }),
+      makeSession({ isRestDay: true }),
+    ])).toBe(2);
+  });
+
+  it('capped at 4 even with extra sessions', () => {
+    expect(weeklyStrCompleted([
+      makeSession({ completed: true }),
+      makeSession({ completed: true }),
+      makeSession({ completed: true }),
+      makeSession({ isRestDay: true }),
+      makeSession({ isRestDay: true }),
+    ])).toBe(4);
+  });
+
+  it('getStrWeeklyStatus.sessionsCompleted is NOT affected by rest days (display only)', () => {
+    // Rest days should NOT count in the UI sessions display
+    const sessions = [makeSession({ completed: true }), makeSession({ isRestDay: true })];
+    expect(getStrWeeklyStatus(sessions).sessionsCompleted).toBe(1);
+  });
+});
+
 describe('canUseRestToken', () => {
   it('can use when under 3', () => {
     expect(canUseRestToken([

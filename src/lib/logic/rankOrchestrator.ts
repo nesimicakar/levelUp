@@ -58,7 +58,7 @@ async function gatherWeekCompletions(weekStart: string) {
     .where('date').between(weekStart, wEnd, true, false)
     .toArray();
   const strCompleted = Math.min(
-    strSessions.filter(s => s.completed && !s.isRestDay).length,
+    strSessions.filter(s => s.completed || s.isRestDay).length,
     4,
   );
 
