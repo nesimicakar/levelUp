@@ -209,11 +209,11 @@ export default function StrPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <span className="text-2xl font-bold text-glow">{weekly.sessionsCompleted}</span>
-              <span className="text-text-muted text-sm">/4 sessions</span>
+              <span className="text-text-muted text-sm">/{weekly.sessionsRequired} sessions</span>
             </div>
             <div>
               <span className="text-2xl font-bold text-warning">{weekly.restTokensUsed}</span>
-              <span className="text-text-muted text-sm">/3 rest tokens</span>
+              <span className="text-text-muted text-sm">/{weekly.restTokensTotal} rest tokens</span>
             </div>
           </div>
           {todaySession?.completed && (
@@ -256,7 +256,7 @@ export default function StrPage() {
                 onClick={useRestToken}
                 className="w-full p-3 rounded-lg bg-surface border border-border text-text-muted text-sm hover:text-text transition-colors"
               >
-                USE REST TOKEN ({3 - weekly.restTokensUsed} remaining)
+                USE REST TOKEN ({weekly.restTokensTotal - weekly.restTokensUsed} remaining)
               </button>
             )}
           </div>
@@ -273,7 +273,7 @@ export default function StrPage() {
                 onClick={useRestToken}
                 className="w-full p-3 rounded-lg bg-surface border border-border text-text-muted text-sm hover:text-text transition-colors"
               >
-                USE REST TOKEN ({3 - weekly.restTokensUsed} remaining)
+                USE REST TOKEN ({weekly.restTokensTotal - weekly.restTokensUsed} remaining)
               </button>
             )}
           </div>

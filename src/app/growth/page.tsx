@@ -77,7 +77,7 @@ export default function GrowthPage() {
       const weStr = weekEnd.toISOString().split('T')[0];
 
       const sCount = allStr.filter(s => s.date >= ws && s.date < weStr && s.completed && !s.isRestDay).length;
-      strWeekly.push({ weekStart: ws, completed: sCount, total: 4 });
+      strWeekly.push({ weekStart: ws, completed: sCount, total: 3 });
 
       const aDays = allAgi.filter(l => l.date >= ws && l.date < weStr && l.completed).length;
       agiWeekly.push({ weekStart: ws, completed: aDays, total: 7 });

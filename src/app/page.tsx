@@ -150,7 +150,7 @@ export default function Dashboard() {
       str: {
         level: strLevel,
         status: strStatus,
-        subtitle: `${strWeekly.sessionsCompleted}/4 sessions · Rest tokens: ${strWeekly.restTokensUsed}/3`,
+        subtitle: `${Math.min(strWeekly.sessionsCompleted, strWeekly.sessionsRequired)}/${strWeekly.sessionsRequired} sessions · Rest tokens: ${strWeekly.restTokensUsed}/${strWeekly.restTokensTotal}`,
       },
       agi: {
         level: agiLevel,

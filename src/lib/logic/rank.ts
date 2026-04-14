@@ -2,7 +2,7 @@ import type { Rank, RankRecord } from '@/types';
 import { RANK_ORDER } from '@/types';
 
 export interface WeeklyCompletionInput {
-  strCompleted: number; // out of 4
+  strCompleted: number; // out of 3
   agiCompleted: number; // out of 7
   vitCompleted: number; // out of 7
   intCompleted: number; // out of 7
@@ -10,7 +10,7 @@ export interface WeeklyCompletionInput {
 }
 
 export function computeWeeklyCompletionPct(input: WeeklyCompletionInput): number {
-  const total = 4 + 7 + 7 + 7 + 7; // 32
+  const total = 3 + 7 + 7 + 7 + 7; // 31
   const completed = input.strCompleted + input.agiCompleted + input.vitCompleted + input.intCompleted + input.perCompleted;
   return Math.round((completed / total) * 100);
 }
@@ -52,11 +52,13 @@ export function getRankColor(rank: Rank): string {
   return colors[rank];
 }
 
-/** Count consecutive evaluated (non-skipped) weeks with >=80%, newest first. */
+/** Count consecutive evaluated (non-skipped) weeks with >=80%, newest first.
+ *  Stops at a promoted/demoted record — the streak was consumed or reset at that point. */
 export function countConsecutiveWeeksAbove80(records: RankRecord[]): number {
   let count = 0;
   for (const r of records) {
     if (r.reason === 'skipped') continue;
+    if (r.reason === 'promoted' || r.reason === 'demoted') break;
     if (r.completionPct >= 80) {
       count++;
     } else {

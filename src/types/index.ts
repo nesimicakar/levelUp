@@ -84,7 +84,7 @@ export interface PerLog {
 export interface WeeklySummary {
   id?: number;
   weekStart: string; // Monday YYYY-MM-DD
-  strCompleted: number; // out of 4
+  strCompleted: number; // out of 3
   strRestTokensUsed: number;
   agiCompleted: number; // out of 7
   vitCompleted: number;

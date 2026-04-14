@@ -90,7 +90,7 @@ export default function AchievementsPage() {
     }
 
     const input: WeeklyCompletionInput = {
-      strCompleted: Math.min(strCompleted, 4),
+      strCompleted: Math.min(strCompleted, 3),
       agiCompleted: agiComp,
       vitCompleted: vitComp,
       intCompleted: intComp,
@@ -213,7 +213,7 @@ export default function AchievementsPage() {
           <div className="grid grid-cols-5 gap-2 text-center">
             {Object.entries(recentStats).map(([stat, count]) => (
               <div key={stat}>
-                <p className="text-glow text-lg font-bold">{count}<span className="text-text-muted text-xs font-normal">/{stat === 'STR' ? 4 : 7}</span></p>
+                <p className="text-glow text-lg font-bold">{count}<span className="text-text-muted text-xs font-normal">/{stat === 'STR' ? 3 : 7}</span></p>
                 <p className="text-text-muted text-xs">{stat === 'STR' ? 'sessions' : 'days'}</p>
               </div>
             ))}
