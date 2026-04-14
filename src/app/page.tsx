@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate } from '@/lib/db';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
@@ -39,11 +40,21 @@ export default function Dashboard() {
     loaded: false,
   });
   const [showDailyComplete, setShowDailyComplete] = useState(false);
+  const [showSystemHint, setShowSystemHint] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    setShowSystemHint(localStorage.getItem('systemHintSeen') !== 'true');
+  }, []);
 
   const loadData = useCallback(async () => {
     const today = getToday();
     const weekStart = getWeekStart(today);
     const settings = await getSettings();
+    if (settings.hasOnboarded === false) {
+      router.replace('/guide');
+      return;
+    }
     const intCourseAbbr = (settings.intCourseName ?? 'Primary Study').split(' ').map(w => w[0]).join('').toUpperCase();
 
     // STR
@@ -181,6 +192,10 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    if (!localStorage.getItem('onboardingComplete')) {
+      router.replace('/guide');
+      return;
+    }
     loadData();
   }, [loadData]);
 
@@ -225,55 +240,49 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-1">
         <CircularProgress
           percentage={state.dailyPct}
           overcharge={state.overcharge}
         />
       </div>
 
-      <div className="space-y-3">
-        <StatCard
-          stat="STR"
-          level={state.str.level.level}
-          progressPct={state.str.level.progressPct}
-          status={state.str.status}
-          subtitle={state.str.subtitle}
-          href="/str"
-        />
-        <StatCard
-          stat="AGI"
-          level={state.agi.level.level}
-          progressPct={state.agi.level.progressPct}
-          status={state.agi.status}
-          subtitle={state.agi.subtitle}
-          href="/agi"
-        />
-        <StatCard
-          stat="VIT"
-          level={state.vit.level.level}
-          progressPct={state.vit.level.progressPct}
-          status={state.vit.status}
-          subtitle={state.vit.subtitle}
-          href="/vit"
-        />
-        <StatCard
-          stat="INT"
-          level={state.int.level.level}
-          progressPct={state.int.level.progressPct}
-          status={state.int.status}
-          subtitle={state.int.subtitle}
-          href="/int"
-        />
-        <StatCard
-          stat="PER"
-          level={state.per.level.level}
-          progressPct={state.per.level.progressPct}
-          status={state.per.status}
-          subtitle={state.per.subtitle}
-          href="/per"
-        />
-      </div>
+      {(() => {
+        const statuses = [state.str.status, state.agi.status, state.vit.status, state.int.status, state.per.status];
+        const remaining = statuses.filter(s => s === 'incomplete').length;
+        return (
+          <p className={`text-center text-xs mb-4 ${remaining === 0 || remaining <= 2 ? 'text-text-dim' : 'text-text-muted'}`}>
+            {remaining === 0 ? 'Protocol cleared' : `${remaining} to clear`}
+          </p>
+        );
+      })()}
+
+      {showSystemHint && (
+        <p className="text-center text-xs text-text-muted opacity-50 mb-3">
+          👉 Tap any section to start
+        </p>
+      )}
+
+      {(() => {
+        const order = ['STR', 'AGI', 'VIT', 'INT', 'PER'] as const;
+        const statuses = { STR: state.str.status, AGI: state.agi.status, VIT: state.vit.status, INT: state.int.status, PER: state.per.status };
+        const next = order.find(s => statuses[s] === 'incomplete') ?? null;
+        const dismissHint = () => {
+          if (showSystemHint) {
+            localStorage.setItem('systemHintSeen', 'true');
+            setShowSystemHint(false);
+          }
+        };
+        return (
+          <div className="space-y-3">
+            <StatCard stat="STR" level={state.str.level.level} progressPct={state.str.level.progressPct} status={state.str.status} subtitle={state.str.subtitle} href="/str" highlight={next === 'STR'} onClick={dismissHint} />
+            <StatCard stat="AGI" level={state.agi.level.level} progressPct={state.agi.level.progressPct} status={state.agi.status} subtitle={state.agi.subtitle} href="/agi" highlight={next === 'AGI'} onClick={dismissHint} />
+            <StatCard stat="VIT" level={state.vit.level.level} progressPct={state.vit.level.progressPct} status={state.vit.status} subtitle={state.vit.subtitle} href="/vit" highlight={next === 'VIT'} onClick={dismissHint} />
+            <StatCard stat="INT" level={state.int.level.level} progressPct={state.int.level.progressPct} status={state.int.status} subtitle={state.int.subtitle} href="/int" highlight={next === 'INT'} onClick={dismissHint} />
+            <StatCard stat="PER" level={state.per.level.level} progressPct={state.per.level.progressPct} status={state.per.status} subtitle={state.per.subtitle} href="/per" highlight={next === 'PER'} onClick={dismissHint} />
+          </div>
+        );
+      })()}
     </main>
     </>
   );
