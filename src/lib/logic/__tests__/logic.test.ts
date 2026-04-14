@@ -95,7 +95,7 @@ describe('daily XP caps', () => {
 describe('computeWeeklyCompletionPct', () => {
   it('all complete = 100%', () => {
     const result = computeWeeklyCompletionPct({
-      strCompleted: 4, agiCompleted: 7, vitCompleted: 7, intCompleted: 7, perCompleted: 7,
+      strCompleted: 3, agiCompleted: 7, vitCompleted: 7, intCompleted: 7, perCompleted: 7,
     });
     expect(result).toBe(100);
   });
@@ -111,8 +111,8 @@ describe('computeWeeklyCompletionPct', () => {
     const result = computeWeeklyCompletionPct({
       strCompleted: 2, agiCompleted: 5, vitCompleted: 3, intCompleted: 4, perCompleted: 6,
     });
-    // 20/32 = 62.5 -> 63%
-    expect(result).toBe(63);
+    // 20/31 = 64.5 -> 65%
+    expect(result).toBe(65);
   });
 });
 
@@ -203,9 +203,9 @@ describe('getStrWeeklyStatus', () => {
 
 describe('weekly STR completion counting (rest days count)', () => {
   // This mirrors the logic in gatherWeekCompletions in rankOrchestrator.ts:
-  //   strCompleted = sessions.filter(s => s.completed || s.isRestDay).length, capped at 4
+  //   strCompleted = sessions.filter(s => s.completed || s.isRestDay).length, capped at 3
   function weeklyStrCompleted(sessions: StrSession[]): number {
-    return Math.min(sessions.filter(s => s.completed || s.isRestDay).length, 4);
+    return Math.min(sessions.filter(s => s.completed || s.isRestDay).length, 3);
   }
 
   it('completed workout counts as 1', () => {
@@ -223,14 +223,14 @@ describe('weekly STR completion counting (rest days count)', () => {
     ])).toBe(2);
   });
 
-  it('capped at 4 even with extra sessions', () => {
+  it('capped at 3 even with extra sessions', () => {
     expect(weeklyStrCompleted([
       makeSession({ completed: true }),
       makeSession({ completed: true }),
       makeSession({ completed: true }),
       makeSession({ isRestDay: true }),
       makeSession({ isRestDay: true }),
-    ])).toBe(4);
+    ])).toBe(3);
   });
 
   it('getStrWeeklyStatus.sessionsCompleted is NOT affected by rest days (display only)', () => {
@@ -241,14 +241,23 @@ describe('weekly STR completion counting (rest days count)', () => {
 });
 
 describe('canUseRestToken', () => {
-  it('can use when under 3', () => {
+  it('can use when under 4', () => {
     expect(canUseRestToken([
       makeSession({ isRestDay: true }),
     ])).toBe(true);
   });
 
-  it('cannot use when at 3', () => {
+  it('can use when at 3 (limit is now 4)', () => {
     expect(canUseRestToken([
+      makeSession({ isRestDay: true }),
+      makeSession({ isRestDay: true }),
+      makeSession({ isRestDay: true }),
+    ])).toBe(true);
+  });
+
+  it('cannot use when at 4', () => {
+    expect(canUseRestToken([
+      makeSession({ isRestDay: true }),
       makeSession({ isRestDay: true }),
       makeSession({ isRestDay: true }),
       makeSession({ isRestDay: true }),
@@ -707,6 +716,38 @@ describe('countConsecutiveWeeksAbove80', () => {
       makeRankRecord({ completionPct: 90 }),
     ];
     expect(countConsecutiveWeeksAbove80(records)).toBe(2);
+  });
+
+  it('stops at a promoted record — pre-promotion weeks are not counted', () => {
+    // Week 5 (newest): 85% maintained, Week 4: 88% promoted, Weeks 1-3: 85% maintained
+    // After promotion streak resets; only week 5 counts toward new streak
+    const records = [
+      makeRankRecord({ completionPct: 85, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 88, reason: 'promoted' }),
+      makeRankRecord({ completionPct: 85, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 82, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 80, reason: 'maintained' }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(1);
+  });
+
+  it('returns 0 immediately after promotion (no weeks since promotion)', () => {
+    const records = [
+      makeRankRecord({ completionPct: 88, reason: 'promoted' }),
+      makeRankRecord({ completionPct: 85, reason: 'maintained' }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(0);
+  });
+
+  it('never exceeds 3 before re-promotion (4th week triggers promotion, not this fn)', () => {
+    // 3 maintained weeks since last promotion — should return 3
+    const records = [
+      makeRankRecord({ completionPct: 82, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 85, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 90, reason: 'maintained' }),
+      makeRankRecord({ completionPct: 88, reason: 'promoted' }),
+    ];
+    expect(countConsecutiveWeeksAbove80(records)).toBe(3);
   });
 });
 

@@ -59,7 +59,7 @@ async function gatherWeekCompletions(weekStart: string) {
     .toArray();
   const strCompleted = Math.min(
     strSessions.filter(s => s.completed || s.isRestDay).length,
-    4,
+    3,
   );
 
   let agiCompleted = 0;
@@ -85,12 +85,14 @@ async function gatherWeekCompletions(weekStart: string) {
 /**
  * Count consecutive evaluated weeks (not skipped) ending with >=80%,
  * reading backwards from the most recent rankHistory records.
+ * Stops at a promoted/demoted record — the streak was consumed or reset at that point.
  */
 async function getConsecutiveWeeksAbove80(): Promise<number> {
   const records = await db.rankHistory.orderBy('weekStart').reverse().toArray();
   let count = 0;
   for (const r of records) {
     if (r.reason === 'skipped') continue;
+    if (r.reason === 'promoted' || r.reason === 'demoted') break;
     if (r.completionPct >= 80) {
       count++;
     } else {
@@ -107,7 +109,50 @@ async function getConsecutiveWeeksAbove80(): Promise<number> {
  * Fairness: if firstUseDate falls mid-week in the previous week,
  * the evaluation is skipped — no rank change.
  */
+/**
+ * One-time repair: removes any rankHistory record where the promotion to a higher rank
+ * was caused by the pre-fix bug (streak counter didn't stop at previous promotion).
+ * Safe to run repeatedly — idempotent. Deletes only records flagged as 'promoted'
+ * that follow immediately after another 'promoted' record with fewer than 4 intervening
+ * maintained weeks.
+ */
+async function repairSpuriousPromotion(): Promise<void> {
+  const repairKey = 'rankRepair_v1';
+  if (localStorage.getItem(repairKey) === 'done') return;
+
+  const records = await db.rankHistory.orderBy('weekStart').toArray(); // oldest first
+  const toDelete: number[] = [];
+
+  for (let i = 1; i < records.length; i++) {
+    const r = records[i];
+    if (r.reason !== 'promoted') continue;
+
+    // Count maintained weeks between the previous promotion/demotion and this record
+    let maintainedSince = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      if (records[j].reason === 'skipped') continue;
+      if (records[j].reason === 'promoted' || records[j].reason === 'demoted') break;
+      if (records[j].completionPct >= 80) maintainedSince++;
+      else break;
+    }
+
+    // A legitimate promotion requires exactly 3 maintained weeks before it
+    // (the 4th week triggers the promotion itself). Anything fewer is spurious.
+    if (maintainedSince < 3 && r.id !== undefined) {
+      toDelete.push(r.id);
+    }
+  }
+
+  if (toDelete.length > 0) {
+    await db.rankHistory.bulkDelete(toDelete);
+  }
+
+  localStorage.setItem(repairKey, 'done');
+}
+
 export async function evaluateRankIfNeeded(today: string): Promise<void> {
+  await repairSpuriousPromotion();
+
   // 1. Ensure firstUseDate
   const settings = await getSettings();
   if (!settings.firstUseDate) {

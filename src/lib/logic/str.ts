@@ -10,15 +10,15 @@ export function getStrWeeklyStatus(weekSessions: StrSession[]) {
   const restDays = weekSessions.filter(s => s.isRestDay).length;
   return {
     sessionsCompleted: completed,
-    sessionsRequired: 4,
+    sessionsRequired: 3,
     restTokensUsed: restDays,
-    restTokensTotal: 3,
+    restTokensTotal: 4,
   };
 }
 
 export function canUseRestToken(weekSessions: StrSession[]): boolean {
   const status = getStrWeeklyStatus(weekSessions);
-  return status.restTokensUsed < 3;
+  return status.restTokensUsed < 4;
 }
 
 export function isSessionComplete(exercises: ExerciseRecord[]): boolean {
