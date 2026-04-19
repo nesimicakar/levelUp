@@ -46,7 +46,7 @@ export default function SettingsPage() {
   const [confirmText, setConfirmText] = useState('');
   const [importError, setImportError] = useState('');
   const [importFileKey, setImportFileKey] = useState(0);
-  const [openSections, setOpenSections] = useState({ core: true, personalization: false, safety: false });
+  const [openSections, setOpenSections] = useState({ core: false, personalization: false, safety: false });
 
   const toggleSection = (s: 'core' | 'personalization' | 'safety') =>
     setOpenSections(prev => ({ ...prev, [s]: !prev[s] }));
