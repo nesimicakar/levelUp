@@ -142,6 +142,23 @@ export interface CustomTaskLog {
   updatedAt: number;
 }
 
+export interface ActiveBook {
+  id: string;
+  title: string;
+  author?: string;
+  currentPage?: number;
+  totalPages?: number;
+  startedAt?: number;
+}
+
+export interface FinishedBook {
+  id: string;
+  title: string;
+  author?: string;
+  totalPages?: number;
+  finishedAt: number;
+}
+
 export interface UserSettings {
   id?: number;
   readingPagesPerDay: number;
@@ -164,6 +181,8 @@ export interface UserSettings {
   enableSpirituality?: boolean;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
   strMode?: 'workout' | 'session';
+  activeBooks?: ActiveBook[];
+  finishedBooks?: FinishedBook[];
 }
 
 export interface StatLevel {

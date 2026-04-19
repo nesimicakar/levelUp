@@ -83,6 +83,8 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.hasOnboarded === undefined) s.hasOnboarded = true; // existing users skip onboarding
     if (s.enableSpirituality === undefined) s.enableSpirituality = true; // existing users keep spirituality
     if (s.exerciseNames === undefined) s.exerciseNames = {};
+    if (s.activeBooks === undefined) s.activeBooks = [];
+    if (s.finishedBooks === undefined) s.finishedBooks = [];
     return s;
   }
   const defaults: UserSettings = {
@@ -104,6 +106,8 @@ export async function getSettings(): Promise<UserSettings> {
     hasOnboarded: false,
     enableSpirituality: false,
     exerciseNames: {},
+    activeBooks: [],
+    finishedBooks: [],
   };
   await db.settings.add(defaults);
   return defaults;

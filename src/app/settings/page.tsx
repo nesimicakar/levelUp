@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { db, getSettings, getToday, updateSettings, deleteCustomTask } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
 import { NumberInput } from '@/components/NumberInput';
@@ -346,6 +347,25 @@ export default function SettingsPage() {
                   className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow w-40 text-right"
                 />
               </div>
+            </section>
+
+            {/* Books */}
+            <section className="space-y-3">
+              <h3 className="text-sm font-medium text-text-dim">READING</h3>
+              <Link
+                href="/books"
+                className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface hover:border-glow/40 transition-colors"
+              >
+                <div>
+                  <span className="text-sm text-text">Books</span>
+                  <p className="text-xs text-text-muted mt-0.5">
+                    {(settings.activeBooks?.length ?? 0) > 0
+                      ? `${settings.activeBooks!.length} active · ${settings.finishedBooks?.length ?? 0} finished`
+                      : 'Track active & finished books'}
+                  </p>
+                </div>
+                <span className="text-text-muted">→</span>
+              </Link>
             </section>
 
             {/* STR Mode */}
