@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getSettings, updateSettings } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
@@ -22,6 +22,21 @@ export default function BookDetailPage() {
 
   // Debounced persist
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-sizing textareas: grow with content, no inner scrollbar
+  const keyIdeasRef = useRef<HTMLTextAreaElement | null>(null);
+  const applyRef = useRef<HTMLTextAreaElement | null>(null);
+  const notesRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function autoSize(el: HTMLTextAreaElement | null) {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
+  useLayoutEffect(() => { autoSize(keyIdeasRef.current); }, [keyIdeas]);
+  useLayoutEffect(() => { autoSize(applyRef.current); }, [applyToLife]);
+  useLayoutEffect(() => { autoSize(notesRef.current); }, [notes]);
 
   useEffect(() => {
     (async () => {
@@ -111,11 +126,12 @@ export default function BookDetailPage() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium text-text-dim tracking-wider">KEY IDEAS</h3>
           <textarea
+            ref={keyIdeasRef}
             value={keyIdeas}
             onChange={e => setKeyIdeas(e.target.value)}
             placeholder="List the most important ideas from this book..."
             rows={6}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-y"
+            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
           />
         </section>
 
@@ -124,11 +140,12 @@ export default function BookDetailPage() {
           <h3 className="text-sm font-medium text-text-dim tracking-wider">APPLY TO MY LIFE</h3>
           <p className="text-xs text-text-muted">Keep this short. 3–5 actions max.</p>
           <textarea
+            ref={applyRef}
             value={applyToLife}
             onChange={e => setApplyToLife(e.target.value)}
             placeholder="What will you actually do differently?"
             rows={5}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-y"
+            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
           />
         </section>
 
@@ -136,11 +153,12 @@ export default function BookDetailPage() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium text-text-dim tracking-wider">NOTES</h3>
           <textarea
+            ref={notesRef}
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="Thoughts, reflections, observations..."
             rows={8}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-y"
+            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
           />
         </section>
       </main>
