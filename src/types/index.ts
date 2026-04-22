@@ -149,6 +149,9 @@ export interface ActiveBook {
   currentPage?: number;
   totalPages?: number;
   startedAt?: number;
+  keyIdeas?: string;
+  applyToLife?: string;
+  notes?: string;
 }
 
 export interface FinishedBook {
@@ -157,6 +160,9 @@ export interface FinishedBook {
   author?: string;
   totalPages?: number;
   finishedAt: number;
+  keyIdeas?: string;
+  applyToLife?: string;
+  notes?: string;
 }
 
 export interface UserSettings {
