@@ -87,6 +87,9 @@ export default function BooksPage() {
       author: book.author,
       totalPages: book.totalPages,
       finishedAt: Date.now(),
+      keyIdeas: book.keyIdeas,
+      applyToLife: book.applyToLife,
+      notes: book.notes,
     };
     await persist(active.filter(b => b.id !== id), [done, ...finished]);
   }
