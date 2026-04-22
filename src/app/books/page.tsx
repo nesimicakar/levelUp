@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { getSettings, updateSettings } from '@/lib/db';
 import { PageHeader } from '@/components/PageHeader';
 import type { ActiveBook, FinishedBook } from '@/types';
@@ -190,13 +191,13 @@ export default function BooksPage() {
                 : null;
             return (
               <div key={book.id} className="stat-card rounded-lg p-4 glow-border space-y-3">
-                <div>
-                  <p className="text-text font-medium">{book.title}</p>
+                <Link href={`/books/${book.id}`} className="block group">
+                  <p className="text-text font-medium group-hover:text-glow transition-colors">{book.title}</p>
                   {book.author && <p className="text-text-muted text-xs">{book.author}</p>}
                   {progressLabel && (
                     <p className="text-text-dim text-xs mt-1">{progressLabel}</p>
                   )}
-                </div>
+                </Link>
 
                 {isEditing ? (
                   <div className="flex gap-2">
@@ -263,12 +264,12 @@ export default function BooksPage() {
             <div className="space-y-2">
               {finished.map(book => (
                 <div key={book.id} className="stat-card rounded-lg p-3 glow-border flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-text text-sm truncate">{book.title}</p>
+                  <Link href={`/books/${book.id}`} className="min-w-0 flex-1 group">
+                    <p className="text-text text-sm truncate group-hover:text-glow transition-colors">{book.title}</p>
                     <p className="text-text-muted text-xs">
                       {book.author ? `${book.author} · ` : ''}{formatDate(book.finishedAt)}
                     </p>
-                  </div>
+                  </Link>
                   <button
                     onClick={() => removeFinished(book.id)}
                     className="text-text-dim text-xs tracking-wider hover:text-danger transition-colors flex-shrink-0"
