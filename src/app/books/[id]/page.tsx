@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/PageHeader';
 import type { ActiveBook, FinishedBook } from '@/types';
 
 type AnyBook = (ActiveBook | FinishedBook) & { source: 'active' | 'finished' };
+type SectionKey = 'keyIdeas' | 'applyToLife' | 'notes';
 
 export default function BookDetailPage() {
   const params = useParams<{ id: string }>();
@@ -20,7 +21,8 @@ export default function BookDetailPage() {
   const [applyToLife, setApplyToLife] = useState('');
   const [notes, setNotes] = useState('');
 
-  // Debounced persist
+  const [editing, setEditing] = useState<SectionKey | null>(null);
+
   const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-sizing textareas: grow with content, no inner scrollbar
@@ -34,9 +36,19 @@ export default function BookDetailPage() {
     el.style.height = `${el.scrollHeight}px`;
   }
 
-  useLayoutEffect(() => { autoSize(keyIdeasRef.current); }, [keyIdeas]);
-  useLayoutEffect(() => { autoSize(applyRef.current); }, [applyToLife]);
-  useLayoutEffect(() => { autoSize(notesRef.current); }, [notes]);
+  useLayoutEffect(() => { autoSize(keyIdeasRef.current); }, [keyIdeas, editing]);
+  useLayoutEffect(() => { autoSize(applyRef.current); }, [applyToLife, editing]);
+  useLayoutEffect(() => { autoSize(notesRef.current); }, [notes, editing]);
+
+  // Focus textarea when entering edit mode
+  useEffect(() => {
+    if (!editing) return;
+    const target =
+      editing === 'keyIdeas' ? keyIdeasRef.current :
+      editing === 'applyToLife' ? applyRef.current :
+      notesRef.current;
+    target?.focus();
+  }, [editing]);
 
   useEffect(() => {
     (async () => {
@@ -84,10 +96,7 @@ export default function BookDetailPage() {
     };
   }, [keyIdeas, applyToLife, notes, book]);
 
-  const savedLabel = useMemo(() => {
-    if (!savedAt) return '';
-    return 'Saved';
-  }, [savedAt]);
+  const savedLabel = useMemo(() => (savedAt ? 'Saved' : ''), [savedAt]);
 
   if (!loaded) {
     return (
@@ -109,6 +118,42 @@ export default function BookDetailPage() {
     );
   }
 
+  function SectionHeader({ title, sectionKey, hasContent }: { title: string; sectionKey: SectionKey; hasContent: boolean }) {
+    const isEditing = editing === sectionKey;
+    return (
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-text-dim tracking-wider">{title}</h3>
+        {hasContent && (
+          <button
+            onClick={() => setEditing(isEditing ? null : sectionKey)}
+            className="text-xs text-text-muted tracking-wider hover:text-glow transition-colors"
+          >
+            {isEditing ? 'DONE' : 'EDIT'}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  function DisplayCard({ text }: { text: string }) {
+    return (
+      <div className="bg-surface/60 border border-border/60 rounded-lg px-4 py-3">
+        <p className="text-sm text-text leading-relaxed whitespace-pre-line">{text}</p>
+      </div>
+    );
+  }
+
+  function EmptyAdd({ label, onClick }: { label: string; onClick: () => void }) {
+    return (
+      <button
+        onClick={onClick}
+        className="w-full border border-dashed border-border/70 rounded-lg px-4 py-3 text-left text-sm text-text-dim hover:text-glow hover:border-glow/40 transition-colors"
+      >
+        + {label}
+      </button>
+    );
+  }
+
   return (
     <div>
       <PageHeader title="BOOK" subtitle={book.source === 'active' ? 'Active' : 'Finished'} />
@@ -124,42 +169,62 @@ export default function BookDetailPage() {
 
         {/* KEY IDEAS */}
         <section className="space-y-2">
-          <h3 className="text-sm font-medium text-text-dim tracking-wider">KEY IDEAS</h3>
-          <textarea
-            ref={keyIdeasRef}
-            value={keyIdeas}
-            onChange={e => setKeyIdeas(e.target.value)}
-            placeholder="List the most important ideas from this book..."
-            rows={6}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
-          />
+          <SectionHeader title="KEY IDEAS" sectionKey="keyIdeas" hasContent={keyIdeas.trim().length > 0} />
+          {editing === 'keyIdeas' ? (
+            <textarea
+              ref={keyIdeasRef}
+              value={keyIdeas}
+              onChange={e => setKeyIdeas(e.target.value)}
+              placeholder="List the most important ideas from this book..."
+              rows={6}
+              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden leading-relaxed"
+            />
+          ) : keyIdeas.trim().length > 0 ? (
+            <DisplayCard text={keyIdeas} />
+          ) : (
+            <EmptyAdd label="Add key ideas" onClick={() => setEditing('keyIdeas')} />
+          )}
         </section>
 
         {/* APPLY TO MY LIFE */}
         <section className="space-y-2">
-          <h3 className="text-sm font-medium text-text-dim tracking-wider">APPLY TO MY LIFE</h3>
-          <p className="text-xs text-text-muted">Keep this short. 3–5 actions max.</p>
-          <textarea
-            ref={applyRef}
-            value={applyToLife}
-            onChange={e => setApplyToLife(e.target.value)}
-            placeholder="What will you actually do differently?"
-            rows={5}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
-          />
+          <SectionHeader title="APPLY TO MY LIFE" sectionKey="applyToLife" hasContent={applyToLife.trim().length > 0} />
+          {editing === 'applyToLife' ? (
+            <>
+              <p className="text-xs text-text-muted">Keep this short. 3–5 actions max.</p>
+              <textarea
+                ref={applyRef}
+                value={applyToLife}
+                onChange={e => setApplyToLife(e.target.value)}
+                placeholder="What will you actually do differently?"
+                rows={5}
+                className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden leading-relaxed"
+              />
+            </>
+          ) : applyToLife.trim().length > 0 ? (
+            <DisplayCard text={applyToLife} />
+          ) : (
+            <EmptyAdd label="Add actions" onClick={() => setEditing('applyToLife')} />
+          )}
         </section>
 
         {/* NOTES */}
         <section className="space-y-2">
-          <h3 className="text-sm font-medium text-text-dim tracking-wider">NOTES</h3>
-          <textarea
-            ref={notesRef}
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            placeholder="Thoughts, reflections, observations..."
-            rows={8}
-            className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden"
-          />
+          <SectionHeader title="NOTES" sectionKey="notes" hasContent={notes.trim().length > 0} />
+          {editing === 'notes' ? (
+            <textarea
+              ref={notesRef}
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Thoughts, reflections, observations..."
+              rows={8}
+              className="w-full bg-surface-light border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-text-dim focus:outline-none focus:border-glow resize-none overflow-hidden leading-relaxed"
+            />
+          ) : notes.trim().length > 0 ? (
+            <DisplayCard text={notes} />
+          ) : (
+            <EmptyAdd label="Add notes" onClick={() => setEditing('notes')} />
+          )}
         </section>
       </main>
     </div>
