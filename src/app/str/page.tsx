@@ -198,8 +198,8 @@ export default function StrPage() {
   if (!loaded) return null;
 
   const strMode = settings?.strMode ?? 'workout';
-  const weekly = getStrWeeklyStatus(weekSessions);
-  const canRest = canUseRestToken(weekSessions);
+  const weekly = getStrWeeklyStatus(weekSessions, settings?.strSessionsPerWeek ?? 3);
+  const canRest = canUseRestToken(weekSessions, settings?.strSessionsPerWeek ?? 3);
   const nameMap = settings?.exerciseNames ?? {};
   const displayExercises = todaySession
     ? applyExerciseNames(todaySession.exercises, nameMap)
@@ -493,45 +493,136 @@ export default function StrPage() {
             </div>
             {displayExercises.map((exercise, eIdx) => {
               const completedSets = exercise.sets.filter(s => s.completed).length;
+              const total = exercise.sets.length;
+              const allDone = completedSets === total;
               const noWeight = exercise.noWeight ?? (exercise.name === 'Core' || exercise.name === 'Push-Ups' || exercise.name === 'Push-ups (100 total)');
+              // First idle set is "active" — guides the user through the workout
+              const activeIdx = exercise.sets.findIndex(s => !s.completed);
               return (
                 <div key={eIdx} className="frame-cut p-3">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-display font-semibold text-text text-sm">{exercise.name}</h4>
-                    <span className="text-text-muted text-[10px] tracking-[0.14em]">{completedSets}/{exercise.sets.length}</span>
+                    <span
+                      className="font-mono-hud text-[10px] tracking-[0.14em]"
+                      style={{ color: allDone ? 'var(--color-stat-agi)' : 'var(--color-text-muted)' }}
+                    >
+                      {completedSets}/{total}
+                    </span>
                   </div>
-                  <div className="flex gap-1.5">
-                    {exercise.sets.map((set, sIdx) => (
-                      <button
-                        key={sIdx}
-                        onClick={() => toggleSet(eIdx, sIdx)}
-                        className="cut-tile flex-1 py-2 px-1 text-center transition-colors"
-                        style={{
-                          background: set.completed ? 'rgba(239,68,68,0.12)' : 'var(--color-bg)',
-                          border: `1px solid ${set.completed ? 'var(--color-stat-str)' : 'var(--color-border)'}`,
-                        }}
-                      >
-                        <div className="text-[9px] text-text-muted tracking-[0.14em]">SET {set.setNumber}</div>
-                        {noWeight ? (
-                          <div className="font-display font-bold text-sm" style={{ color: set.completed ? 'var(--color-stat-str)' : 'var(--color-text-dim)' }}>
-                            {set.completed ? '✓' : '·'}
+                  <div className="space-y-1.5">
+                    {exercise.sets.map((set, sIdx) => {
+                      const state: 'idle' | 'active' | 'done' =
+                        set.completed ? 'done' : (sIdx === activeIdx ? 'active' : 'idle');
+                      const rowStyle = (() => {
+                        if (state === 'done') return {
+                          background: 'rgba(34,197,94,0.06)',
+                          border: '1px solid rgba(34,197,94,0.3)',
+                          boxShadow: 'none',
+                        };
+                        if (state === 'active') return {
+                          background: 'rgba(239,68,68,0.10)',
+                          border: '1px solid var(--color-stat-str)',
+                          boxShadow: '0 0 8px rgba(239,68,68,0.20)',
+                        };
+                        return {
+                          background: 'transparent',
+                          border: '1px solid var(--color-border)',
+                          boxShadow: 'none',
+                        };
+                      })();
+                      const setLabelColor =
+                        state === 'done' ? 'var(--color-stat-agi)'
+                          : state === 'active' ? 'var(--color-stat-str)'
+                          : 'var(--color-text-muted)';
+                      const valueColor =
+                        state === 'done' ? 'var(--color-stat-agi)' : 'var(--color-text)';
+                      const doneBtnStyle = (() => {
+                        if (state === 'done') return {
+                          background: 'var(--color-stat-agi)',
+                          border: '1px solid var(--color-stat-agi)',
+                          color: 'var(--color-bg)',
+                          boxShadow: '0 0 6px rgba(34,197,94,0.4)',
+                        };
+                        if (state === 'active') return {
+                          background: 'rgba(239,68,68,0.10)',
+                          border: '1px solid var(--color-stat-str)',
+                          color: 'var(--color-stat-str)',
+                          boxShadow: 'none',
+                        };
+                        return {
+                          background: 'var(--color-bg)',
+                          border: '1px solid var(--color-border)',
+                          color: 'var(--color-text-muted)',
+                          boxShadow: 'none',
+                        };
+                      })();
+                      const weight = set.weight ?? 0;
+
+                      return (
+                        <div
+                          key={sIdx}
+                          className="cut-tile grid items-stretch transition-all"
+                          style={{
+                            gridTemplateColumns: '44px 1fr 64px',
+                            gap: 10,
+                            padding: '8px 10px',
+                            ...rowStyle,
+                          }}
+                        >
+                          {/* Zone 1 · SET label */}
+                          <div
+                            className="grid place-items-center"
+                            style={{ borderRight: '1px solid var(--color-border)' }}
+                          >
+                            <div className="font-mono-hud text-[10px] tracking-[0.14em] text-center leading-tight" style={{ color: setLabelColor }}>
+                              SET<br />{set.setNumber}
+                            </div>
                           </div>
-                        ) : (
-                          <input
-                            type="number"
-                            placeholder="lb"
-                            value={set.weight ?? ''}
-                            onClick={e => e.stopPropagation()}
-                            onChange={e => {
-                              const v = parseFloat(e.target.value);
-                              if (!isNaN(v)) updateWeight(eIdx, sIdx, v);
-                            }}
-                            className="w-full bg-transparent border-0 text-center font-display font-bold text-sm focus:outline-none p-0"
-                            style={{ color: set.completed ? 'var(--color-stat-str)' : 'var(--color-text-dim)' }}
-                          />
-                        )}
-                      </button>
-                    ))}
+
+                          {/* Zone 2 · Weight stepper (or empty for noWeight) */}
+                          {noWeight ? (
+                            <div className="grid place-items-center text-text-muted text-xs">—</div>
+                          ) : (
+                            <div className="grid items-center" style={{ gridTemplateColumns: '32px 1fr 32px' }}>
+                              <button
+                                onClick={() => updateWeight(eIdx, sIdx, Math.max(0, weight - 5))}
+                                className="h-full grid place-items-center font-mono-hud text-base leading-none transition-colors hover:brightness-125"
+                                style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-dim)' }}
+                                aria-label={`Decrease set ${set.setNumber} weight`}
+                              >
+                                −
+                              </button>
+                              <div className="grid place-items-center">
+                                <div className="flex items-baseline gap-1">
+                                  <span className="font-mono-hud font-bold text-base" style={{ color: valueColor }}>
+                                    {weight}
+                                  </span>
+                                  <span className="font-mono-hud text-[9px] text-text-muted">lb</span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => updateWeight(eIdx, sIdx, weight + 5)}
+                                className="h-full grid place-items-center font-mono-hud text-base leading-none transition-colors hover:brightness-125"
+                                style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-dim)' }}
+                                aria-label={`Increase set ${set.setNumber} weight`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Zone 3 · DONE pill */}
+                          <button
+                            onClick={() => toggleSet(eIdx, sIdx)}
+                            className="cut-tile grid place-items-center font-display font-bold text-[11px] tracking-[0.14em] transition-all"
+                            style={{ ...doneBtnStyle, padding: '6px 4px' }}
+                            aria-label={state === 'done' ? `Undo set ${set.setNumber}` : `Mark set ${set.setNumber} done`}
+                          >
+                            {state === 'done' ? '✓ DONE' : 'DONE'}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                   {/* Toggle label fallback for accessibility — keeps "Set N" association */}
                   <div className="sr-only">

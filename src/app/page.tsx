@@ -62,7 +62,7 @@ export default function Dashboard() {
       .where('date')
       .between(weekStart, today + '\uffff')
       .toArray();
-    const strWeekly = getStrWeeklyStatus(weekStrSessions);
+    const strWeekly = getStrWeeklyStatus(weekStrSessions, settings.strSessionsPerWeek ?? 3);
     const todayStr = weekStrSessions.find(s => s.date === today);
     const strStatus: DayStatus = todayStr?.isRestDay ? 'rest' : todayStr?.completed ? 'complete' : 'incomplete';
     const strXP = computeStrXP(allStrSessions, 0);

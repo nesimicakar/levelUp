@@ -468,7 +468,23 @@ interface QuickAddRowProps {
 function QuickAddRow({ onAdd, compact }: QuickAddRowProps) {
   const values = compact ? [5, 10, 15, 30] : [5, 10, 15, 30, 45];
   return (
-    <div className="flex gap-1.5 flex-wrap">
+    <div className="flex gap-1.5 flex-wrap items-stretch">
+      {/* Subtle subtract button — for correcting overshoot */}
+      <button
+        onClick={() => onAdd(-5)}
+        className="cut-tile font-mono-hud transition-colors hover:brightness-125"
+        style={{
+          flex: '0 0 auto',
+          padding: compact ? '6px 8px' : '8px 10px',
+          background: 'transparent',
+          border: '1px solid var(--color-border)',
+          color: 'var(--color-text-muted)',
+          fontSize: compact ? 12 : 13,
+        }}
+        aria-label="Subtract 5 minutes"
+      >
+        −5
+      </button>
       {values.map(m => (
         <button
           key={m}

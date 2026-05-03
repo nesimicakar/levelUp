@@ -223,6 +223,16 @@ export default function SettingsPage() {
         <SectionHeader label="Daily Targets" />
 
         <CompactStepperRow
+          stat="STR"
+          label="Sessions / week"
+          value={settings.strSessionsPerWeek ?? 3}
+          unit="d"
+          step={1}
+          min={2}
+          max={5}
+          onChange={v => update({ strSessionsPerWeek: v })}
+        />
+        <CompactStepperRow
           stat="AGI"
           label="Cardio minutes"
           value={settings.agiMinMinutes}

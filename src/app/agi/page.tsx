@@ -397,27 +397,42 @@ export default function AgiPage() {
               ))}
             </div>
 
-            {/* Custom stepper */}
+            {/* Custom stepper — editable middle, ±5 buttons */}
             <div className="cut-tile flex items-center justify-between px-3 py-2 mb-3"
                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
               <span className="text-text-muted text-[10px] tracking-[0.18em] uppercase">Custom</span>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setMinutes(m => Math.max(0, m - 1))}
+                  onClick={() => setMinutes(m => Math.max(0, m - 5))}
                   className="w-7 h-7 grid place-items-center text-text-dim hover:text-text"
                   style={{ background: 'transparent', border: '1px solid var(--color-border)' }}
-                  aria-label="Decrease"
+                  aria-label="Decrease by 5"
                 >
                   −
                 </button>
-                <span className="font-display font-bold text-lg min-w-[60px] text-center" style={{ color: 'var(--color-stat-agi)' }}>
-                  {minutes}<span className="text-text-muted text-[10px] ml-0.5">min</span>
-                </span>
+                <div className="flex items-baseline gap-1 min-w-[64px] justify-center">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={minutes}
+                    onChange={e => {
+                      const raw = e.target.value;
+                      if (raw === '') { setMinutes(0); return; }
+                      const v = parseInt(raw, 10);
+                      if (Number.isFinite(v)) setMinutes(Math.max(0, Math.min(300, v)));
+                    }}
+                    onFocus={e => e.target.select()}
+                    className="font-display font-bold text-lg bg-transparent border-0 text-center focus:outline-none p-0 w-[3.5ch]"
+                    style={{ color: 'var(--color-stat-agi)' }}
+                    aria-label="Custom minutes"
+                  />
+                  <span className="text-text-muted text-[10px]">min</span>
+                </div>
                 <button
-                  onClick={() => setMinutes(m => Math.min(300, m + 1))}
+                  onClick={() => setMinutes(m => Math.min(300, m + 5))}
                   className="w-7 h-7 grid place-items-center"
                   style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid var(--color-stat-agi)', color: 'var(--color-stat-agi)' }}
-                  aria-label="Increase"
+                  aria-label="Increase by 5"
                 >
                   +
                 </button>

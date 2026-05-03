@@ -2,15 +2,15 @@ import type { Rank, RankRecord } from '@/types';
 import { RANK_ORDER } from '@/types';
 
 export interface WeeklyCompletionInput {
-  strCompleted: number; // out of 3
+  strCompleted: number; // out of strRequired (default 3, range 2–5)
   agiCompleted: number; // out of 7
   vitCompleted: number; // out of 7
   intCompleted: number; // out of 7
   perCompleted: number; // out of 7
 }
 
-export function computeWeeklyCompletionPct(input: WeeklyCompletionInput): number {
-  const total = 3 + 7 + 7 + 7 + 7; // 31
+export function computeWeeklyCompletionPct(input: WeeklyCompletionInput, strRequired: number = 3): number {
+  const total = strRequired + 7 + 7 + 7 + 7; // default 31, scales with strRequired
   const completed = input.strCompleted + input.agiCompleted + input.vitCompleted + input.intCompleted + input.perCompleted;
   return Math.round((completed / total) * 100);
 }

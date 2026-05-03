@@ -1,27 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { seedIfNeeded } from '@/lib/db/seed';
 import { getToday, getSettings } from '@/lib/db';
 import { evaluateRankIfNeeded } from '@/lib/logic/rankOrchestrator';
-import { OnboardingModal } from '@/components/OnboardingModal';
 
 export function DBProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     seedIfNeeded()
       .then(() => evaluateRankIfNeeded(getToday()))
       .then(() => getSettings())
       .then(s => {
-        if (!s.hasOnboarded) setShowOnboarding(true);
+        // First-time: route to the new diegetic onboarding at /guide.
+        // Don't redirect if we're already there (would loop).
+        if (!s.hasOnboarded && pathname !== '/guide') {
+          router.replace('/guide');
+        }
         setReady(true);
       });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
     }
-  }, []);
+  }, [router, pathname]);
 
   if (!ready) {
     return (
@@ -31,10 +36,6 @@ export function DBProvider({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
-  }
-
-  if (showOnboarding) {
-    return <OnboardingModal onComplete={() => setShowOnboarding(false)} />;
   }
 
   return <>{children}</>;
