@@ -43,7 +43,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="apple-touch-icon" href="/icon-192.svg" />
       </head>
-      <body className="min-h-screen pb-20">
+      <body
+        className="min-h-svh"
+        style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+      >
         <DBProvider>
           {children}
         </DBProvider>

@@ -524,7 +524,8 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
     <div
       className="grid items-center gap-2.5 py-2.5"
       style={{
-        gridTemplateColumns: '44px 1fr auto',
+        // Fixed column widths keep every row's −/value/+/unit anchored at identical x-positions
+        gridTemplateColumns: '44px minmax(0, 1fr) 140px',
         borderBottom: last ? 'none' : '1px solid var(--color-border)',
       }}
     >
@@ -538,8 +539,8 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
       ) : (
         <span className="font-mono-hud text-[9px] text-text-dim text-center">···</span>
       )}
-      <span className="font-display text-sm text-text">{label}</span>
-      <div className="flex items-center gap-1.5">
+      <span className="font-display text-sm text-text truncate">{label}</span>
+      <div className="grid items-center" style={{ gridTemplateColumns: '24px 44px 24px auto', columnGap: 6 }}>
         <button
           onClick={() => onChange(Math.max(min, value - step))}
           className="w-6 h-6 grid place-items-center font-mono-hud text-sm leading-none rounded transition-colors"
@@ -549,7 +550,7 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
           −
         </button>
         <span
-          className="font-mono-hud font-bold text-sm min-w-[2ch] text-center"
+          className="font-mono-hud font-bold text-sm text-center tabular-nums"
           style={{ color: c }}
         >
           {value}
@@ -562,7 +563,7 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
         >
           +
         </button>
-        <span className="font-mono-hud text-[9px] text-text-muted ml-1 min-w-[2ch]">{unit}</span>
+        <span className="font-mono-hud text-[9px] text-text-muted text-left pl-0.5" style={{ width: 28 }}>{unit}</span>
       </div>
     </div>
   );

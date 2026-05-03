@@ -202,9 +202,10 @@ export default function GuidePage() {
 
   return (
     <div
-      className="min-h-screen flex flex-col px-6 py-10"
+      className="min-h-svh flex flex-col px-6 pt-10"
       style={{
         background: 'radial-gradient(ellipse at center, rgba(96,165,250,0.08) 0%, transparent 60%), var(--color-bg)',
+        paddingBottom: 'calc(2.5rem + env(safe-area-inset-bottom))',
       }}
     >
       {/* Step indicator */}
