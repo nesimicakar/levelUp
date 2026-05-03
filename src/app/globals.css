@@ -6,7 +6,7 @@
   --color-surface-light: #1a2236;
   --color-border: #1e293b;
   --color-border-glow: #1e40af33;
-  --color-glow: #3b82f6;
+  --color-glow: #60a5fa;
   --color-glow-dim: #1d4ed8;
   --color-glow-bright: #60a5fa;
   --color-text: #e2e8f0;
@@ -17,10 +17,17 @@
   --color-danger: #ef4444;
   --color-rank-e: #6b7280;
   --color-rank-d: #8b5cf6;
-  --color-rank-c: #3b82f6;
+  --color-rank-c: #60a5fa;
   --color-rank-b: #22c55e;
   --color-rank-a: #f59e0b;
   --color-rank-s: #ef4444;
+
+  /* Per-stat colors (Solo Leveling HUD) */
+  --color-stat-str: #ef4444;
+  --color-stat-agi: #22c55e;
+  --color-stat-vit: #eab308;
+  --color-stat-int: #60a5fa;
+  --color-stat-per: #a78bfa;
 }
 
 body {
@@ -113,4 +120,130 @@ body {
   15%  { opacity: 1; transform: translateX(-50%) translateY(0); }
   80%  { opacity: 1; transform: translateX(-50%) translateY(0); }
   100% { opacity: 0; transform: translateX(-50%) translateY(0); }
+}
+
+/* ========================================================================
+   HUD design tokens — Solo Leveling Balanced variant (dashboard only)
+   Additive: does not replace existing classes.
+   ======================================================================== */
+
+.font-display { font-family: var(--font-display), system-ui, sans-serif; letter-spacing: 0.04em; }
+.font-mono-hud { font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* Cut-corner HUD frame (replaces simple rounded rect for stat cards) */
+.frame-cut {
+  position: relative;
+  background: linear-gradient(180deg, var(--color-surface) 0%, var(--color-surface-light) 100%);
+  clip-path: polygon(
+    0 8px, 8px 0,
+    calc(100% - 8px) 0, 100% 8px,
+    100% calc(100% - 8px), calc(100% - 8px) 100%,
+    8px 100%, 0 calc(100% - 8px)
+  );
+  transition: filter 0.2s ease;
+}
+.frame-cut--glow {
+  filter: drop-shadow(0 0 10px rgba(59,130,246,0.25));
+}
+
+/* Cut-corner stat letter tile (36x36) */
+.stat-tile {
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700; font-size: 12px;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+  clip-path: polygon(
+    0 4px, 4px 0,
+    100% 0,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    0 100%
+  );
+}
+
+/* HUD chip (OK / pending) */
+.hud-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-dim);
+  background: rgba(10, 14, 23, 0.6);
+}
+.hud-chip--ok {
+  color: var(--color-stat-agi);
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.06);
+}
+.hud-chip__dot {
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Per-stat HUD progress bar */
+.hud-bar {
+  position: relative;
+  height: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.hud-bar__fill {
+  position: absolute; inset: 0; right: auto;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+.hud-bar--str .hud-bar__fill { background: linear-gradient(90deg, #7f1d1d, var(--color-stat-str)); box-shadow: 0 0 8px rgba(239,68,68,0.4); }
+.hud-bar--agi .hud-bar__fill { background: linear-gradient(90deg, #166534, var(--color-stat-agi)); box-shadow: 0 0 8px rgba(34,197,94,0.4); }
+.hud-bar--vit .hud-bar__fill { background: linear-gradient(90deg, #854d0e, var(--color-stat-vit)); box-shadow: 0 0 8px rgba(234,179,8,0.4); }
+.hud-bar--int .hud-bar__fill { background: linear-gradient(90deg, #1e40af, var(--color-stat-int)); box-shadow: 0 0 8px rgba(96,165,250,0.4); }
+.hud-bar--per .hud-bar__fill { background: linear-gradient(90deg, #5b21b6, var(--color-stat-per)); box-shadow: 0 0 8px rgba(167,139,250,0.4); }
+
+/* Bracketed frame — wrapper that adds L-shape corner brackets around its content.
+   Use as a wrapper around .frame-cut content (brackets sit OUTSIDE the clip path). */
+.frame-bracketed {
+  position: relative;
+  isolation: isolate;
+}
+.frame-bracketed::before,
+.frame-bracketed::after,
+.frame-bracketed > .frame-bracket-bottom::before,
+.frame-bracketed > .frame-bracket-bottom::after {
+  content: "";
+  position: absolute;
+  width: 10px; height: 10px;
+  border: 1px solid var(--color-glow-bright);
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 3;
+}
+.frame-bracketed::before { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+.frame-bracketed::after  { top: -2px; right: -2px; border-left: 0; border-bottom: 0; }
+.frame-bracketed > .frame-bracket-bottom { position: absolute; inset: 0; pointer-events: none; }
+.frame-bracketed > .frame-bracket-bottom::before { bottom: -2px; left: -2px; border-right: 0; border-top: 0; }
+.frame-bracketed > .frame-bracket-bottom::after  { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+
+/* Small cut-corner tile (used for weekday strip + workout sets) */
+.cut-tile {
+  clip-path: polygon(
+    0 4px, 4px 0,
+    100% 0,
+    100% calc(100% - 4px), calc(100% - 4px) 100%,
+    0 100%
+  );
+}
+
+/* Section heading like "// WORKOUT A · ACTIVE" */
+.section-heading {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }

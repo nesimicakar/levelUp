@@ -1,16 +1,20 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { db, getSettings, getToday, updateSettings, deleteCustomTask } from '@/lib/db';
-import { PageHeader } from '@/components/PageHeader';
-import { NumberInput } from '@/components/NumberInput';
-import { Toggle } from '@/components/Toggle';
-import { TEMPLATE_A, TEMPLATE_B } from '@/lib/logic/str';
-import { CollapsibleSection } from '@/components/CollapsibleSection';
 import type { UserSettings, CustomTask, StatType } from '@/types';
 
 const SKILL_OPTIONS: StatType[] = ['STR', 'AGI', 'VIT', 'INT', 'PER'];
+
+// Per-stat color tokens (matches design)
+const STAT_COLOR: Record<StatType, string> = {
+  STR: 'var(--color-stat-str)',
+  AGI: 'var(--color-stat-agi)',
+  VIT: 'var(--color-stat-vit)',
+  INT: 'var(--color-stat-int)',
+  PER: 'var(--color-stat-per)',
+};
 
 // --- Backup helpers ---
 interface BackupFile {
@@ -37,35 +41,31 @@ function getBackupCounts(b: BackupFile): { perTable: Record<string, number>; tot
 }
 
 export default function SettingsPage() {
+  const router = useRouter();
   const [settings, setSettingsState] = useState<UserSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [newTaskSkill, setNewTaskSkill] = useState<StatType>('STR');
   const [newTaskLabel, setNewTaskLabel] = useState('');
+  const [showAddTask, setShowAddTask] = useState(false);
   const [backupDone, setBackupDone] = useState(false);
   const [importPending, setImportPending] = useState<null | { raw: BackupFile; counts: ReturnType<typeof getBackupCounts> }>(null);
   const [confirmText, setConfirmText] = useState('');
   const [importError, setImportError] = useState('');
   const [importFileKey, setImportFileKey] = useState(0);
-  const [openSections, setOpenSections] = useState({ core: false, personalization: false, safety: false });
-
-  const toggleSection = (s: 'core' | 'personalization' | 'safety') =>
-    setOpenSections(prev => ({ ...prev, [s]: !prev[s] }));
 
   const loadSettings = useCallback(async () => {
     const s = await getSettings();
     setSettingsState(s);
   }, []);
 
-  useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const update = async (partial: Partial<UserSettings>) => {
     if (!settings) return;
     await updateSettings(partial);
     setSettingsState({ ...settings, ...partial });
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 1500);
   };
 
   const addCustomTask = async () => {
@@ -80,6 +80,7 @@ export default function SettingsPage() {
     const updated = [...(settings.customTasks ?? []), task];
     await update({ customTasks: updated });
     setNewTaskLabel('');
+    setShowAddTask(false);
   };
 
   const toggleCustomTask = async (taskId: string) => {
@@ -98,12 +99,12 @@ export default function SettingsPage() {
       customTasks: (settings.customTasks ?? []).filter(t => t.id !== taskId),
     });
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 1500);
   };
 
   const exportBackup = async () => {
     const [strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries,
-      courseProgress, rankHistory, achievements, settings, customTaskLogs] = await Promise.all([
+      courseProgress, rankHistory, achievements, settingsArr, customTaskLogs] = await Promise.all([
       db.strSessions.toArray(),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
@@ -119,7 +120,7 @@ export default function SettingsPage() {
     const data = {
       appVersion: 'dev',
       exportedAt: new Date().toISOString(),
-      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings, customTaskLogs },
+      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -129,6 +130,7 @@ export default function SettingsPage() {
     a.click();
     URL.revokeObjectURL(url);
     setBackupDone(true);
+    setTimeout(() => setBackupDone(false), 4000);
   };
 
   const onFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -142,7 +144,7 @@ export default function SettingsPage() {
       setImportPending({ raw: obj, counts: getBackupCounts(obj) });
       setConfirmText('');
     } catch {
-      setImportError('Failed to parse file. Is it a valid JSON backup?');
+      setImportError('Failed to parse file.');
     }
   };
 
@@ -188,381 +190,467 @@ export default function SettingsPage() {
 
   const spiritualityEnabled = settings.enableSpirituality ?? false;
 
-  const sectionHeader = (key: 'core' | 'personalization' | 'safety', label: string) => (
-    <button
-      type="button"
-      onClick={() => toggleSection(key)}
-      className="w-full flex items-center justify-between border-b border-border pb-1 hover:opacity-80 transition-opacity"
-    >
-      <h2 className="text-xs font-semibold tracking-widest text-text-dim uppercase">{label}</h2>
-      <span className="text-text-muted text-sm">{openSections[key] ? '▾' : '▸'}</span>
-    </button>
-  );
-
   return (
     <div>
-      <PageHeader title="SYSTEM CONFIG" subtitle="Settings & Targets" />
-      <main className="max-w-lg mx-auto px-4 py-4 space-y-8">
+      <main className="max-w-lg mx-auto px-4 pt-4 pb-4 space-y-3">
+        {/* Diegetic header */}
+        <div className="flex items-center gap-3 mb-1">
+          <button
+            onClick={() => router.back()}
+            className="text-text-muted hover:text-text transition-colors text-lg flex-shrink-0"
+            aria-label="Back"
+          >
+            ←
+          </button>
+          <div>
+            <h1
+              className="font-display text-xl font-bold leading-none glow-text"
+              style={{ color: 'var(--color-glow-bright)' }}
+            >
+              SYSTEM CONFIG
+            </h1>
+            <p className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-1">// Settings &amp; Targets</p>
+          </div>
+        </div>
+
         {saved && (
-          <div className="text-center text-success text-xs tracking-wider animate-fade-in">
-            CONFIGURATION SAVED
+          <div className="text-center text-success text-[10px] tracking-[0.16em] uppercase animate-fade-in">
+            Configuration Saved
           </div>
         )}
 
-        {/* ── A) CORE TARGETS ── */}
-        <div className="space-y-6">
-          {sectionHeader('core', 'Core Targets')}
-          {openSections.core && <>
-            {/* AGI */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">AGI // CARDIO</h3>
-              <NumberInput
-                value={settings.agiMinMinutes}
-                onChange={v => update({ agiMinMinutes: v })}
-                label="Minimum minutes"
-                min={5}
-                max={60}
-                step={5}
-                unit="min"
-              />
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
-                <span className="text-sm text-text">Activity type</span>
-                <select
-                  value={settings.agiActivityType}
-                  onChange={e => update({ agiActivityType: e.target.value })}
-                  className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow"
-                >
-                  <option value="Rowing">Rowing</option>
-                  <option value="Running">Running</option>
-                  <option value="Cycling">Cycling</option>
-                  <option value="Swimming">Swimming</option>
-                </select>
+        {/* DAILY TARGETS */}
+        <SectionHeader label="Daily Targets" />
+
+        <CompactStepperRow
+          stat="AGI"
+          label="Cardio minutes"
+          value={settings.agiMinMinutes}
+          unit="min"
+          step={5}
+          min={5}
+          max={120}
+          onChange={v => update({ agiMinMinutes: v })}
+        />
+        <CompactStepperRow
+          stat="VIT"
+          label="Protein target"
+          value={settings.proteinGoalGrams}
+          unit="g"
+          step={10}
+          min={50}
+          max={300}
+          onChange={v => update({ proteinGoalGrams: v })}
+          last
+        />
+        <CompactStepperRow
+          stat="PER"
+          label="Reading minutes"
+          value={settings.dailyReadingMinutesTarget ?? 5}
+          unit="min"
+          step={1}
+          min={1}
+          max={120}
+          onChange={v => update({ dailyReadingMinutesTarget: v })}
+          last
+        />
+        {spiritualityEnabled && (
+          <CompactStepperRow
+            stat="PER"
+            label="Quran pages"
+            value={settings.quranPagesPerDay}
+            unit="pg"
+            step={1}
+            min={1}
+            max={20}
+            onChange={v => update({ quranPagesPerDay: v })}
+            last
+          />
+        )}
+
+        {/* MODES */}
+        <SectionHeader label="Modes" />
+        <CompactToggleRow
+          stat="PER"
+          label="Spirituality"
+          on={spiritualityEnabled}
+          onChange={v => update({ enableSpirituality: v })}
+          last
+        />
+
+        {/* CUSTOM TASKS */}
+        <SectionHeader label="Custom Tasks" />
+
+        {customTasks.length === 0 && !showAddTask && (
+          <CompactActionRow
+            label="No custom tasks yet"
+            actionLabel="+ ADD"
+            onAction={() => setShowAddTask(true)}
+            last
+          />
+        )}
+
+        {customTasks.length > 0 && (
+          <>
+            {Object.entries(groupedTasks).map(([skill, tasks]) => (
+              <div key={skill}>
+                {tasks.map((task, idx) => (
+                  <div
+                    key={task.id}
+                    className="grid items-center gap-2.5 py-2.5"
+                    style={{
+                      gridTemplateColumns: '44px 1fr auto',
+                      borderBottom: idx === tasks.length - 1 ? 'none' : '1px solid var(--color-border)',
+                    }}
+                  >
+                    <span
+                      className="font-mono-hud text-[9px] font-bold tracking-[0.12em] text-center"
+                      style={{ color: STAT_COLOR[skill as StatType] }}
+                    >
+                      {skill}
+                    </span>
+                    <span className={`font-display text-sm ${task.enabled ? 'text-text' : 'text-text-muted line-through'}`}>
+                      {task.label}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => toggleCustomTask(task.id)}
+                        className={`font-mono-hud text-[10px] tracking-[0.14em] px-2 py-0.5 rounded border transition-colors ${
+                          task.enabled ? 'border-glow/40 text-glow' : 'border-border text-text-muted'
+                        }`}
+                      >
+                        {task.enabled ? 'ON' : 'OFF'}
+                      </button>
+                      <button
+                        onClick={() => removeCustomTask(task.id)}
+                        className="font-mono-hud text-[10px] tracking-[0.14em] px-2 py-0.5 rounded border border-danger/30 text-danger/80 hover:text-danger hover:bg-danger/10 transition-colors"
+                      >
+                        DEL
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </section>
-
-            {/* VIT */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">VIT // NUTRITION</h3>
-              <NumberInput
-                value={settings.proteinGoalGrams}
-                onChange={v => update({ proteinGoalGrams: v })}
-                label="Protein target"
-                min={50}
-                max={300}
-                step={10}
-                unit="g"
+            ))}
+            {!showAddTask && (
+              <CompactActionRow
+                label={`${customTasks.length} task${customTasks.length === 1 ? '' : 's'}`}
+                actionLabel="+ ADD"
+                onAction={() => setShowAddTask(true)}
+                last
               />
-            </section>
+            )}
+          </>
+        )}
 
-            {/* INT Learning */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">INT // LEARNING</h3>
-              <NumberInput
-                value={settings.learningMinutesPerDay}
-                onChange={v => update({ learningMinutesPerDay: v })}
-                label="Minutes / day"
-                min={5}
-                max={120}
-                step={5}
-                unit="min"
-              />
-            </section>
-
-            {/* INT Course */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">INT // {(settings.intCourseName ?? 'Primary Study').toUpperCase()} COURSE</h3>
-              <NumberInput
-                value={settings.courseUnitsPerDay}
-                onChange={v => update({ courseUnitsPerDay: v })}
-                label="Units / day"
-                min={1}
-                max={20}
-                step={1}
-                unit="units"
-              />
-            </section>
-
-            {/* PER Skill Development */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">PER // {(settings.perProgramName ?? 'Skill Development').toUpperCase()}</h3>
-              <NumberInput
-                value={settings.lessonsPerDay}
-                onChange={v => update({ lessonsPerDay: v })}
-                label="Lessons / day"
-                min={1}
-                max={10}
-                step={1}
-                unit="lessons"
-              />
-            </section>
-
-            {/* PER Spirituality */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">PER // SPIRITUALITY</h3>
-              <div className="p-3 rounded-lg border border-border bg-surface">
-                <Toggle
-                  checked={spiritualityEnabled}
-                  onChange={v => update({ enableSpirituality: v })}
-                  label="Enable Spirituality"
-                  sublabel="Track prayers and Quran pages as part of PER completion."
-                />
-              </div>
-              {spiritualityEnabled && (
-                <NumberInput
-                  value={settings.quranPagesPerDay}
-                  onChange={v => update({ quranPagesPerDay: v })}
-                  label="Quran pages / day"
-                  min={1}
-                  max={20}
-                  step={1}
-                  unit="pg"
-                />
-              )}
-            </section>
-          </>}
-        </div>
-
-        {/* ── B) PERSONALIZATION ── */}
-        <div className="space-y-6">
-          {sectionHeader('personalization', 'Personalization')}
-          {openSections.personalization && <>
-            {/* Program Names */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">PROGRAM NAMES</h3>
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
-                <span className="text-sm text-text">INT Course Name</span>
-                <input
-                  type="text"
-                  value={settings.intCourseName ?? 'Primary Study'}
-                  onChange={e => update({ intCourseName: e.target.value })}
-                  className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow w-40 text-right"
-                />
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
-                <span className="text-sm text-text">PER Program Name</span>
-                <input
-                  type="text"
-                  value={settings.perProgramName ?? 'Skill Development'}
-                  onChange={e => update({ perProgramName: e.target.value })}
-                  className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow w-40 text-right"
-                />
-              </div>
-            </section>
-
-            {/* Books */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">READING</h3>
-              <Link
-                href="/books"
-                className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface hover:border-glow/40 transition-colors"
+        {showAddTask && (
+          <div className="cut-tile p-3 space-y-2"
+               style={{ background: 'var(--color-surface)', border: '1px dashed var(--color-border)' }}>
+            <div className="flex items-center gap-2">
+              <select
+                value={newTaskSkill}
+                onChange={e => setNewTaskSkill(e.target.value as StatType)}
+                className="bg-surface-light border border-border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-glow"
+                style={{ color: STAT_COLOR[newTaskSkill] }}
               >
-                <div>
-                  <span className="text-sm text-text">Books</span>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    {(settings.activeBooks?.length ?? 0) > 0
-                      ? `${settings.activeBooks!.length} active · ${settings.finishedBooks?.length ?? 0} finished`
-                      : 'Track active & finished books'}
-                  </p>
-                </div>
-                <span className="text-text-muted">→</span>
-              </Link>
-            </section>
+                {SKILL_OPTIONS.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={newTaskLabel}
+                onChange={e => setNewTaskLabel(e.target.value)}
+                placeholder="Task label"
+                className="flex-1 bg-surface-light border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-glow"
+                onKeyDown={e => { if (e.key === 'Enter') addCustomTask(); }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-1.5 justify-end">
+              <button
+                onClick={() => { setShowAddTask(false); setNewTaskLabel(''); }}
+                className="font-mono-hud text-[10px] tracking-[0.14em] px-3 py-1 rounded border border-border text-text-muted hover:text-text transition-colors"
+              >
+                CANCEL
+              </button>
+              <button
+                onClick={addCustomTask}
+                disabled={!newTaskLabel.trim()}
+                className="font-mono-hud text-[10px] tracking-[0.14em] px-3 py-1 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{
+                  background: 'rgba(96,165,250,0.15)',
+                  border: '1px solid var(--color-glow-bright)',
+                  color: 'var(--color-glow-bright)',
+                }}
+              >
+                ADD
+              </button>
+            </div>
+          </div>
+        )}
 
-            {/* STR Mode */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">STR // MODE</h3>
-              <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface">
-                <div>
-                  <span className="text-sm text-text">Tracking mode</span>
-                  <p className="text-xs text-text-muted mt-0.5">
-                    {(settings.strMode ?? 'workout') === 'workout' ? 'Log sets and weights per exercise' : 'Mark session done with one tap'}
-                  </p>
-                </div>
-                <select
-                  value={settings.strMode ?? 'workout'}
-                  onChange={e => update({ strMode: e.target.value as 'workout' | 'session' })}
-                  className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow"
+        {/* DATA */}
+        <SectionHeader label="Data" />
+        <CompactActionRow
+          label="Export all data"
+          actionLabel="EXPORT"
+          actionAccent="glow"
+          onAction={exportBackup}
+        />
+        {backupDone && (
+          <p className="text-[10px] text-text-muted text-center -mt-1">Saved — keep it in iCloud Drive.</p>
+        )}
+        <CompactActionRow
+          label="Restore from file"
+          actionLabel="IMPORT"
+          actionAccent="muted"
+          onAction={() => {
+            const input = document.getElementById('import-file-input') as HTMLInputElement | null;
+            input?.click();
+          }}
+          last
+        />
+        <input
+          id="import-file-input"
+          key={importFileKey}
+          type="file"
+          accept="application/json"
+          className="hidden"
+          onChange={onFileSelect}
+        />
+        {importError && (
+          <p className="text-[10px] text-danger text-center -mt-1">{importError}</p>
+        )}
+
+        {/* RESTORE confirm — bracketed danger panel */}
+        {importPending && (
+          <div className="frame-bracketed mt-2">
+            <div
+              className="frame-cut p-3 space-y-2"
+              style={{ background: 'rgba(239,68,68,0.04)', boxShadow: '0 0 8px rgba(239,68,68,0.12)' }}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-1.5 h-1.5"
+                  style={{ background: 'var(--color-stat-str)', boxShadow: '0 0 6px rgba(239,68,68,0.6)' }}
+                />
+                <span
+                  className="font-display font-bold text-xs tracking-[0.18em]"
+                  style={{ color: 'var(--color-stat-str)' }}
                 >
-                  <option value="workout">Workout Tracking</option>
-                  <option value="session">Session Completion</option>
-                </select>
+                  CONFIRM RESTORE
+                </span>
               </div>
-            </section>
-
-            {/* STR Exercise Names (collapsible) */}
-            <section>
-              {(() => {
-                const renamedCount = Object.values(settings.exerciseNames ?? {}).filter(v => v).length;
-                const rightLabel = renamedCount > 0 ? `${renamedCount} renamed` : 'Using defaults';
-                return (
-                  <CollapsibleSection title="STR // EXERCISE NAMES" right={rightLabel} defaultOpen={false}>
-                    <p className="text-xs text-text-muted mb-3">Rename exercises. Changes take effect on the next session.</p>
-                    <div className="space-y-3">
-                      {[{ label: 'WORKOUT A', template: TEMPLATE_A }, { label: 'WORKOUT B', template: TEMPLATE_B }].map(({ label, template }) => (
-                        <div key={label} className="space-y-1">
-                          <p className="text-xs text-text-dim">{label}</p>
-                          {template.map(t => (
-                            <div key={t.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-surface gap-2">
-                              <span className="text-xs text-text-muted w-28 shrink-0">{t.name}</span>
-                              <input
-                                type="text"
-                                value={(settings.exerciseNames ?? {})[t.id] ?? ''}
-                                placeholder={t.name}
-                                onChange={e => {
-                                  const names = { ...(settings.exerciseNames ?? {}) };
-                                  const v = e.target.value.trim();
-                                  if (v) names[t.id] = v; else delete names[t.id];
-                                  update({ exerciseNames: names });
-                                }}
-                                className="flex-1 min-w-0 bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow text-right"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                  </CollapsibleSection>
-                );
-              })()}
-            </section>
-
-            {/* Custom Tasks */}
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">CUSTOM TASKS</h3>
-              <div className="p-3 rounded-lg border border-border bg-surface space-y-2">
-                <div className="flex items-center gap-2">
-                  <select
-                    value={newTaskSkill}
-                    onChange={e => setNewTaskSkill(e.target.value as StatType)}
-                    className="bg-surface-light border border-border rounded px-2 py-1 text-sm text-glow-bright focus:outline-none focus:border-glow"
-                  >
-                    {SKILL_OPTIONS.map(s => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="text"
-                    value={newTaskLabel}
-                    onChange={e => setNewTaskLabel(e.target.value)}
-                    placeholder="Task label"
-                    className="flex-1 bg-surface-light border border-border rounded px-2 py-1 text-sm text-text focus:outline-none focus:border-glow"
-                    onKeyDown={e => { if (e.key === 'Enter') addCustomTask(); }}
-                  />
-                  <button
-                    onClick={addCustomTask}
-                    disabled={!newTaskLabel.trim()}
-                    className="px-3 py-1 rounded text-sm font-medium tracking-wider bg-glow/10 border border-glow/30 text-glow hover:bg-glow/20 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    ADD
-                  </button>
-                </div>
+              <div className="text-xs text-text space-y-0.5">
+                <p><span className="text-text-muted">Exported:</span> <span className="text-glow-bright">{new Date(importPending.raw.exportedAt).toLocaleString()}</span></p>
+                <p><span className="text-text-muted">Records:</span> <span className="text-glow-bright">{importPending.counts.total}</span></p>
               </div>
-              {Object.entries(groupedTasks).map(([skill, tasks]) => (
-                <div key={skill} className="space-y-1">
-                  <p className="text-xs text-text-muted">{skill}</p>
-                  {tasks.map(task => (
-                    <div key={task.id} className="flex items-center justify-between p-2 rounded-lg border border-border bg-surface">
-                      <span className={`text-sm ${task.enabled ? 'text-text' : 'text-text-muted line-through'}`}>
-                        {task.label}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleCustomTask(task.id)}
-                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
-                            task.enabled ? 'border-glow/30 text-glow' : 'border-border text-text-muted'
-                          }`}
-                        >
-                          {task.enabled ? 'ON' : 'OFF'}
-                        </button>
-                        <button
-                          onClick={() => removeCustomTask(task.id)}
-                          className="text-xs px-2 py-0.5 rounded border border-danger/30 text-danger hover:bg-danger/10 transition-colors"
-                        >
-                          DEL
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-              {customTasks.length === 0 && (
-                <p className="text-xs text-text-muted text-center py-2">No custom tasks yet</p>
-              )}
-            </section>
-          </>}
-        </div>
-
-        {/* ── C) SAFETY ── */}
-        <div className="space-y-6">
-          {sectionHeader('safety', 'Safety')}
-          {openSections.safety && <>
-            <section className="space-y-3">
-              <h3 className="text-sm font-medium text-text-dim">BACKUP</h3>
-              <div className="p-3 rounded-lg border border-border bg-surface flex items-center justify-between">
-                <span className="text-sm text-text">Export all data to JSON</span>
+              <p className="text-[10px] text-danger">⚠ Erases current local data.</p>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={e => setConfirmText(e.target.value)}
+                placeholder="Type RESTORE to confirm"
+                className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-danger/60"
+              />
+              <div className="flex gap-1.5 justify-end">
                 <button
-                  onClick={exportBackup}
-                  className="px-3 py-1 rounded text-sm font-medium tracking-wider bg-glow/10 border border-glow/30 text-glow hover:bg-glow/20 transition-colors"
+                  onClick={() => { setImportPending(null); setConfirmText(''); setImportFileKey(k => k + 1); }}
+                  className="font-mono-hud text-[10px] tracking-[0.14em] px-3 py-1 rounded border border-border text-text-muted hover:text-text transition-colors"
                 >
-                  Export Backup
+                  CANCEL
+                </button>
+                <button
+                  onClick={doRestore}
+                  disabled={confirmText !== 'RESTORE'}
+                  className="font-mono-hud text-[10px] tracking-[0.14em] px-3 py-1 rounded border border-danger/50 text-danger hover:bg-danger/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  RESTORE
                 </button>
               </div>
-              {backupDone && (
-                <p className="text-xs text-text-muted text-center">Backup downloaded — save it to iCloud Drive.</p>
-              )}
-              <div className="p-3 rounded-lg border border-border bg-surface flex items-center justify-between">
-                <span className="text-sm text-text">Restore from backup file</span>
-                <label className="px-3 py-1 rounded text-sm font-medium tracking-wider bg-surface-light border border-border text-text-dim hover:border-glow/30 hover:text-text transition-colors cursor-pointer">
-                  Import Backup
-                  <input
-                    key={importFileKey}
-                    type="file"
-                    accept="application/json"
-                    className="hidden"
-                    onChange={onFileSelect}
-                  />
-                </label>
-              </div>
-              {importError && (
-                <p className="text-xs text-danger text-center">{importError}</p>
-              )}
-              {importPending && (
-                <div className="p-4 rounded-lg border border-danger/40 bg-surface space-y-3">
-                  <p className="text-xs font-medium text-text-dim uppercase tracking-wider">Confirm Restore</p>
-                  <div className="text-xs text-text space-y-1">
-                    <p>Exported: <span className="text-glow-bright">{new Date(importPending.raw.exportedAt).toLocaleString()}</span></p>
-                    <p>Total records: <span className="text-glow-bright">{importPending.counts.total}</span></p>
-                  </div>
-                  <p className="text-xs text-danger">⚠ This will ERASE your current local data and replace it with the backup.</p>
-                  <p className="text-xs text-text-muted">Export your current data first if you want to keep it.</p>
-                  <input
-                    type="text"
-                    value={confirmText}
-                    onChange={e => setConfirmText(e.target.value)}
-                    placeholder="Type RESTORE to confirm"
-                    className="w-full bg-surface-light border border-border rounded px-2 py-1 text-sm text-text focus:outline-none focus:border-danger/60"
-                  />
-                  <div className="flex gap-2 justify-end">
-                    <button
-                      onClick={() => { setImportPending(null); setConfirmText(''); setImportFileKey(k => k + 1); }}
-                      className="px-3 py-1 rounded text-sm border border-border text-text-muted hover:text-text transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={doRestore}
-                      disabled={confirmText !== 'RESTORE'}
-                      className="px-3 py-1 rounded text-sm font-medium border border-danger/50 text-danger hover:bg-danger/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Restore
-                    </button>
-                  </div>
-                </div>
-              )}
-            </section>
-          </>}
-        </div>
+            </div>
+            <span className="frame-bracket-bottom" aria-hidden />
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+// ─── Building blocks ────────────────────────────────────────────────────
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <div
+      className="pb-1.5 mt-4"
+      style={{ borderBottom: '1px solid var(--color-border)' }}
+    >
+      <span
+        className="font-mono-hud text-[10px] tracking-[0.18em] uppercase"
+        style={{ color: 'var(--color-glow-bright)', textShadow: '0 0 6px rgba(96,165,250,0.4)' }}
+      >
+        // {label}
+      </span>
+    </div>
+  );
+}
+
+interface CompactStepperRowProps {
+  stat?: StatType;
+  label: string;
+  value: number;
+  unit: string;
+  step?: number;
+  min?: number;
+  max?: number;
+  onChange: (value: number) => void;
+  last?: boolean;
+}
+
+function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 9999, onChange, last }: CompactStepperRowProps) {
+  const c = stat ? STAT_COLOR[stat] : 'var(--color-text-dim)';
+  return (
+    <div
+      className="grid items-center gap-2.5 py-2.5"
+      style={{
+        gridTemplateColumns: '44px 1fr auto',
+        borderBottom: last ? 'none' : '1px solid var(--color-border)',
+      }}
+    >
+      {stat ? (
+        <span
+          className="font-mono-hud text-[9px] font-bold tracking-[0.12em] text-center"
+          style={{ color: c }}
+        >
+          {stat}
+        </span>
+      ) : (
+        <span className="font-mono-hud text-[9px] text-text-dim text-center">···</span>
+      )}
+      <span className="font-display text-sm text-text">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onChange(Math.max(min, value - step))}
+          className="w-6 h-6 grid place-items-center font-mono-hud text-sm leading-none rounded transition-colors"
+          style={{ background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+          aria-label="Decrease"
+        >
+          −
+        </button>
+        <span
+          className="font-mono-hud font-bold text-sm min-w-[2ch] text-center"
+          style={{ color: c }}
+        >
+          {value}
+        </span>
+        <button
+          onClick={() => onChange(Math.min(max, value + step))}
+          className="w-6 h-6 grid place-items-center font-mono-hud text-sm leading-none rounded transition-colors hover:brightness-125"
+          style={{ background: 'transparent', border: `1px solid ${c}`, color: c }}
+          aria-label="Increase"
+        >
+          +
+        </button>
+        <span className="font-mono-hud text-[9px] text-text-muted ml-1 min-w-[2ch]">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+interface CompactToggleRowProps {
+  stat?: StatType;
+  label: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+  last?: boolean;
+}
+
+function CompactToggleRow({ stat, label, on, onChange, last }: CompactToggleRowProps) {
+  const c = stat ? STAT_COLOR[stat] : 'var(--color-glow-bright)';
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      className="grid items-center gap-2.5 py-2.5 w-full text-left"
+      style={{
+        gridTemplateColumns: '44px 1fr auto',
+        borderBottom: last ? 'none' : '1px solid var(--color-border)',
+      }}
+    >
+      {stat ? (
+        <span
+          className="font-mono-hud text-[9px] font-bold tracking-[0.12em] text-center"
+          style={{ color: c }}
+        >
+          {stat}
+        </span>
+      ) : (
+        <span className="font-mono-hud text-[9px] text-text-dim text-center">···</span>
+      )}
+      <span className="font-display text-sm text-text">{label}</span>
+      <span
+        className="relative inline-block flex-shrink-0"
+        style={{
+          width: 32, height: 18, borderRadius: 999,
+          background: on ? c : 'var(--color-bg)',
+          border: `1px solid ${on ? c : 'var(--color-border)'}`,
+          boxShadow: on ? `0 0 6px ${c}` : 'none',
+          transition: 'background 0.15s',
+        }}
+      >
+        <span
+          className="absolute"
+          style={{
+            top: 1,
+            left: on ? 15 : 1,
+            width: 14,
+            height: 14,
+            borderRadius: 999,
+            background: on ? 'var(--color-bg)' : 'var(--color-text-muted)',
+            transition: 'left 0.15s',
+          }}
+        />
+      </span>
+    </button>
+  );
+}
+
+interface CompactActionRowProps {
+  label: string;
+  actionLabel: string;
+  onAction: () => void;
+  actionAccent?: 'glow' | 'muted' | 'danger';
+  last?: boolean;
+}
+
+function CompactActionRow({ label, actionLabel, onAction, actionAccent = 'muted', last }: CompactActionRowProps) {
+  const styles = {
+    glow: { color: 'var(--color-glow-bright)', borderColor: 'var(--color-glow-bright)', background: 'rgba(96,165,250,0.10)' },
+    muted: { color: 'var(--color-text-dim)', borderColor: 'var(--color-border)', background: 'transparent' },
+    danger: { color: 'var(--color-stat-str)', borderColor: 'rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.05)' },
+  };
+  const style = styles[actionAccent];
+  return (
+    <div
+      className="grid items-center gap-2.5 py-2.5"
+      style={{
+        gridTemplateColumns: '44px 1fr auto',
+        borderBottom: last ? 'none' : '1px solid var(--color-border)',
+      }}
+    >
+      <span className="font-mono-hud text-[9px] text-text-dim text-center">···</span>
+      <span className="font-display text-sm text-text">{label}</span>
+      <button
+        onClick={onAction}
+        className="font-mono-hud font-semibold text-[10px] tracking-[0.16em] px-3 py-1 rounded transition-colors"
+        style={{
+          color: style.color,
+          border: `1px solid ${style.borderColor}`,
+          background: style.background,
+        }}
+      >
+        {actionLabel}
+      </button>
     </div>
   );
 }

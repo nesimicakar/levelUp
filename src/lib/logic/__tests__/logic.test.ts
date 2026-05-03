@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '../levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '../levels';
 import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, getLastEvaluatedPct } from '../rank';
 import { getStrWeeklyStatus, canUseRestToken, isSessionComplete, isSessionModeEntry, getNextTemplate, shouldIncreaseWeight, shouldDeload, computeDeloadWeight, getDefaultExercises, buildWeightPrefillMaps, applyWeightPrefill, TEMPLATE_A, TEMPLATE_B } from '../str';
 import { evaluationDecision, addDays } from '../rankOrchestrator';
@@ -785,44 +785,102 @@ describe('getLastEvaluatedPct', () => {
 
 describe('computePerDomainProgress', () => {
   describe('spirituality disabled', () => {
-    it('0/1 when no lessons done', () => {
-      expect(computePerDomainProgress(false, 0, 2, 0, 0, 1)).toBe(0);
+    it('0/1 when no reading done', () => {
+      expect(computePerDomainProgress(false, 0, 5, 0, 0, 1)).toBe(0);
     });
 
-    it('0.5 when half lessons done', () => {
-      expect(computePerDomainProgress(false, 1, 2, 0, 0, 1)).toBe(0.5);
+    it('0.5 when half reading done', () => {
+      expect(computePerDomainProgress(false, 5, 10, 0, 0, 1)).toBe(0.5);
     });
 
-    it('1.0 (full) when lessons target met', () => {
-      expect(computePerDomainProgress(false, 2, 2, 0, 0, 1)).toBe(1);
+    it('1.0 (full) when reading target met', () => {
+      expect(computePerDomainProgress(false, 5, 5, 0, 0, 1)).toBe(1);
     });
 
-    it('clamps at 1.0 when lessons exceed target', () => {
-      expect(computePerDomainProgress(false, 5, 2, 5, 10, 1)).toBe(1);
+    it('clamps at 1.0 when reading exceeds target', () => {
+      expect(computePerDomainProgress(false, 30, 5, 5, 10, 1)).toBe(1);
     });
 
     it('ignores prayers and quran entirely', () => {
-      // lessons not met, prayers/quran done — still 0 if 0 lessons
-      expect(computePerDomainProgress(false, 0, 2, 5, 10, 1)).toBe(0);
+      // reading not met, prayers/quran done — still 0 if 0 reading
+      expect(computePerDomainProgress(false, 0, 5, 5, 10, 1)).toBe(0);
     });
   });
 
   describe('spirituality enabled', () => {
     it('0 when nothing done', () => {
-      expect(computePerDomainProgress(true, 0, 2, 0, 0, 1)).toBe(0);
+      expect(computePerDomainProgress(true, 0, 5, 0, 0, 1)).toBe(0);
     });
 
-    it('1/3 when only lessons met', () => {
-      expect(computePerDomainProgress(true, 2, 2, 0, 0, 1)).toBeCloseTo(1 / 3);
+    it('1/3 when only reading met', () => {
+      expect(computePerDomainProgress(true, 5, 5, 0, 0, 1)).toBeCloseTo(1 / 3);
     });
 
     it('1.0 when all three met', () => {
-      expect(computePerDomainProgress(true, 2, 2, 5, 1, 1)).toBe(1);
+      expect(computePerDomainProgress(true, 5, 5, 5, 1, 1)).toBe(1);
     });
 
-    it('2/3 when lessons + prayers met, quran not', () => {
-      expect(computePerDomainProgress(true, 2, 2, 5, 0, 1)).toBeCloseTo(2 / 3);
+    it('2/3 when reading + prayers met, quran not', () => {
+      expect(computePerDomainProgress(true, 5, 5, 5, 0, 1)).toBeCloseTo(2 / 3);
     });
+  });
+});
+
+// ===== INT Domain Progress ===== //
+
+describe('computeIntDomainProgress', () => {
+  it('returns 0 with no active courses', () => {
+    expect(computeIntDomainProgress([], {})).toBe(0);
+  });
+
+  it('1.0 when single course at target', () => {
+    const courses = [{ id: 'a', dailyTargetUnits: 2 }];
+    expect(computeIntDomainProgress(courses, { a: 2 })).toBe(1);
+  });
+
+  it('0.5 when single course halfway', () => {
+    const courses = [{ id: 'a', dailyTargetUnits: 2 }];
+    expect(computeIntDomainProgress(courses, { a: 1 })).toBe(0.5);
+  });
+
+  it('1.0 when both courses meet target', () => {
+    const courses = [
+      { id: 'a', dailyTargetUnits: 2 },
+      { id: 'b', dailyTargetUnits: 1 },
+    ];
+    expect(computeIntDomainProgress(courses, { a: 2, b: 1 })).toBe(1);
+  });
+
+  it('averages across courses when partial', () => {
+    // course a met (1.0), course b at 0 → 0.5
+    const courses = [
+      { id: 'a', dailyTargetUnits: 2 },
+      { id: 'b', dailyTargetUnits: 1 },
+    ];
+    expect(computeIntDomainProgress(courses, { a: 2, b: 0 })).toBe(0.5);
+  });
+
+  it('clamps each course contribution to 1.0 (overdoing one cannot drown out a lagging one)', () => {
+    // course a at 4x target, course b at 0 → still 0.5, not 2.0
+    const courses = [
+      { id: 'a', dailyTargetUnits: 1 },
+      { id: 'b', dailyTargetUnits: 1 },
+    ];
+    expect(computeIntDomainProgress(courses, { a: 4, b: 0 })).toBe(0.5);
+  });
+
+  it('three courses, all met → 1.0', () => {
+    const courses = [
+      { id: 'a', dailyTargetUnits: 2 },
+      { id: 'b', dailyTargetUnits: 1 },
+      { id: 'c', dailyTargetUnits: 1 },
+    ];
+    expect(computeIntDomainProgress(courses, { a: 2, b: 1, c: 1 })).toBe(1);
+  });
+
+  it('missing entry in unitsByCourse treated as 0', () => {
+    const courses = [{ id: 'a', dailyTargetUnits: 2 }];
+    expect(computeIntDomainProgress(courses, {})).toBe(0);
   });
 });
 

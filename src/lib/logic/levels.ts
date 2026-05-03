@@ -66,20 +66,49 @@ export function computeCustomTaskBonusPct(enabledCount: number, checkedCount: nu
 
 /**
  * PER domain progress [0..1] for the daily ring.
- * spiritualityEnabled=false: denominator is 1 (lessons only).
- * spiritualityEnabled=true:  denominator is 3 (lessons + prayers + quran).
+ *
+ * PER protocol now keys off:
+ *   - readingMinutes (always)
+ *   - prayersCount + quranPages (when spirituality enabled)
+ *
+ * Stage Academy lessons moved to INT and are NOT part of PER progress anymore.
+ *
+ * - spiritualityEnabled=false: progress = reading / readingTarget
+ * - spiritualityEnabled=true:  progress = avg(reading, prayers/5, quran/quranTarget)
  */
 export function computePerDomainProgress(
   enableSpirituality: boolean,
-  lessonsToday: number,
-  lessonsPerDay: number,
+  readingMinutes: number,
+  readingTarget: number,
   prayersCount: number,
   quranPages: number,
   quranTarget: number,
 ): number {
-  const lessonProgress = clamp(lessonsToday / Math.max(lessonsPerDay, 1), 0, 1);
-  if (!enableSpirituality) return lessonProgress;
+  const readingProgress = clamp(readingMinutes / Math.max(readingTarget, 1), 0, 1);
+  if (!enableSpirituality) return readingProgress;
   const prayerProgress = clamp(prayersCount / 5, 0, 1);
   const quranProgress = clamp(quranPages / Math.max(quranTarget, 1), 0, 1);
-  return (lessonProgress + prayerProgress + quranProgress) / 3;
+  return (readingProgress + prayerProgress + quranProgress) / 3;
+}
+
+/**
+ * INT domain progress [0..1] for the daily ring.
+ *
+ * Averages today's units / dailyTargetUnits across active courses (Real Estate,
+ * Stage Academy, and any user-added IntCourses). Acquired courses don't count.
+ * Returns 0 when there are no active courses (matches isIntCompleteFromCourses).
+ *
+ * Each course's per-target ratio is clamped to [0, 1] so a course logged 4x its
+ * target still contributes max 1.0 (doesn't drown out partially-done others).
+ */
+export function computeIntDomainProgress(
+  activeCourses: { id: string; dailyTargetUnits: number }[],
+  unitsByCourseToday: Record<string, number>,
+): number {
+  if (activeCourses.length === 0) return 0;
+  const sum = activeCourses.reduce((s, c) => {
+    const today = unitsByCourseToday[c.id] ?? 0;
+    return s + clamp(today / Math.max(c.dailyTargetUnits, 1), 0, 1);
+  }, 0);
+  return sum / activeCourses.length;
 }

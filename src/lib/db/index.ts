@@ -85,6 +85,7 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.exerciseNames === undefined) s.exerciseNames = {};
     if (s.activeBooks === undefined) s.activeBooks = [];
     if (s.finishedBooks === undefined) s.finishedBooks = [];
+    if (s.dailyReadingMinutesTarget === undefined) s.dailyReadingMinutesTarget = 5;
     return s;
   }
   const defaults: UserSettings = {
@@ -108,6 +109,7 @@ export async function getSettings(): Promise<UserSettings> {
     exerciseNames: {},
     activeBooks: [],
     finishedBooks: [],
+    dailyReadingMinutesTarget: 5,
   };
   await db.settings.add(defaults);
   return defaults;

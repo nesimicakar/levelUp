@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate } from '@/lib/db';
-import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress } from '@/lib/logic/levels';
+import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
+import { loadIntCourses, isIntCompleteFromCourses, getDailyUnitsForCourse, buildIntSubtitle, totalCompletedUnitsAcrossCourses } from '@/lib/logic/intCourses';
 import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
 import { SystemMessage } from '@/components/SystemMessage';
@@ -55,8 +56,6 @@ export default function Dashboard() {
       router.replace('/guide');
       return;
     }
-    const intCourseAbbr = (settings.intCourseName ?? 'Primary Study').split(' ').map(w => w[0]).join('').toUpperCase();
-
     // STR
     const allStrSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
     const weekStrSessions = await db.strSessions
@@ -69,13 +68,18 @@ export default function Dashboard() {
     const strXP = computeStrXP(allStrSessions, 0);
     const strLevel = computeLevel(strXP);
 
-    // AGI
-    const todayAgi = await db.agiLogs.where('date').equals(today).first();
-    const agiStatus: DayStatus = todayAgi?.completed ? 'complete' : 'incomplete';
+    // AGI — multiple logs per day allowed (one per modality), so sum across all
+    const todayAgiLogs = await db.agiLogs.where('date').equals(today).toArray();
+    const todayAgiMinutes = todayAgiLogs.reduce((sum, l) => sum + l.minutes, 0);
+    const agiStatus: DayStatus = todayAgiMinutes >= settings.agiMinMinutes ? 'complete' : 'incomplete';
     const allAgiLogs = await db.agiLogs.toArray();
-    const totalAgiMinutes = allAgiLogs.reduce((sum, l) => sum + l.minutes, 0);
     const agiCap = getAgiDailyCap(settings.agiMinMinutes);
-    const cappedAgiMinutes = allAgiLogs.reduce((sum, l) => sum + Math.min(l.minutes, agiCap), 0);
+    // XP cap applies per day (not per log) so we sum minutes by day first, then cap
+    const minutesByDay = new Map<string, number>();
+    for (const l of allAgiLogs) {
+      minutesByDay.set(l.date, (minutesByDay.get(l.date) ?? 0) + l.minutes);
+    }
+    const cappedAgiMinutes = [...minutesByDay.values()].reduce((s, m) => s + Math.min(m, agiCap), 0);
     const agiStreak = await computeAgiStreak(today);
     const agiXP = computeAgiXP(cappedAgiMinutes, agiStreak);
     const agiLevel = computeLevel(agiXP);
@@ -88,47 +92,52 @@ export default function Dashboard() {
     const vitLevel = computeLevel(vitXP);
     const vitChecked = todayVit ? [todayVit.sleepHours >= 7, todayVit.proteinGoalMet, todayVit.postureMobilityMet === true].filter(Boolean).length : 0;
 
-    // INT
+    // INT — multi-course system: completion = every active course meets daily target
     const todayInt = await db.intLogs.where('date').equals(today).first();
-    const intStatus: DayStatus = todayInt?.completed ? 'complete' : 'incomplete';
+    const todayPerForInt = await db.perLogs.where('date').equals(today).first();
+    const intCourses = await loadIntCourses();
+    const todayUnitsByCourse: Record<string, number> = {};
+    for (const c of intCourses) {
+      todayUnitsByCourse[c.id] = getDailyUnitsForCourse(c, todayInt ?? null, todayPerForInt ?? null);
+    }
+    const intStatus: DayStatus = isIntCompleteFromCourses(intCourses, todayUnitsByCourse) ? 'complete' : 'incomplete';
     const allIntLogs = await db.intLogs.toArray();
     const intCap = getIntDailyCap(settings.learningMinutesPerDay);
     const cappedIntMinutes = allIntLogs.reduce((s, l) => s + Math.min(l.learningMinutes ?? 0, intCap), 0);
-    const reCourse = await getCourseProgress('real-estate');
-    const intXP = computeIntXP(cappedIntMinutes, reCourse.completedUnits);
+    const intXP = computeIntXP(cappedIntMinutes, totalCompletedUnitsAcrossCourses(intCourses));
     const intLevel = computeLevel(intXP);
-    const rePct = Math.round((reCourse.completedUnits / reCourse.totalUnits) * 100);
 
-    // PER
+    // PER — reading minutes (always required) + prayers/quran (if spirituality enabled)
     const spiritualityEnabled = settings.enableSpirituality ?? false;
+    const readingTarget = settings.dailyReadingMinutesTarget ?? 5;
     const todayPer = await db.perLogs.where('date').equals(today).first();
-    const perLessonsMet = (todayPer?.lessonsCompleted ?? 0) >= settings.lessonsPerDay;
-    const perPrayersMet = (todayPer?.prayersCount ?? 0) >= 5;
-    const perQuranMet = (todayPer?.quranPages ?? 0) >= settings.quranPagesPerDay;
-    const perChecked = spiritualityEnabled
-      ? [perLessonsMet, perPrayersMet, perQuranMet].filter(Boolean).length
-      : [perLessonsMet].filter(Boolean).length;
-    const perTotal = spiritualityEnabled ? 3 : 1;
     const perStatus: DayStatus = todayPer?.completed ? 'complete' : 'incomplete';
     const saCourse = await getCourseProgress('stage-academy');
     const perXP = computePerXP(saCourse.completedUnits);
     const perLevel = computeLevel(perXP);
-    const saPct = Math.round((saCourse.completedUnits / saCourse.totalUnits) * 100);
+    const perSubtitle = (() => {
+      const read = `READ ${todayPer?.readingMinutes ?? 0}/${readingTarget}`;
+      if (!spiritualityEnabled) return read;
+      const pray = `PRAY ${todayPer?.prayersCount ?? 0}/5`;
+      const quran = `QURAN ${todayPer?.quranPages ?? 0}/${settings.quranPagesPerDay}`;
+      return `${read} · ${pray} · ${quran}`;
+    })();
 
     // Rank
     const latestRank = await db.rankHistory.orderBy('createdAt').last();
 
     // Weighted daily progress (Model C)
     const strDomainProgress = (strStatus === 'complete' || strStatus === 'rest') ? 1 : 0;
-    const agiDomainProgress = Math.min((todayAgi?.minutes ?? 0) / settings.agiMinMinutes, 1);
+    const agiDomainProgress = Math.min(todayAgiMinutes / settings.agiMinMinutes, 1);
     const vitDomainProgress = vitChecked / 3;
-    const intBookProgress = Math.min((todayInt?.learningMinutes ?? 0) / settings.learningMinutesPerDay, 1);
-    const intReProgress = Math.min((todayInt?.courseUnitsCompleted ?? 0) / settings.courseUnitsPerDay, 1);
-    const intDomainProgress = (intBookProgress + intReProgress) / 2;
+    // INT: average per-course progress across ACTIVE courses only
+    const activeIntCourses = intCourses.filter(c => c.status === 'active');
+    const intDomainProgress = computeIntDomainProgress(activeIntCourses, todayUnitsByCourse);
+    // PER: reading minutes (always) + prayers + Quran (if spirituality on)
     const perDomainProgress = computePerDomainProgress(
       spiritualityEnabled,
-      todayPer?.lessonsCompleted ?? 0,
-      settings.lessonsPerDay,
+      todayPer?.readingMinutes ?? 0,
+      settings.dailyReadingMinutesTarget ?? 5,
       todayPer?.prayersCount ?? 0,
       todayPer?.quranPages ?? 0,
       settings.quranPagesPerDay,
@@ -166,7 +175,7 @@ export default function Dashboard() {
       agi: {
         level: agiLevel,
         status: agiStatus,
-        subtitle: `${agiStreak}-day streak · ${todayAgi?.minutes ?? 0} min today`,
+        subtitle: `${agiStreak}-day streak · ${todayAgiMinutes} min today`,
       },
       vit: {
         level: vitLevel,
@@ -176,12 +185,12 @@ export default function Dashboard() {
       int: {
         level: intLevel,
         status: intStatus,
-        subtitle: `${todayInt?.learningMinutes ?? 0}/${settings.learningMinutesPerDay} min · ${intCourseAbbr} ${todayInt?.courseUnitsCompleted ?? 0}/${settings.courseUnitsPerDay} units`,
+        subtitle: buildIntSubtitle(intCourses, todayInt ?? null, todayPerForInt ?? null),
       },
       per: {
         level: perLevel,
         status: perStatus,
-        subtitle: `${perChecked}/${perTotal} completed today`,
+        subtitle: perSubtitle,
       },
       rank: latestRank?.rank ?? 'E',
       dailyPct,
@@ -217,8 +226,8 @@ export default function Dashboard() {
   return (
     <>
     <SystemMessage
-      title="SYSTEM MESSAGE"
-      subtitle="Daily Protocol Cleared"
+      title="DAILY PROTOCOL"
+      subtitle="Cleared"
       variant="major"
       visible={showDailyComplete}
       onDismiss={() => setShowDailyComplete(false)}
@@ -226,13 +235,13 @@ export default function Dashboard() {
     <main className="max-w-lg mx-auto px-4 pt-6 pb-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h1 className="text-xl font-bold tracking-widest glow-text">SYSTEM</h1>
-          <p className="text-text-muted text-xs mt-1">Daily Protocol Status</p>
+          <h1 className="font-display text-2xl font-bold tracking-widest glow-text leading-none">SYSTEM</h1>
+          <p className="text-text-muted text-[10px] mt-1 tracking-[0.18em] uppercase">Daily Protocol Status</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-text-muted text-xs">RANK</span>
+          <span className="text-text-muted text-[10px] tracking-[0.18em] uppercase">RANK</span>
           <span
-            className="text-2xl font-bold glow-text"
+            className="font-display text-3xl font-bold glow-text leading-none"
             style={{ color: `var(--color-rank-${state.rank.toLowerCase()})` }}
           >
             {state.rank}

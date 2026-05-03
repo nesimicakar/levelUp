@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import type { StatType, DayStatus } from '@/types';
-import { ProgressBar } from './ProgressBar';
 
 interface StatCardProps {
   stat: StatType;
@@ -15,29 +14,67 @@ interface StatCardProps {
   onClick?: () => void;
 }
 
-const STATUS_DISPLAY: Record<DayStatus, { label: string; className: string }> = {
-  incomplete: { label: 'INCOMPLETE', className: 'text-warning' },
-  complete: { label: 'COMPLETE', className: 'text-success' },
-  rest: { label: 'REST DAY', className: 'text-text-muted' },
+const STAT_HUE: Record<StatType, string> = {
+  STR: 'var(--color-stat-str)',
+  AGI: 'var(--color-stat-agi)',
+  VIT: 'var(--color-stat-vit)',
+  INT: 'var(--color-stat-int)',
+  PER: 'var(--color-stat-per)',
 };
 
 export function StatCard({ stat, level, progressPct, status, subtitle, href, highlight, onClick }: StatCardProps) {
-  const statusInfo = STATUS_DISPLAY[status];
+  const hue = STAT_HUE[stat];
+  const isComplete = status === 'complete' || status === 'rest';
+  const restLabel = status === 'rest' ? 'REST' : null;
 
   return (
     <Link href={href} className="block" onClick={onClick}>
-      <div className={`stat-card rounded-lg p-4 animate-fade-in ${highlight ? 'glow-border-active' : 'glow-border'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-glow text-lg font-bold glow-text">{stat}</span>
-            <span className="text-text-dim text-sm">Lv.{level}</span>
+      <div
+        className={`frame-cut p-3 animate-fade-in ${highlight ? 'frame-cut--glow' : ''}`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          {/* Left: stat tile + level + subtitle */}
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className="stat-tile"
+              style={{
+                color: hue,
+                background: `linear-gradient(135deg, color-mix(in srgb, ${hue} 14%, transparent), transparent)`,
+                border: `1px solid color-mix(in srgb, ${hue} 40%, transparent)`,
+              }}
+            >
+              {stat}
+            </div>
+            <div className="min-w-0">
+              <div className="font-display text-sm font-semibold text-text">LVL {level}</div>
+              <div className="text-[11px] text-text-muted truncate">{subtitle}</div>
+            </div>
           </div>
-          <span className={`text-xs font-medium tracking-wider ${statusInfo.className}`}>
-            {statusInfo.label}
-          </span>
+
+          {/* Right: status chip + chevron */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {restLabel ? (
+              <span className="hud-chip hud-chip--ok"><span className="hud-chip__dot" />{restLabel}</span>
+            ) : isComplete ? (
+              <span className="hud-chip hud-chip--ok"><span className="hud-chip__dot" />OK</span>
+            ) : (
+              <span className="hud-chip"><span className="hud-chip__dot" style={{ color: 'var(--color-text-muted)' }} />…</span>
+            )}
+            <svg
+              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+              className="text-text-muted"
+              style={{ transform: 'scaleX(-1)' }}
+              aria-hidden
+            >
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
+          </div>
         </div>
-        <ProgressBar value={progressPct} className="mb-2" />
-        <p className="text-text-muted text-xs">{subtitle}</p>
+
+        <div className={`hud-bar hud-bar--${stat.toLowerCase()} mt-3`}>
+          <div className="hud-bar__fill" style={{ width: `${Math.min(progressPct, 100)}%` }} />
+        </div>
       </div>
     </Link>
   );

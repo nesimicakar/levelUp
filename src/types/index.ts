@@ -67,8 +67,23 @@ export interface IntLog {
   pagesRead: number;
   learningMinutes?: number;
   courseUnitsCompleted: number;
+  /** Per-course daily units. Keys are IntCourse.id. New system; old reads fall back
+   *  to courseUnitsCompleted (for legacy-real-estate) or perLog.lessonsCompleted
+   *  (for legacy-stage-academy). */
+  unitsByCourse?: Record<string, number>;
   completed: boolean;
   createdAt: number;
+}
+
+export interface IntCourse {
+  id: string;
+  name: string;
+  totalUnits: number;
+  completedUnits: number;
+  dailyTargetUnits: number;
+  status: 'active' | 'acquired';
+  createdAt: number;
+  acquiredAt?: number;
 }
 
 export interface PerLog {
@@ -77,6 +92,9 @@ export interface PerLog {
   lessonsCompleted: number;
   prayersCount?: number;
   quranPages?: number;
+  /** Daily book/personal reading minutes — counts toward PER completion when set
+   *  ≥ settings.dailyReadingMinutesTarget. Optional (legacy logs may lack it). */
+  readingMinutes?: number;
   completed: boolean;
   createdAt: number;
 }
@@ -185,10 +203,15 @@ export interface UserSettings {
   strictMode?: boolean;
   hasOnboarded?: boolean;
   enableSpirituality?: boolean;
+  /** Daily book reading target (minutes). Drives PER completion. Default 5. */
+  dailyReadingMinutesTarget?: number;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
   strMode?: 'workout' | 'session';
   activeBooks?: ActiveBook[];
   finishedBooks?: FinishedBook[];
+  /** Course list for INT (active + acquired). Seeded from legacy Real Estate +
+   *  Stage Academy courseProgress on first load. */
+  intCourses?: IntCourse[];
 }
 
 export interface StatLevel {

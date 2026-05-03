@@ -13,9 +13,9 @@ export function Toggle({ checked, onChange, label, sublabel, disabled }: ToggleP
     <button
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`flex items-center justify-between w-full p-3 rounded-lg border transition-all ${
+      className={`flex items-center justify-between w-full px-3 py-2.5 rounded-md border transition-colors ${
         checked
-          ? 'border-glow/30 bg-glow/5 glow-border-active'
+          ? 'border-glow/40 bg-glow/[0.04]'
           : 'border-border bg-surface'
       } ${disabled ? 'opacity-50' : ''}`}
     >

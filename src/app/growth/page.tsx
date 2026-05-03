@@ -39,7 +39,10 @@ export default function GrowthPage() {
 
     const allAgi = await db.agiLogs.toArray();
     const agiCap = getAgiDailyCap(settings.agiMinMinutes);
-    const cappedAgiMin = allAgi.reduce((s, l) => s + Math.min(l.minutes, agiCap), 0);
+    // Cap per day (across modalities) not per log
+    const agiMinByDay = new Map<string, number>();
+    for (const l of allAgi) agiMinByDay.set(l.date, (agiMinByDay.get(l.date) ?? 0) + l.minutes);
+    const cappedAgiMin = [...agiMinByDay.values()].reduce((s, m) => s + Math.min(m, agiCap), 0);
     const agiStreak = await computeAgiStreak(getToday());
     const agiLevel = computeLevel(computeAgiXP(cappedAgiMin, agiStreak));
 
@@ -79,7 +82,7 @@ export default function GrowthPage() {
       const sCount = allStr.filter(s => s.date >= ws && s.date < weStr && s.completed && !s.isRestDay).length;
       strWeekly.push({ weekStart: ws, completed: sCount, total: 3 });
 
-      const aDays = allAgi.filter(l => l.date >= ws && l.date < weStr && l.completed).length;
+      const aDays = new Set(allAgi.filter(l => l.date >= ws && l.date < weStr && l.completed).map(l => l.date)).size;
       agiWeekly.push({ weekStart: ws, completed: aDays, total: 7 });
 
       const vDays = (await db.vitLogs.where('date').between(ws, weStr).toArray()).filter(l => l.completed).length;
