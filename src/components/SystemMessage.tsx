@@ -7,13 +7,13 @@ interface SystemMessageProps {
   subtitle: string;
   visible: boolean;
   onDismiss: () => void;
-  /** 'major' = large centered card (protocol complete, level up, rank up)
+  /** 'major' = full-screen Daily Protocol Cleared overlay (big ring + CONTINUE)
    *  'minor' = small top toast (session logged, confirmations) */
   variant?: 'major' | 'minor';
 }
 
-const MAJOR_DURATION = 3500;
 const MINOR_DURATION = 1400;
+const MAJOR_AUTO_DISMISS_MS = 8000; // safety net — user normally taps CONTINUE
 
 export function SystemMessage({
   title,
@@ -29,8 +29,12 @@ export function SystemMessage({
     if (!visible) return;
     setKey(k => k + 1);
     setActive(true);
-    const duration = variant === 'major' ? MAJOR_DURATION : MINOR_DURATION;
-    const t = setTimeout(() => { setActive(false); onDismiss(); }, duration);
+    if (variant === 'minor') {
+      const t = setTimeout(() => { setActive(false); onDismiss(); }, MINOR_DURATION);
+      return () => clearTimeout(t);
+    }
+    // major: long auto-dismiss as a safety net only
+    const t = setTimeout(() => { setActive(false); onDismiss(); }, MAJOR_AUTO_DISMISS_MS);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -38,29 +42,101 @@ export function SystemMessage({
   if (!active) return null;
 
   if (variant === 'major') {
+    // Ring geometry
+    const size = 240;
+    const stroke = 3;
+    const r = (size - stroke) / 2;
+    const c = 2 * Math.PI * r;
     return (
       <div
         key={key}
-        className="fixed left-1/2 z-50 pointer-events-none"
+        className="fixed inset-0 z-50 flex items-center justify-center px-6 animate-fade-in"
         style={{
-          top: '236px',
-          transform: 'translateX(-50%)',
-          width: 'min(280px, 86vw)',
+          background: 'rgba(3, 5, 10, 0.92)',
+          backdropFilter: 'blur(8px)',
         }}
       >
-        <div
-          className="rounded-xl px-7 py-5 text-center"
-          style={{
-            background: 'rgba(17, 24, 39, 0.72)',
-            border: '1px solid rgba(59, 130, 246, 0.25)',
-            boxShadow: '0 0 20px rgba(59, 130, 246, 0.14), inset 0 0 12px rgba(59, 130, 246, 0.04)',
-            backdropFilter: 'blur(8px)',
-            animation: `system-msg-in ${MAJOR_DURATION}ms ease-out forwards`,
-          }}
-        >
-          <p className="text-[10px] tracking-widest text-text-muted uppercase mb-1.5">{title}</p>
-          <p className="text-lg font-bold tracking-wider text-glow-bright uppercase leading-tight">{subtitle}</p>
-          <p className="text-[11px] text-text-muted mt-2 tracking-wide">All objectives completed</p>
+        <div className="text-center w-full max-w-sm">
+          {/* Channel */}
+          <p
+            className="font-mono-hud text-[10px] tracking-[0.32em] mb-7"
+            style={{ color: 'var(--color-glow-bright)' }}
+          >
+            ‹ {title} ›
+          </p>
+
+          {/* Big dashed ring */}
+          <div className="relative mx-auto" style={{ width: size, height: size }}>
+            <svg width={size} height={size}>
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke="rgba(96,165,250,0.15)"
+                strokeWidth={stroke}
+                strokeDasharray="4 6"
+              />
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke="var(--color-glow-bright)"
+                strokeWidth={stroke}
+                strokeLinecap="round"
+                strokeDasharray={c}
+                strokeDashoffset={0}
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                style={{ filter: 'drop-shadow(0 0 8px var(--color-glow-bright))' }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span
+                className="font-display font-bold tracking-[0.04em] glow-text"
+                style={{
+                  fontSize: 24,
+                  color: 'var(--color-glow-bright)',
+                }}
+              >
+                {subtitle.toUpperCase()}
+              </span>
+              <span
+                className="font-display font-bold leading-none my-1"
+                style={{
+                  fontSize: 80,
+                  color: 'var(--color-text)',
+                  textShadow: '0 0 24px rgba(96,165,250,0.6)',
+                }}
+              >
+                100<span className="text-text-muted" style={{ fontSize: 32 }}>%</span>
+              </span>
+              <span className="font-mono-hud text-[10px] tracking-[0.18em] uppercase text-text-muted">
+                5 / 5 STATS
+              </span>
+            </div>
+          </div>
+
+          {/* System acknowledgement */}
+          <p
+            className="text-text-dim text-xs leading-relaxed mt-7 max-w-[280px] mx-auto"
+          >
+            The system acknowledges your effort.
+          </p>
+
+          {/* Continue */}
+          <button
+            onClick={() => { setActive(false); onDismiss(); }}
+            className="cut-tile mt-7 px-12 py-3 font-display font-bold text-sm tracking-[0.18em] transition-all hover:brightness-125"
+            style={{
+              background: 'rgba(96,165,250,0.15)',
+              border: '1px solid var(--color-glow-bright)',
+              color: 'var(--color-glow-bright)',
+              boxShadow: '0 0 12px rgba(96,165,250,0.3)',
+            }}
+          >
+            CONTINUE
+          </button>
         </div>
       </div>
     );
