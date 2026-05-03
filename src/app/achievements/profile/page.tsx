@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getToday, getSettings } from '@/lib/db';
 import { daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
-import { loadIntCourses, totalCompletedUnitsAcrossCourses } from '@/lib/logic/intCourses';
+import { loadIntCourses } from '@/lib/logic/intCourses';
 import type { Rank, IntCourse, FinishedBook } from '@/types';
 import { RANK_ORDER } from '@/types';
 
@@ -31,7 +31,7 @@ interface ProfileData {
   totals: {
     strSessions: number;
     cardioMinutes: number;
-    studyUnits: number;
+    bookMinutes: number;
     quranPages: number;
   };
 }
@@ -103,7 +103,11 @@ export default function ProfilePage() {
     // Lifetime totals
     const strSessions = allStr.filter(s => s.completed && !s.isRestDay).length;
     const cardioMinutes = allAgi.reduce((s, l) => s + l.minutes, 0);
-    const studyUnits = totalCompletedUnitsAcrossCourses(courses);
+    // Lifetime book minutes = current PER readingMinutes + legacy INT learningMinutes
+    // (pre-redesign, "book minutes" was logged on INT as learningMinutes)
+    const perReading = allPer.reduce((s, l) => s + (l.readingMinutes ?? 0), 0);
+    const legacyLearning = allInt.reduce((s, l) => s + (l.learningMinutes ?? 0), 0);
+    const bookMinutes = perReading + legacyLearning;
     const quranPages = allPer.reduce((s, l) => s + (l.quranPages ?? 0), 0);
 
     setData({
@@ -115,7 +119,7 @@ export default function ProfilePage() {
       bestStreak,
       acquiredCourses,
       finishedBooks,
-      totals: { strSessions, cardioMinutes, studyUnits, quranPages },
+      totals: { strSessions, cardioMinutes, bookMinutes, quranPages },
     });
   }, []);
 
@@ -266,8 +270,8 @@ export default function ProfilePage() {
             <span className="font-display text-text">{data.totals.cardioMinutes.toLocaleString()}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-muted">Study Units</span>
-            <span className="font-display text-text">{data.totals.studyUnits.toLocaleString()}</span>
+            <span className="text-text-muted">Book Minutes</span>
+            <span className="font-display text-text">{data.totals.bookMinutes.toLocaleString()}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-text-muted">Quran Pages</span>

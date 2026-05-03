@@ -26,9 +26,7 @@ import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse } from '@/types
 
 function formatAcquiredDate(ts: number): string {
   const d = new Date(ts);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${mm}/${dd}`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: '2-digit' }).toUpperCase();
 }
 
 function projectETA(course: IntCourse): { eta: string; daysLeft: number } | null {
@@ -63,6 +61,15 @@ export default function IntPage() {
   const [editName, setEditName] = useState('');
   const [editTotal, setEditTotal] = useState('');
   const [editDaily, setEditDaily] = useState('');
+
+  // Read-only detail for acquired courses
+  const [viewingAcquiredId, setViewingAcquiredId] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Active-course overflow menu + delete-confirm flow
+  const [overflowOpenId, setOverflowOpenId] = useState<string | null>(null);
+  const [deletingActiveId, setDeletingActiveId] = useState<string | null>(null);
+  const [deleteTypedConfirm, setDeleteTypedConfirm] = useState('');
 
   const loadData = useCallback(async () => {
     const s = await getSettings();
@@ -536,7 +543,10 @@ export default function IntPage() {
                           className="flex-1 bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
                         />
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div
+                        className="grid gap-2"
+                        style={{ gridTemplateColumns: '1fr 1fr auto' }}
+                      >
                         <button
                           onClick={saveEdit}
                           className="px-2 py-2 rounded text-[10px] tracking-[0.16em] font-semibold transition-colors"
@@ -555,14 +565,111 @@ export default function IntPage() {
                           ACQUIRE
                         </button>
                         <button
-                          onClick={() => deleteCourseEntry(c.id)}
-                          className="px-2 py-2 rounded border border-danger/40 text-danger text-[10px] tracking-[0.16em] font-semibold hover:bg-danger/10 transition-colors"
+                          onClick={() => {
+                            setOverflowOpenId(prev => (prev === c.id ? null : c.id));
+                            setDeletingActiveId(null);
+                            setDeleteTypedConfirm('');
+                          }}
+                          className="w-9 h-9 grid place-items-center font-mono-hud text-base leading-none rounded transition-colors"
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid var(--color-border)',
+                            color: overflowOpenId === c.id ? 'var(--color-text)' : 'var(--color-text-muted)',
+                          }}
+                          aria-label="More actions"
+                          aria-expanded={overflowOpenId === c.id}
                         >
-                          DELETE
+                          ⋯
                         </button>
                       </div>
+
+                      {/* Overflow menu — Delete is hidden here */}
+                      {overflowOpenId === c.id && deletingActiveId !== c.id && (
+                        <div
+                          className="rounded p-2"
+                          style={{ background: 'var(--color-bg)', border: '1px dashed var(--color-border)' }}
+                        >
+                          <button
+                            onClick={() => {
+                              setDeletingActiveId(c.id);
+                              setDeleteTypedConfirm('');
+                            }}
+                            className="w-full text-left px-2 py-2 rounded font-mono-hud text-[10px] tracking-[0.16em] uppercase transition-colors hover:bg-danger/10"
+                            style={{ color: 'rgba(239,68,68,0.85)' }}
+                          >
+                            Delete course
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Delete confirmation — type DELETE to enable */}
+                      {deletingActiveId === c.id && (
+                        <div
+                          className="rounded p-3 space-y-2"
+                          style={{
+                            border: '1px solid rgba(239,68,68,0.40)',
+                            background: 'rgba(239,68,68,0.04)',
+                            boxShadow: '0 0 8px rgba(239,68,68,0.12)',
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="w-1.5 h-1.5" style={{ background: 'var(--color-stat-str)', boxShadow: '0 0 6px rgba(239,68,68,0.6)' }} />
+                            <span className="font-mono-hud text-[10px] tracking-[0.16em] uppercase font-semibold" style={{ color: 'var(--color-stat-str)' }}>
+                              Confirm Delete
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-text leading-relaxed">
+                            This will permanently remove <span className="font-display font-semibold">{c.name}</span> and any progress on it. Type <span className="font-mono-hud text-danger">DELETE</span> to confirm.
+                          </p>
+                          <input
+                            type="text"
+                            value={deleteTypedConfirm}
+                            onChange={e => setDeleteTypedConfirm(e.target.value)}
+                            placeholder="Type DELETE"
+                            autoFocus
+                            className="w-full bg-surface border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-danger/60"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => {
+                                setDeletingActiveId(null);
+                                setOverflowOpenId(null);
+                                setDeleteTypedConfirm('');
+                              }}
+                              className="px-2 py-2 rounded border border-border text-text-muted text-[10px] tracking-[0.16em] font-semibold hover:text-text transition-colors"
+                            >
+                              CANCEL
+                            </button>
+                            <button
+                              onClick={async () => {
+                                if (deleteTypedConfirm !== 'DELETE') return;
+                                const id = c.id;
+                                setDeletingActiveId(null);
+                                setOverflowOpenId(null);
+                                setDeleteTypedConfirm('');
+                                await deleteCourseEntry(id);
+                              }}
+                              disabled={deleteTypedConfirm !== 'DELETE'}
+                              className="px-2 py-2 rounded text-[10px] tracking-[0.16em] font-semibold transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                              style={{
+                                background: 'rgba(239,68,68,0.12)',
+                                border: '1px solid var(--color-stat-str)',
+                                color: 'var(--color-stat-str)',
+                              }}
+                            >
+                              DELETE
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       <button
-                        onClick={() => setEditingId(null)}
+                        onClick={() => {
+                          setEditingId(null);
+                          setOverflowOpenId(null);
+                          setDeletingActiveId(null);
+                          setDeleteTypedConfirm('');
+                        }}
                         className="w-full px-2 py-2 rounded border border-border text-text-muted text-[10px] tracking-[0.16em] hover:text-text transition-colors"
                       >
                         CANCEL
@@ -659,40 +766,229 @@ export default function IntPage() {
           </button>
         )}
 
-        {/* TROPHY STRIP — acquired courses */}
+        {/* ACQUIRED — compact list with gold accent */}
         {acquiredCourses.length > 0 && (
-          <div className="space-y-1.5 mt-2">
-            <div className="text-text-muted text-[10px] tracking-[0.16em] uppercase">// ACQUIRED · {acquiredCourses.length}</div>
-            <div className="flex gap-1.5 overflow-x-auto pb-1">
-              {acquiredCourses.map(c => (
-                <button
-                  key={c.id}
-                  onClick={() => reactivate(c.id)}
-                  className="cut-tile flex-shrink-0 px-3 py-2 flex items-center gap-2 transition-colors hover:brightness-110"
-                  style={{
-                    background: 'rgba(245,158,11,0.06)',
-                    border: '1px solid rgba(245,158,11,0.4)',
-                    color: 'var(--color-rank-a)',
-                  }}
-                  title="Tap to reactivate"
+          <div className="space-y-1.5 mt-3">
+            {/* Section header with gold underline */}
+            <div
+              className="flex items-center justify-between pb-1.5"
+              style={{ borderBottom: '1px solid rgba(234,179,8,0.45)' }}
+            >
+              <div className="flex items-center gap-2">
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ color: 'var(--color-stat-vit)' }}
+                  aria-hidden
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
-                  </svg>
-                  <div className="flex flex-col leading-tight text-left">
-                    <span className="font-display font-semibold text-[11px] text-text tracking-[0.04em]">{c.name}</span>
-                    <span className="font-mono-hud text-[8px] tracking-[0.12em] opacity-80">
-                      ACQUIRED{c.acquiredAt ? ` · ${formatAcquiredDate(c.acquiredAt)}` : ''}
-                    </span>
-                  </div>
-                </button>
-              ))}
+                  <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
+                </svg>
+                <span
+                  className="font-mono-hud text-[11px] font-semibold tracking-[0.18em] uppercase"
+                  style={{ color: 'var(--color-stat-vit)', textShadow: '0 0 6px rgba(234,179,8,0.5)' }}
+                >
+                  // ACQUIRED
+                </span>
+              </div>
+              <span
+                className="font-mono-hud text-[10px] font-bold"
+                style={{ color: 'var(--color-stat-vit)' }}
+              >
+                {acquiredCourses.length}
+              </span>
             </div>
+
+            {/* Compact rows — read-only detail on tap */}
+            {acquiredCourses.map(c => (
+              <button
+                key={c.id}
+                onClick={() => setViewingAcquiredId(c.id)}
+                className="cut-tile w-full grid items-center gap-2.5 px-3 py-2.5 transition-colors hover:brightness-110"
+                style={{
+                  gridTemplateColumns: 'auto 1fr auto',
+                  background: 'transparent',
+                  border: '1px solid rgba(234,179,8,0.45)',
+                  borderLeft: '3px solid var(--color-stat-vit)',
+                  boxShadow: 'inset 0 0 6px rgba(234,179,8,0.06)',
+                }}
+              >
+                {/* Trophy icon */}
+                <svg
+                  width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ color: 'var(--color-stat-vit)', filter: 'drop-shadow(0 0 3px rgba(234,179,8,0.5))' }}
+                  aria-hidden
+                >
+                  <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
+                </svg>
+
+                {/* Title + meta */}
+                <div className="min-w-0 text-left">
+                  <div className="font-display text-[13px] text-text truncate">{c.name}</div>
+                  <div className="font-mono-hud text-[9px] text-text-muted tracking-[0.12em] uppercase mt-0.5">
+                    {c.totalUnits} UNITS
+                  </div>
+                </div>
+
+                {/* Status + date (right-aligned) */}
+                <div className="text-right">
+                  <div
+                    className="font-mono-hud text-[9px] tracking-[0.12em]"
+                    style={{ color: 'var(--color-stat-vit)' }}
+                  >
+                    ✓ ACQUIRED
+                  </div>
+                  {c.acquiredAt && (
+                    <div className="font-mono-hud text-[9px] text-text-muted tracking-[0.10em] mt-0.5">
+                      {formatAcquiredDate(c.acquiredAt)}
+                    </div>
+                  )}
+                </div>
+              </button>
+            ))}
           </div>
         )}
 
         <CustomTasksSection skill="INT" />
       </main>
+
+      {/* Acquired course read-only detail */}
+      {viewingAcquiredId && (() => {
+        const c = courses.find(x => x.id === viewingAcquiredId);
+        if (!c) return null;
+        const closeModal = () => {
+          setViewingAcquiredId(null);
+          setConfirmingDelete(false);
+        };
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-6 sm:pb-0 animate-fade-in"
+            style={{ background: 'rgba(2, 4, 10, 0.78)', backdropFilter: 'blur(6px)' }}
+            onClick={closeModal}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="w-full max-w-sm"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="frame-bracketed">
+                <div
+                  className="frame-cut p-4 space-y-3"
+                  style={{
+                    border: '1px solid rgba(234,179,8,0.45)',
+                    borderLeft: '3px solid var(--color-stat-vit)',
+                    boxShadow: 'inset 0 0 8px rgba(234,179,8,0.06), 0 0 18px rgba(234,179,8,0.18)',
+                  }}
+                >
+                  {/* Header */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg
+                        width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ color: 'var(--color-stat-vit)', filter: 'drop-shadow(0 0 3px rgba(234,179,8,0.5))' }}
+                        aria-hidden
+                      >
+                        <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
+                      </svg>
+                      <span
+                        className="font-mono-hud text-[10px] tracking-[0.18em] font-semibold"
+                        style={{ color: 'var(--color-stat-vit)', textShadow: '0 0 6px rgba(234,179,8,0.5)' }}
+                      >
+                        ✓ ACQUIRED
+                      </span>
+                    </div>
+                    <button
+                      onClick={closeModal}
+                      className="text-text-muted hover:text-text font-mono-hud text-base leading-none px-1.5"
+                      aria-label="Close"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Title */}
+                  <div className="font-display font-bold text-lg text-text leading-tight">
+                    {c.name}
+                  </div>
+
+                  {/* Stats */}
+                  <div className="space-y-1.5 text-sm pt-1" style={{ borderTop: '1px dashed var(--color-border)' }}>
+                    <div className="flex justify-between pt-2">
+                      <span className="text-text-muted font-mono-hud text-[10px] tracking-[0.14em] uppercase">Total Units</span>
+                      <span className="font-display font-bold" style={{ color: 'var(--color-stat-vit)' }}>{c.totalUnits}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted font-mono-hud text-[10px] tracking-[0.14em] uppercase">Completed</span>
+                      <span className="font-display text-text">
+                        {c.acquiredAt
+                          ? new Date(c.acquiredAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted font-mono-hud text-[10px] tracking-[0.14em] uppercase">Daily Target</span>
+                      <span className="font-display text-text">{c.dailyTargetUnits} / day</span>
+                    </div>
+                  </div>
+
+                  {/* Footnote */}
+                  <p className="text-[10px] text-text-muted leading-relaxed pt-1">
+                    Acquired courses are final. Future actions like Restart or Duplicate will live here.
+                  </p>
+
+                  {/* Delete (two-tap confirm — for mis-acquired courses) */}
+                  <div className="pt-2" style={{ borderTop: '1px dashed rgba(239,68,68,0.18)' }}>
+                    {!confirmingDelete ? (
+                      <button
+                        onClick={() => setConfirmingDelete(true)}
+                        className="w-full font-mono-hud text-[10px] tracking-[0.16em] uppercase py-2 rounded transition-colors"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid rgba(239,68,68,0.30)',
+                          color: 'rgba(239,68,68,0.75)',
+                        }}
+                      >
+                        Delete acquired course
+                      </button>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-danger text-center">
+                          ⚠ Permanently remove. This cannot be undone.
+                        </p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setConfirmingDelete(false)}
+                            className="font-mono-hud text-[10px] tracking-[0.16em] uppercase py-2 rounded border border-border text-text-muted hover:text-text transition-colors"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await deleteCourseEntry(c.id);
+                              closeModal();
+                            }}
+                            className="font-mono-hud text-[10px] tracking-[0.16em] uppercase py-2 rounded transition-colors"
+                            style={{
+                              background: 'rgba(239,68,68,0.12)',
+                              border: '1px solid var(--color-stat-str)',
+                              color: 'var(--color-stat-str)',
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <span className="frame-bracket-bottom" aria-hidden />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -205,6 +205,8 @@ export interface UserSettings {
   enableSpirituality?: boolean;
   /** Daily book reading target (minutes). Drives PER completion. Default 5. */
   dailyReadingMinutesTarget?: number;
+  /** STR sessions per week target. Range 2–5. Default 3. */
+  strSessionsPerWeek?: number;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
   strMode?: 'workout' | 'session';
   activeBooks?: ActiveBook[];

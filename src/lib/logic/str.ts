@@ -5,20 +5,26 @@ export interface StrWeekData {
   restTokensUsed: number;
 }
 
-export function getStrWeeklyStatus(weekSessions: StrSession[]) {
+/** Rest tokens always fill out the week: total = 7 − strSessionsPerWeek.
+ *  Range: 2 (when 5 sessions) → 5 (when 2 sessions). */
+export function computeRestTokensTotal(sessionsRequired: number): number {
+  return Math.max(0, 7 - sessionsRequired);
+}
+
+export function getStrWeeklyStatus(weekSessions: StrSession[], sessionsRequired: number = 3) {
   const completed = weekSessions.filter(s => s.completed && !s.isRestDay).length;
   const restDays = weekSessions.filter(s => s.isRestDay).length;
   return {
     sessionsCompleted: completed,
-    sessionsRequired: 3,
+    sessionsRequired,
     restTokensUsed: restDays,
-    restTokensTotal: 4,
+    restTokensTotal: computeRestTokensTotal(sessionsRequired),
   };
 }
 
-export function canUseRestToken(weekSessions: StrSession[]): boolean {
-  const status = getStrWeeklyStatus(weekSessions);
-  return status.restTokensUsed < 4;
+export function canUseRestToken(weekSessions: StrSession[], sessionsRequired: number = 3): boolean {
+  const status = getStrWeeklyStatus(weekSessions, sessionsRequired);
+  return status.restTokensUsed < status.restTokensTotal;
 }
 
 export function isSessionComplete(exercises: ExerciseRecord[]): boolean {

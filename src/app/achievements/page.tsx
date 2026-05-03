@@ -86,14 +86,16 @@ export default function AchievementsPage() {
       if (p?.completed) perComp++;
     }
 
+    const settings = await getSettings();
+    const strRequired = settings.strSessionsPerWeek ?? 3;
     const input: WeeklyCompletionInput = {
-      strCompleted: Math.min(strCompleted, 3),
+      strCompleted: Math.min(strCompleted, strRequired),
       agiCompleted: agiComp,
       vitCompleted: vitComp,
       intCompleted: intComp,
       perCompleted: perComp,
     };
-    setWeeklyPct(computeWeeklyCompletionPct(input));
+    setWeeklyPct(computeWeeklyCompletionPct(input, strRequired));
     setRank(latestRank?.rank ?? 'E');
 
     const rankRecords = await db.rankHistory.orderBy('weekStart').reverse().toArray();

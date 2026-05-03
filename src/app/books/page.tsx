@@ -10,18 +10,6 @@ function genId(): string {
   return `book-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function formatLastRead(ts?: number): string {
-  if (!ts) return '—';
-  const now = Date.now();
-  const diffDays = Math.floor((now - ts) / (1000 * 60 * 60 * 24));
-  if (diffDays <= 0) return 'TODAY';
-  if (diffDays === 1) return '1D AGO';
-  if (diffDays < 7) return `${diffDays}D AGO`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}W AGO`;
-  const d = new Date(ts);
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }).toUpperCase();
-}
-
 function formatFinished(ts: number): string {
   const d = new Date(ts);
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' }).toUpperCase();
@@ -222,7 +210,7 @@ export default function BooksPage() {
             href={`/books/${book.id}`}
             className="cut-tile grid items-center gap-3 px-3 py-3 hover:brightness-110 transition-colors"
             style={{
-              gridTemplateColumns: 'auto 1fr auto',
+              gridTemplateColumns: 'auto 1fr',
               background: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
             }}
@@ -244,12 +232,6 @@ export default function BooksPage() {
                   <span className="font-mono-hud text-[9px] min-w-[2.5ch] text-right" style={{ color: 'var(--color-stat-per)' }}>{pct}%</span>
                 </div>
               )}
-            </div>
-            <div className="text-right">
-              <div className="font-mono-hud text-[8px] tracking-[0.14em] uppercase" style={{ color: 'var(--color-text-dim)' }}>LAST</div>
-              <div className="font-mono-hud text-[10px] mt-0.5" style={{ color: 'var(--color-text-dim)' }}>
-                {formatLastRead(book.startedAt)}
-              </div>
             </div>
           </Link>
         );

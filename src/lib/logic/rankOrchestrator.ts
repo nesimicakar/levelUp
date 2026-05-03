@@ -51,7 +51,7 @@ export function evaluationDecision(
 /**
  * Gather completion counts for a Mon–Sun week from daily log tables.
  */
-async function gatherWeekCompletions(weekStart: string) {
+async function gatherWeekCompletions(weekStart: string, strRequired: number) {
   const wEnd = addDays(weekStart, 7);
 
   const strSessions = await db.strSessions
@@ -59,7 +59,7 @@ async function gatherWeekCompletions(weekStart: string) {
     .toArray();
   const strCompleted = Math.min(
     strSessions.filter(s => s.completed || s.isRestDay).length,
-    3,
+    strRequired,
   );
 
   let agiCompleted = 0;
@@ -189,8 +189,9 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
   }
 
   // 4. Full week evaluation
-  const completions = await gatherWeekCompletions(previousWeekStart);
-  const completionPct = computeWeeklyCompletionPct(completions);
+  const strRequired = settings.strSessionsPerWeek ?? 3;
+  const completions = await gatherWeekCompletions(previousWeekStart, strRequired);
+  const completionPct = computeWeeklyCompletionPct(completions, strRequired);
   const consecutiveWeeks = await getConsecutiveWeeksAbove80();
   const { newRank } = computeRankUpdate(currentRank, completionPct, consecutiveWeeks);
 
