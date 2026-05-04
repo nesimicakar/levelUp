@@ -30,11 +30,11 @@ export function StatCard({ stat, level, progressPct, status, subtitle, href, hig
   return (
     <Link href={href} className="block" onClick={onClick}>
       <div
-        className={`frame-cut p-3 animate-fade-in ${highlight ? 'frame-cut--glow' : ''}`}
+        className={`frame-cut p-3.5 animate-fade-in ${highlight ? 'frame-cut--glow' : ''}`}
       >
         <div className="flex items-center justify-between gap-2">
           {/* Left: stat tile + level + subtitle */}
-          <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="flex items-center gap-3.5 min-w-0 flex-1">
             <div
               className="stat-tile"
               style={{
@@ -46,8 +46,8 @@ export function StatCard({ stat, level, progressPct, status, subtitle, href, hig
               {stat}
             </div>
             <div className="min-w-0">
-              <div className="font-display text-sm font-semibold text-text">LVL {level}</div>
-              <div className="text-[11px] text-text-muted truncate">{subtitle}</div>
+              <div className="font-display text-base font-semibold text-text">LVL {level}</div>
+              <div className="text-xs text-text-muted truncate">{subtitle}</div>
             </div>
           </div>
 
@@ -61,7 +61,7 @@ export function StatCard({ stat, level, progressPct, status, subtitle, href, hig
               <span className="hud-chip"><span className="hud-chip__dot" style={{ color: 'var(--color-text-muted)' }} />…</span>
             )}
             <svg
-              width="14" height="14" viewBox="0 0 24 24" fill="none"
+              width="16" height="16" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
               className="text-text-muted"
               style={{ transform: 'scaleX(-1)' }}

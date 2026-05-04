@@ -232,7 +232,7 @@ export default function Dashboard() {
       visible={showDailyComplete}
       onDismiss={() => setShowDailyComplete(false)}
     />
-    <main className="max-w-lg mx-auto px-4 pt-6 pb-4">
+    <main className="max-w-lg mx-auto px-4 pt-5 pb-2">
       <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-widest glow-text leading-none">SYSTEM</h1>

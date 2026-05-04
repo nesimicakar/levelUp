@@ -146,12 +146,12 @@ body {
   filter: drop-shadow(0 0 10px rgba(59,130,246,0.25));
 }
 
-/* Cut-corner stat letter tile (36x36) */
+/* Cut-corner stat letter tile (40x40) */
 .stat-tile {
-  width: 36px; height: 36px;
+  width: 40px; height: 40px;
   display: grid; place-items: center;
   font-family: var(--font-display), system-ui, sans-serif;
-  font-weight: 700; font-size: 12px;
+  font-weight: 700; font-size: 13px;
   letter-spacing: 0.06em;
   flex-shrink: 0;
   clip-path: polygon(

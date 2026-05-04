@@ -8,7 +8,7 @@ interface CircularProgressProps {
 }
 
 export function CircularProgress({ percentage, overcharge = false }: CircularProgressProps) {
-  const size = 148;
+  const size = 160;
   const center = size / 2;
   const strokeWidth = 5;
   const outerStrokeWidth = 1;

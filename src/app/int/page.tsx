@@ -862,25 +862,32 @@ export default function IntPage() {
         };
         return (
           <div
-            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-4 pb-6 sm:pb-0 animate-fade-in"
-            style={{ background: 'rgba(2, 4, 10, 0.78)', backdropFilter: 'blur(6px)' }}
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 animate-fade-in"
+            style={{
+              background: 'rgba(2, 4, 10, 0.78)',
+              backdropFilter: 'blur(6px)',
+              paddingTop: 'max(1rem, env(safe-area-inset-top))',
+              paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+            }}
             onClick={closeModal}
             role="dialog"
             aria-modal="true"
           >
             <div
-              className="w-full max-w-sm"
+              className="frame-bracketed w-full max-w-sm flex flex-col"
+              style={{ maxHeight: '100%' }}
               onClick={e => e.stopPropagation()}
             >
-              <div className="frame-bracketed">
-                <div
-                  className="frame-cut p-4 space-y-3"
-                  style={{
-                    border: '1px solid rgba(234,179,8,0.45)',
-                    borderLeft: '3px solid var(--color-stat-vit)',
-                    boxShadow: 'inset 0 0 8px rgba(234,179,8,0.06), 0 0 18px rgba(234,179,8,0.18)',
-                  }}
-                >
+              <div
+                className="frame-cut p-4 space-y-3 overflow-y-auto"
+                style={{
+                  flex: '1 1 auto',
+                  minHeight: 0,
+                  border: '1px solid rgba(234,179,8,0.45)',
+                  borderLeft: '3px solid var(--color-stat-vit)',
+                  boxShadow: 'inset 0 0 8px rgba(234,179,8,0.06), 0 0 18px rgba(234,179,8,0.18)',
+                }}
+              >
                   {/* Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -985,7 +992,6 @@ export default function IntPage() {
                 </div>
                 <span className="frame-bracket-bottom" aria-hidden />
               </div>
-            </div>
           </div>
         );
       })()}

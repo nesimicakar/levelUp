@@ -3,8 +3,16 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const NAV_ITEMS = [
-  { href: '/', label: 'System', icon: '◈' },
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z" />
+    </svg>
+  );
+}
+
+const NAV_ITEMS: Array<{ href: string; label: string; icon: React.ReactNode }> = [
+  { href: '/', label: 'System', icon: <HomeIcon /> },
   { href: '/achievements', label: 'Record', icon: '◆' },
   { href: '/settings', label: 'Config', icon: '⚙' },
 ];
