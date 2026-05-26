@@ -422,6 +422,47 @@ export default function AchievementsPage() {
             <path d="M9 6l6 6-6 6" />
           </svg>
         </Link>
+
+        {/* Recall link */}
+        <Link
+          href="/recall"
+          className="frame-cut p-4 flex items-center justify-between gap-3 hover:brightness-110 transition-all"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex items-center justify-center flex-shrink-0"
+              style={{
+                width: 36, height: 36,
+                clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
+                background: 'rgba(167,139,250,0.08)',
+                border: '1px solid rgba(167,139,250,0.35)',
+                boxShadow: '0 0 8px rgba(167,139,250,0.15)',
+              }}
+            >
+              <svg
+                width="15" height="15" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                style={{ color: 'rgba(167,139,250,0.85)' }}
+                aria-hidden
+              >
+                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
+                <path d="M12 8v4l3 3" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-display font-semibold text-sm text-text">RECALL</div>
+              <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">Memory reinforcement →</div>
+            </div>
+          </div>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+            className="text-text-muted flex-shrink-0"
+            aria-hidden
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </Link>
       </main>
     </div>
   );
