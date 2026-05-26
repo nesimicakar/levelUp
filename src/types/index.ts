@@ -160,6 +160,15 @@ export interface CustomTaskLog {
   updatedAt: number;
 }
 
+export interface RecallItem {
+  id: string;
+  title: string;
+  summary: string;
+  source?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ActiveBook {
   id: string;
   title: string;
@@ -214,6 +223,7 @@ export interface UserSettings {
   /** Course list for INT (active + acquired). Seeded from legacy Real Estate +
    *  Stage Academy courseProgress on first load. */
   intCourses?: IntCourse[];
+  recallItems?: RecallItem[];
 }
 
 export interface StatLevel {

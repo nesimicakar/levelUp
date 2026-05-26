@@ -2,11 +2,18 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { db, getToday, getSettings } from '@/lib/db';
 import { daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
 import { loadIntCourses } from '@/lib/logic/intCourses';
-import type { Rank, IntCourse, FinishedBook } from '@/types';
+import type { Rank, IntCourse, FinishedBook, RecallItem } from '@/types';
 import { RANK_ORDER } from '@/types';
+
+function getDayOfYear(dateStr: string): number {
+  const d = new Date(dateStr + 'T12:00:00');
+  const start = new Date(d.getFullYear(), 0, 0);
+  return Math.floor((d.getTime() - start.getTime()) / 86400000);
+}
 
 function addDays(date: string, days: number): string {
   const d = new Date(date + 'T12:00:00');
@@ -39,6 +46,7 @@ interface ProfileData {
 export default function ProfilePage() {
   const router = useRouter();
   const [data, setData] = useState<ProfileData | null>(null);
+  const [recallItems, setRecallItems] = useState<RecallItem[]>([]);
 
   const load = useCallback(async () => {
     const today = getToday();
@@ -110,6 +118,8 @@ export default function ProfilePage() {
     const bookMinutes = perReading + legacyLearning;
     const quranPages = allPer.reduce((s, l) => s + (l.quranPages ?? 0), 0);
 
+    setRecallItems(settings.recallItems ?? []);
+
     setData({
       rank,
       startedDate: formatDate(firstUse),
@@ -129,6 +139,10 @@ export default function ProfilePage() {
 
   const rankColor = `var(--color-rank-${data.rank.toLowerCase()})`;
   const currentIdx = RANK_ORDER.indexOf(data.rank);
+  const today = getToday();
+  const todayRecall = recallItems.length > 0
+    ? recallItems[getDayOfYear(today) % recallItems.length]
+    : null;
 
   return (
     <div>
@@ -278,6 +292,73 @@ export default function ProfilePage() {
             <span className="font-display text-text">{data.totals.quranPages.toLocaleString()}</span>
           </div>
         </div>
+
+        {/* TODAY'S RECALL */}
+        {todayRecall && (
+          <>
+            <div className="section-heading text-text-dim mt-2">// TODAY&apos;S RECALL</div>
+            <div
+              className="frame-cut p-4"
+              style={{ borderColor: 'rgba(167,139,250,0.3)', background: 'rgba(167,139,250,0.04)' }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <p className="font-display font-semibold text-sm text-text leading-tight">{todayRecall.title}</p>
+                {todayRecall.source && (
+                  <span
+                    className="text-[9px] tracking-[0.18em] uppercase px-1.5 py-0.5 flex-shrink-0"
+                    style={{ color: 'rgba(167,139,250,0.9)', border: '1px solid rgba(167,139,250,0.3)' }}
+                  >
+                    {todayRecall.source}
+                  </span>
+                )}
+              </div>
+              <p className="text-text-muted text-xs leading-relaxed line-clamp-4">{todayRecall.summary}</p>
+            </div>
+          </>
+        )}
+
+        {/* RECALL link */}
+        <Link
+          href="/recall"
+          className="frame-cut p-4 flex items-center justify-between gap-3 hover:brightness-110 transition-all"
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex items-center justify-center flex-shrink-0"
+              style={{
+                width: 36, height: 36,
+                clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
+                background: 'rgba(167,139,250,0.08)',
+                border: '1px solid rgba(167,139,250,0.35)',
+                boxShadow: '0 0 8px rgba(167,139,250,0.15)',
+              }}
+            >
+              <svg
+                width="15" height="15" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                style={{ color: 'rgba(167,139,250,0.85)' }}
+                aria-hidden
+              >
+                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
+                <path d="M12 8v4l3 3" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-display font-semibold text-sm text-text">RECALL</div>
+              <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">
+                {recallItems.length > 0 ? `${recallItems.length} items · memory reinforcement →` : 'Memory reinforcement →'}
+              </div>
+            </div>
+          </div>
+          <svg
+            width="14" height="14" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+            className="text-text-muted flex-shrink-0"
+            aria-hidden
+          >
+            <path d="M9 6l6 6-6 6" />
+          </svg>
+        </Link>
       </main>
     </div>
   );

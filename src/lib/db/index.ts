@@ -87,6 +87,7 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.finishedBooks === undefined) s.finishedBooks = [];
     if (s.dailyReadingMinutesTarget === undefined) s.dailyReadingMinutesTarget = 5;
     if (s.strSessionsPerWeek === undefined) s.strSessionsPerWeek = 3;
+    if (s.recallItems === undefined) s.recallItems = [];
     return s;
   }
   const defaults: UserSettings = {
