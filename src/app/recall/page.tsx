@@ -26,6 +26,12 @@ export default function RecallPage() {
   const [source, setSource] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSummary, setEditSummary] = useState('');
+  const [editSource, setEditSource] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   const load = useCallback(async () => {
     const settings = await getSettings();
     setItems(settings.recallItems ?? []);
@@ -59,6 +65,27 @@ export default function RecallPage() {
     setSource('');
     setSaving(false);
     setShowForm(false);
+  };
+
+  const handleStartEdit = (item: RecallItem) => {
+    setEditingId(item.id);
+    setEditTitle(item.title);
+    setEditSummary(item.summary);
+    setEditSource(item.source ?? '');
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editTitle.trim() || !editSummary.trim()) return;
+    setEditSaving(true);
+    const updated = items.map(i =>
+      i.id === id
+        ? { ...i, title: editTitle.trim(), summary: editSummary.trim(), source: editSource.trim() || undefined, updatedAt: Date.now() }
+        : i
+    );
+    await updateSettings({ recallItems: updated });
+    setItems(updated);
+    setEditingId(null);
+    setEditSaving(false);
   };
 
   const handleDelete = async (id: string) => {
@@ -169,10 +196,57 @@ export default function RecallPage() {
                       </svg>
                     </div>
                   </button>
-                  {isExpanded && (
+                  {isExpanded && editingId === item.id ? (
+                    <div className="px-2 pb-3 space-y-2">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        onChange={e => setEditTitle(e.target.value)}
+                        className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright transition-colors"
+                        style={inputStyle}
+                      />
+                      <textarea
+                        value={editSummary}
+                        onChange={e => setEditSummary(e.target.value)}
+                        rows={4}
+                        className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright transition-colors resize-none leading-relaxed"
+                        style={inputStyle}
+                      />
+                      <input
+                        type="text"
+                        value={editSource}
+                        onChange={e => setEditSource(e.target.value)}
+                        placeholder="Source (optional)"
+                        className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                        style={inputStyle}
+                      />
+                      <div className="flex justify-end gap-4 pt-1">
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="text-[10px] tracking-[0.18em] uppercase text-text-muted hover:text-text transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleSaveEdit(item.id)}
+                          disabled={!editTitle.trim() || !editSummary.trim() || editSaving}
+                          className="text-[10px] tracking-[0.18em] uppercase transition-colors disabled:opacity-40"
+                          style={{ color: accentColor }}
+                        >
+                          {editSaving ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : isExpanded ? (
                     <div className="px-2 pb-3">
                       <p className="text-text-muted text-xs leading-relaxed whitespace-pre-wrap">{item.summary}</p>
-                      <div className="mt-3 flex justify-end">
+                      <div className="mt-3 flex justify-end gap-4">
+                        <button
+                          onClick={() => handleStartEdit(item)}
+                          className="text-[10px] tracking-[0.18em] uppercase text-text-muted hover:text-text transition-colors"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => handleDelete(item.id)}
                           className="text-[10px] tracking-[0.18em] uppercase text-text-muted hover:text-red-400 transition-colors"
@@ -181,7 +255,7 @@ export default function RecallPage() {
                         </button>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               );
             })}
