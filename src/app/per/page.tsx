@@ -289,6 +289,7 @@ export default function PerPage() {
             </ProtocolBlock>
 
             <CurrentlyReading book={currentlyReading} pct={currentBookPct} />
+            <RecallLink />
           </>
         ) : (
           // ── SPIRITUALITY OFF: Direction A reading hero ─────────────
@@ -340,6 +341,7 @@ export default function PerPage() {
             </div>
 
             <CurrentlyReading book={currentlyReading} pct={currentBookPct} />
+            <RecallLink />
 
             {/* 7-day cadence */}
             <div className="frame-cut p-3">
@@ -503,6 +505,40 @@ function QuickAddRow({ onAdd, compact }: QuickAddRowProps) {
         </button>
       ))}
     </div>
+  );
+}
+
+function RecallLink() {
+  return (
+    <Link
+      href="/recall"
+      className="cut-tile grid items-center gap-3 px-3 py-3 hover:brightness-110 transition-colors"
+      style={{
+        gridTemplateColumns: 'auto 1fr auto',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+      }}
+    >
+      <div
+        className="flex items-center justify-center flex-shrink-0"
+        style={{
+          width: 28, height: 38,
+          background: 'rgba(167,139,250,0.08)',
+          border: '1px solid rgba(167,139,250,0.35)',
+          boxShadow: '0 0 6px rgba(167,139,250,0.15)',
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'rgba(167,139,250,0.85)' }} aria-hidden>
+          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
+          <path d="M12 8v4l3 3" />
+        </svg>
+      </div>
+      <div className="min-w-0">
+        <div className="text-[8px] tracking-[0.16em] uppercase text-text-muted mb-0.5">// MEMORY REINFORCEMENT</div>
+        <div className="font-display font-semibold text-sm text-text">RECALL</div>
+      </div>
+      <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted flex-shrink-0">OPEN →</span>
+    </Link>
   );
 }
 
