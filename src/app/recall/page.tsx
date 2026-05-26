@@ -21,6 +21,7 @@ export default function RecallPage() {
   const [loaded, setLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const [source, setSource] = useState('');
@@ -59,6 +60,7 @@ export default function RecallPage() {
     setSummary('');
     setSource('');
     setSaving(false);
+    setShowForm(false);
   };
 
   const handleDelete = async (id: string) => {
@@ -158,9 +160,6 @@ export default function RecallPage() {
                         {item.source && (
                           <p className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-0.5">{item.source}</p>
                         )}
-                        {!isExpanded && (
-                          <p className="text-text-muted text-xs mt-1 line-clamp-2 leading-relaxed">{item.summary}</p>
-                        )}
                       </div>
                       <svg
                         width="12" height="12" viewBox="0 0 24 24" fill="none"
@@ -192,60 +191,75 @@ export default function RecallPage() {
           </div>
         )}
 
-        {/* ADD NEW */}
-        <div className="section-heading text-text-dim mt-2">// ADD NEW</div>
-        <div className="frame-cut p-4 space-y-3">
-          <div>
-            <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. Stoicism, Roman Empire, Diogenes"
-              className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
-              style={inputStyle}
-            />
+        {/* ADD NEW toggle */}
+        <button
+          onClick={() => setShowForm(v => !v)}
+          className="w-full py-2.5 font-display font-semibold text-sm tracking-[0.14em] uppercase transition-all flex items-center justify-center gap-2"
+          style={{
+            background: showForm ? accentBg : 'transparent',
+            border: `1px solid ${accentBorder}`,
+            color: accentColor,
+            clipPath: 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
+          }}
+        >
+          <span style={{ fontSize: 16, lineHeight: 1 }}>{showForm ? '−' : '+'}</span>
+          NEW RECALL
+        </button>
+
+        {showForm && (
+          <div className="frame-cut p-4 space-y-3">
+            <div>
+              <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="e.g. Stoicism, Roman Empire, Diogenes"
+                className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">
+                Quick Recall Summary
+              </label>
+              <textarea
+                value={summary}
+                onChange={e => setSummary(e.target.value)}
+                placeholder="Key ideas to remember — keep it short and punchy"
+                rows={4}
+                className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors resize-none leading-relaxed"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">
+                Source <span className="normal-case tracking-normal text-text-muted/60">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={source}
+                onChange={e => setSource(e.target.value)}
+                placeholder="e.g. Yuno, Philosophy, History"
+                className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                style={inputStyle}
+              />
+            </div>
+            <button
+              onClick={handleAdd}
+              disabled={!title.trim() || !summary.trim() || saving}
+              className="w-full py-2.5 font-display font-semibold text-sm tracking-[0.14em] uppercase transition-all disabled:opacity-40"
+              style={{
+                background: accentBg,
+                border: `1px solid ${accentBorder}`,
+                color: accentColor,
+                clipPath: 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
+              }}
+            >
+              {saving ? 'SAVING…' : 'ADD RECALL'}
+            </button>
           </div>
-          <div>
-            <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">
-              Quick Recall Summary
-            </label>
-            <textarea
-              value={summary}
-              onChange={e => setSummary(e.target.value)}
-              placeholder="Key ideas to remember — keep it short and punchy"
-              rows={4}
-              className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors resize-none leading-relaxed"
-              style={inputStyle}
-            />
-          </div>
-          <div>
-            <label className="text-text-muted text-[10px] tracking-[0.18em] uppercase block mb-1">
-              Source <span className="normal-case tracking-normal text-text-muted/60">(optional)</span>
-            </label>
-            <input
-              type="text"
-              value={source}
-              onChange={e => setSource(e.target.value)}
-              placeholder="e.g. Yuno, Philosophy, History"
-              className="w-full bg-transparent border border-border text-text text-sm px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
-              style={inputStyle}
-            />
-          </div>
-          <button
-            onClick={handleAdd}
-            disabled={!title.trim() || !summary.trim() || saving}
-            className="w-full py-2.5 font-display font-semibold text-sm tracking-[0.14em] uppercase transition-all disabled:opacity-40"
-            style={{
-              background: accentBg,
-              border: `1px solid ${accentBorder}`,
-              color: accentColor,
-              clipPath: 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
-            }}
-          >
-            {saving ? 'SAVING…' : 'ADD RECALL'}
-          </button>
-        </div>
+        )}
 
       </main>
     </div>

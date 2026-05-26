@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/ncakar/.aio-dev-env/nodejs/bin/node /Users/ncakar/Desktop/levelUp/node_modules/.bin/tsc --noEmit)"
+    ]
+  }
+}
