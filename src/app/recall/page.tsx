@@ -9,10 +9,9 @@ function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-function getDayOfYear(dateStr: string): number {
-  const d = new Date(dateStr + 'T12:00:00');
-  const start = new Date(d.getFullYear(), 0, 0);
-  return Math.floor((d.getTime() - start.getTime()) / 86400000);
+function toLocalDateStr(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 export default function RecallPage() {
@@ -38,8 +37,7 @@ export default function RecallPage() {
   const today = getToday();
 
   const todayItem = useMemo(() => {
-    if (items.length === 0) return null;
-    return items[getDayOfYear(today) % items.length];
+    return items.find(item => toLocalDateStr(item.createdAt) === today) ?? null;
   }, [items, today]);
 
   const handleAdd = async () => {
@@ -108,7 +106,7 @@ export default function RecallPage() {
               className="frame-cut p-4"
               style={{ borderColor: accentBorder, background: accentBg }}
             >
-              <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="flex items-center justify-between gap-3">
                 <p className="font-display font-semibold text-sm text-text leading-tight">{todayItem.title}</p>
                 {todayItem.source && (
                   <span
@@ -119,7 +117,6 @@ export default function RecallPage() {
                   </span>
                 )}
               </div>
-              <p className="text-text-muted text-xs leading-relaxed whitespace-pre-wrap">{todayItem.summary}</p>
             </div>
           </>
         )}
