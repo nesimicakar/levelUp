@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { db } from '@/lib/db';
@@ -25,7 +25,6 @@ const RANK_SUBTITLES: Record<Rank, string> = {
   S: 'Monarch-Class · Apex',
 };
 
-// Fixed power thresholds per rank (display only, no logic change)
 const RANK_POWER: Record<Rank, number> = {
   E: 14,
   D: 32,
@@ -35,21 +34,45 @@ const RANK_POWER: Record<Rank, number> = {
   S: 100,
 };
 
-const CARD_W = 240;
-const CARD_H = 380;
-
 export default function CharacterPage() {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [rank, setRank] = useState<Rank>('E');
+  const [activeIdx, setActiveIdx] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     async function load() {
       const latestRank = await db.rankHistory.orderBy('createdAt').last();
-      setRank(latestRank?.rank ?? 'E');
+      const r: Rank = latestRank?.rank ?? 'E';
+      setRank(r);
+      setActiveIdx(RANK_ORDER.indexOf(r));
       setLoaded(true);
     }
     load();
+  }, []);
+
+  // Instant-scroll to current rank after mount
+  useEffect(() => {
+    if (!loaded || !containerRef.current) return;
+    const idx = RANK_ORDER.indexOf(rank);
+    containerRef.current.scrollLeft = idx * containerRef.current.clientWidth;
+  }, [loaded, rank]);
+
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+    const w = containerRef.current.clientWidth;
+    if (w === 0) return;
+    const idx = Math.round(containerRef.current.scrollLeft / w);
+    setActiveIdx(Math.min(Math.max(0, idx), RANK_ORDER.length - 1));
+  }, []);
+
+  const scrollToIdx = useCallback((idx: number) => {
+    if (!containerRef.current) return;
+    containerRef.current.scrollTo({
+      left: idx * containerRef.current.clientWidth,
+      behavior: 'smooth',
+    });
   }, []);
 
   if (!loaded) return null;
@@ -57,67 +80,104 @@ export default function CharacterPage() {
   const currentIdx = RANK_ORDER.indexOf(rank);
 
   return (
-    <div style={{ background: 'var(--color-bg)', minHeight: '100dvh' }}>
+    /* Full-screen overlay — covers BottomNav for the immersive view */
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'var(--color-bg)',
+        zIndex: 50,
+        overflow: 'hidden',
+      }}
+    >
+      {/* ── Fixed header: back + rank dots + counter ────────────────── */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 30,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 20px 20px',
+          background:
+            'linear-gradient(180deg,rgba(10,14,23,0.82) 0%,transparent 100%)',
+          pointerEvents: 'none',
+        }}
+      >
+        {/* Back */}
+        <button
+          onClick={() => router.back()}
+          style={{
+            pointerEvents: 'auto',
+            color: 'var(--color-text-muted)',
+            fontSize: 22,
+            lineHeight: 1,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '4px 8px 4px 0',
+          }}
+          aria-label="Back"
+        >
+          ←
+        </button>
 
-      {/* Header */}
-      <div className="max-w-lg mx-auto px-4 pt-4 pb-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="text-text-muted hover:text-text transition-colors text-lg flex-shrink-0"
-            aria-label="Back"
-          >
-            ←
-          </button>
-          <div>
-            <p className="text-[9px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>
-              SYSTEM // HUNTER ASCENSION
-            </p>
-            <h1 className="font-display text-2xl font-black glow-text leading-none mt-0.5">
-              RANK EVOLUTION
-            </h1>
-          </div>
-        </div>
-        <p className="text-text-muted text-[10px] tracking-[0.2em] mt-2 ml-9 uppercase">
-          One Hunter · Six Thresholds · E → S
-        </p>
-
-        {/* Rank dot-nav */}
-        <div className="flex gap-3 mt-3 ml-9">
+        {/* Rank dots */}
+        <div style={{ display: 'flex', gap: 6, pointerEvents: 'auto' }}>
           {RANK_ORDER.map((r, i) => {
             const c = `var(--color-rank-${r.toLowerCase()})`;
-            const isCurr = i === currentIdx;
+            const isActive = i === activeIdx;
             return (
-              <span
+              <button
                 key={r}
-                className="font-display font-bold text-sm"
+                onClick={() => scrollToIdx(i)}
+                aria-label={`Go to rank ${r}`}
                 style={{
-                  color: c,
-                  opacity: i <= currentIdx ? 1 : 0.3,
-                  textShadow: isCurr ? `0 0 10px ${c}` : 'none',
-                  paddingBottom: 2,
-                  borderBottom: isCurr ? `2px solid ${c}` : '2px solid transparent',
+                  width: isActive ? 22 : 6,
+                  height: 6,
+                  borderRadius: 3,
+                  background: isActive ? c : 'rgba(255,255,255,0.18)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                  transition: 'width 0.3s ease, background 0.3s ease',
+                  boxShadow: isActive ? `0 0 7px ${c}` : 'none',
+                  flexShrink: 0,
                 }}
-              >
-                {r}
-              </span>
+              />
             );
           })}
         </div>
+
+        {/* Page counter */}
+        <div
+          style={{
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            color: 'var(--color-text-muted)',
+          }}
+        >
+          {activeIdx + 1}&thinsp;/&thinsp;{RANK_ORDER.length}
+        </div>
       </div>
 
-      {/* ── Horizontal card strip ─────────────────────────────────────────── */}
+      {/* ── Horizontal scroll container ──────────────────────────────── */}
       <div
+        ref={containerRef}
+        onScroll={handleScroll}
         style={{
           display: 'flex',
-          gap: 12,
+          width: '100%',
+          height: '100%',
           overflowX: 'auto',
-          padding: '8px 16px 100px 16px',
+          overflowY: 'hidden',
           scrollSnapType: 'x mandatory',
           WebkitOverflowScrolling: 'touch',
-          /* hide scrollbar cross-browser */
           scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
         } as React.CSSProperties}
       >
         {RANK_ORDER.map((r, idx) => {
@@ -127,244 +187,339 @@ export default function CharacterPage() {
           const c = `var(--color-rank-${r.toLowerCase()})`;
 
           return (
-            /*
-             * Outer wrapper handles:
-             *   - flex sizing & scroll-snap
-             *   - drop-shadow glow (works through clip-path on child)
-             */
             <div
               key={r}
               style={{
                 flexShrink: 0,
-                width: CARD_W,
-                scrollSnapAlign: 'start',
-                filter: isCurrent
-                  ? `drop-shadow(0 0 22px color-mix(in srgb, ${c} 45%, transparent))`
-                  : isAttained
-                  ? `drop-shadow(0 0 8px color-mix(in srgb, ${c} 18%, transparent))`
-                  : 'none',
+                width: '100vw',
+                height: '100dvh',
+                scrollSnapAlign: 'center',
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
-              {/* Inner card — clip-path gives the cut-corner HUD shape */}
+              {/* Portrait artwork */}
+              <Image
+                src={`/${r.toLowerCase()}-rank.png`}
+                alt={RANK_TITLES[r]}
+                fill
+                style={{
+                  objectFit: 'contain',
+                  objectPosition: 'center',
+                  filter: isLocked
+                    ? 'brightness(0.35) grayscale(0.25)'
+                    : 'none',
+                }}
+                priority={Math.abs(idx - currentIdx) <= 1}
+                sizes="100vw"
+              />
+
+              {/* Top fade */}
               <div
                 style={{
-                  width: '100%',
-                  height: CARD_H,
-                  position: 'relative',
-                  overflow: 'hidden',
-                  clipPath:
-                    'polygon(0 10px,10px 0,calc(100% - 10px) 0,100% 10px,100% calc(100% - 10px),calc(100% - 10px) 100%,10px 100%,0 calc(100% - 10px))',
-                  border: `1px solid color-mix(in srgb, ${c} ${isCurrent ? '60%' : '20%'}, transparent)`,
-                  opacity: isLocked ? 0.58 : 1,
-                  transition: 'opacity 0.2s',
+                  position: 'absolute',
+                  inset: 0,
+                  background:
+                    'linear-gradient(180deg,rgba(10,14,23,0.55) 0%,transparent 22%)',
+                  pointerEvents: 'none',
+                }}
+              />
+
+              {/* Bottom cinematic fade */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background:
+                    'linear-gradient(180deg,transparent 40%,rgba(10,14,23,0.6) 68%,rgba(10,14,23,0.97) 100%)',
+                  pointerEvents: 'none',
+                }}
+              />
+
+              {/* Rank-color radial glow at bottom */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: `radial-gradient(ellipse at center bottom,color-mix(in srgb,${c} ${isLocked ? '7%' : '18%'},transparent) 0%,transparent 62%)`,
+                  pointerEvents: 'none',
+                }}
+              />
+
+              {/* Classification header */}
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 68,
+                  left: 0,
+                  right: 0,
+                  textAlign: 'center',
+                  pointerEvents: 'none',
                 }}
               >
-                {/* Portrait art */}
-                <Image
-                  src={`/${r.toLowerCase()}-rank.png`}
-                  alt={`${RANK_TITLES[r]} portrait`}
-                  fill
-                  style={{ objectFit: 'cover', objectPosition: 'top center' }}
-                  sizes={`${CARD_W}px`}
-                  priority={idx < 2}
-                />
-
-                {/* Gradient: cinematic bottom fade */}
-                <div
+                <span
                   style={{
-                    position: 'absolute', inset: 0,
-                    background:
-                      'linear-gradient(180deg,rgba(10,14,23,0.35) 0%,transparent 38%,rgba(10,14,23,0.55) 62%,rgba(10,14,23,0.97) 100%)',
-                  }}
-                />
-                {/* Rank-color bottom vignette */}
-                <div
-                  style={{
-                    position: 'absolute', inset: 0,
-                    background: `radial-gradient(ellipse at center bottom,color-mix(in srgb,${c} 14%,transparent) 0%,transparent 65%)`,
-                  }}
-                />
-
-                {/* Corner brackets */}
-                {[
-                  { top: 10, left: 10, bt: true, bl: true },
-                  { top: 10, right: 10, bt: true, br: true },
-                  { bottom: 10, left: 10, bb: true, bl: true },
-                  { bottom: 10, right: 10, bb: true, br: true },
-                ].map((b, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      position: 'absolute',
-                      top: b.top,
-                      left: b.left,
-                      right: b.right,
-                      bottom: b.bottom,
-                      width: 18,
-                      height: 18,
-                      borderTop: b.bt ? `1.5px solid color-mix(in srgb,${c} 65%,transparent)` : undefined,
-                      borderBottom: b.bb ? `1.5px solid color-mix(in srgb,${c} 65%,transparent)` : undefined,
-                      borderLeft: b.bl ? `1.5px solid color-mix(in srgb,${c} 65%,transparent)` : undefined,
-                      borderRight: b.br ? `1.5px solid color-mix(in srgb,${c} 65%,transparent)` : undefined,
-                    }}
-                  />
-                ))}
-
-                {/* Top classification text */}
-                <div
-                  style={{
-                    position: 'absolute', top: 14,
-                    left: 0, right: 0,
-                    textAlign: 'center',
+                    fontSize: 9,
+                    letterSpacing: '0.26em',
+                    textTransform: 'uppercase',
+                    fontFamily: 'ui-monospace, monospace',
+                    color: `color-mix(in srgb,${c} ${isLocked ? '35%' : '85%'},white)`,
                   }}
                 >
-                  <span
-                    style={{
-                      fontSize: 8,
-                      letterSpacing: '0.22em',
-                      textTransform: 'uppercase',
-                      fontFamily: 'ui-monospace,monospace',
-                      color: `color-mix(in srgb,${c} 80%,white)`,
-                    }}
-                  >
-                    ‹ RANK {r} · CLASSIFICATION ›
-                  </span>
-                </div>
+                  ‹ RANK {r} · CLASSIFICATION ›
+                </span>
+              </div>
 
-                {/* Status badge (YOU / ✓) */}
-                {isCurrent ? (
-                  <div style={{ position: 'absolute', top: 28, right: 14 }}>
+              {/* Corner brackets */}
+              {[
+                { top: 62, left: 16, borderTop: true, borderLeft: true },
+                { top: 62, right: 16, borderTop: true, borderRight: true },
+                { bottom: 108, left: 16, borderBottom: true, borderLeft: true },
+                { bottom: 108, right: 16, borderBottom: true, borderRight: true },
+              ].map((b, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: 'absolute',
+                    top: b.top,
+                    left: b.left,
+                    right: b.right,
+                    bottom: b.bottom,
+                    width: 22,
+                    height: 22,
+                    borderTop: b.borderTop
+                      ? `1.5px solid color-mix(in srgb,${c} ${isLocked ? '20%' : '55%'},transparent)`
+                      : undefined,
+                    borderBottom: b.borderBottom
+                      ? `1.5px solid color-mix(in srgb,${c} ${isLocked ? '20%' : '55%'},transparent)`
+                      : undefined,
+                    borderLeft: b.borderLeft
+                      ? `1.5px solid color-mix(in srgb,${c} ${isLocked ? '20%' : '55%'},transparent)`
+                      : undefined,
+                    borderRight: b.borderRight
+                      ? `1.5px solid color-mix(in srgb,${c} ${isLocked ? '20%' : '55%'},transparent)`
+                      : undefined,
+                    pointerEvents: 'none',
+                  }}
+                />
+              ))}
+
+              {/* Lock icon (centered, locked ranks only) */}
+              {isLocked && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    paddingBottom: '20%',
+                  }}
+                >
+                  <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.12)"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="5" y="11" width="14" height="10" rx="1.5" />
+                    <path d="M8 11V8a4 4 0 1 1 8 0v3" />
+                  </svg>
+                </div>
+              )}
+
+              {/* ── Bottom content overlay ─────────────────────────── */}
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  padding: '0 24px 110px',
+                  pointerEvents: 'none',
+                }}
+              >
+                {/* Status chip */}
+                <div style={{ marginBottom: 18 }}>
+                  {isCurrent ? (
                     <span
                       className="hud-chip"
                       style={{
                         color: 'var(--color-glow-bright)',
                         borderColor: 'rgba(96,165,250,0.5)',
-                        background: 'rgba(10,14,23,0.8)',
-                        fontSize: 9,
+                        background: 'rgba(10,14,23,0.85)',
                       }}
                     >
-                      <span className="hud-chip__dot" />YOU
+                      <span className="hud-chip__dot" />
+                      CURRENT EVOLUTION
                     </span>
-                  </div>
-                ) : isAttained ? (
-                  <div
-                    style={{
-                      position: 'absolute', top: 28, right: 14,
-                      color: 'var(--color-success)', fontSize: 16,
-                    }}
-                  >
-                    ✓
-                  </div>
-                ) : null}
-
-                {/* Bottom content */}
-                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '0 13px 13px' }}>
-
-                  {/* Large rank letter + RANK label */}
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, marginBottom: 4 }}>
+                  ) : isAttained ? (
                     <span
+                      className="hud-chip"
                       style={{
-                        fontFamily: 'var(--font-display,system-ui,sans-serif)',
-                        fontWeight: 900,
-                        fontSize: 58,
-                        lineHeight: 1,
-                        color: c,
-                        opacity: 0.88,
-                        textShadow: `0 0 28px color-mix(in srgb,${c} 90%,transparent)`,
+                        color: 'var(--color-success)',
+                        borderColor: 'rgba(34,197,94,0.4)',
+                        background: 'rgba(10,14,23,0.85)',
                       }}
                     >
-                      {r}
+                      <span className="hud-chip__dot" />
+                      ATTAINED
                     </span>
+                  ) : (
                     <span
+                      className="hud-chip"
                       style={{
-                        color: c,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        letterSpacing: '0.14em',
-                        marginBottom: 9,
-                        fontFamily: 'var(--font-display,system-ui,sans-serif)',
-                        textTransform: 'uppercase',
+                        color: 'var(--color-text-muted)',
+                        borderColor: 'var(--color-border)',
+                        background: 'rgba(10,14,23,0.85)',
                       }}
                     >
-                      RANK
+                      <span
+                        className="hud-chip__dot"
+                        style={{ opacity: 0.35 }}
+                      />
+                      LOCKED
                     </span>
-                  </div>
+                  )}
+                </div>
 
-                  {/* Title */}
-                  <div
+                {/* Rank letter + RANK label */}
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    gap: 6,
+                    marginBottom: 10,
+                  }}
+                >
+                  <span
                     style={{
-                      fontFamily: 'var(--font-display,system-ui,sans-serif)',
+                      fontFamily:
+                        'var(--font-display, system-ui, sans-serif)',
                       fontWeight: 900,
-                      fontSize: 18,
-                      color: 'white',
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      lineHeight: 1.1,
-                      textShadow: '0 2px 10px rgba(0,0,0,0.9)',
+                      fontSize: 100,
+                      lineHeight: 1,
+                      color: isLocked ? 'rgba(255,255,255,0.15)' : c,
+                      textShadow: !isLocked
+                        ? `0 0 48px color-mix(in srgb,${c} 70%,transparent),0 0 96px color-mix(in srgb,${c} 30%,transparent)`
+                        : 'none',
                     }}
                   >
-                    {RANK_TITLES[r].toUpperCase()}
-                  </div>
+                    {r}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily:
+                        'var(--font-display, system-ui, sans-serif)',
+                      fontWeight: 700,
+                      fontSize: 13,
+                      letterSpacing: '0.18em',
+                      color: isLocked ? 'rgba(255,255,255,0.15)' : c,
+                      marginBottom: 14,
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    RANK
+                  </span>
+                </div>
 
-                  {/* Subtitle */}
+                {/* Title */}
+                <div
+                  style={{
+                    fontFamily:
+                      'var(--font-display, system-ui, sans-serif)',
+                    fontWeight: 900,
+                    fontSize: 30,
+                    color: isLocked ? 'rgba(255,255,255,0.18)' : 'white',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    lineHeight: 1.05,
+                    textShadow: !isLocked
+                      ? '0 2px 20px rgba(0,0,0,0.95)'
+                      : 'none',
+                    marginBottom: 8,
+                  }}
+                >
+                  {RANK_TITLES[r].toUpperCase()}
+                </div>
+
+                {/* Subtitle */}
+                <div
+                  style={{
+                    fontSize: 10,
+                    letterSpacing: '0.26em',
+                    textTransform: 'uppercase',
+                    color: isLocked
+                      ? 'rgba(255,255,255,0.15)'
+                      : 'rgba(255,255,255,0.48)',
+                    fontFamily: 'ui-monospace, monospace',
+                    marginBottom: 22,
+                  }}
+                >
+                  {RANK_SUBTITLES[r].toUpperCase()}
+                </div>
+
+                {/* Power level bar */}
+                <div>
                   <div
                     style={{
                       fontSize: 8,
-                      letterSpacing: '0.22em',
-                      color: 'rgba(255,255,255,0.42)',
+                      letterSpacing: '0.24em',
                       textTransform: 'uppercase',
-                      marginTop: 4,
-                      fontFamily: 'ui-monospace,monospace',
+                      color: 'rgba(255,255,255,0.28)',
+                      fontFamily: 'ui-monospace, monospace',
+                      marginBottom: 7,
                     }}
                   >
-                    {RANK_SUBTITLES[r].toUpperCase()}
+                    POWER LEVEL
                   </div>
-
-                  {/* Power level bar */}
-                  <div style={{ marginTop: 10 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
                     <div
                       style={{
-                        fontSize: 8,
-                        letterSpacing: '0.2em',
-                        color: 'rgba(255,255,255,0.28)',
-                        textTransform: 'uppercase',
-                        marginBottom: 4,
-                        fontFamily: 'ui-monospace,monospace',
+                        flex: 1,
+                        height: 3,
+                        background: 'rgba(255,255,255,0.08)',
+                        borderRadius: 2,
                       }}
                     >
-                      POWER LEVEL
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <div
                         style={{
-                          flex: 1,
-                          height: 2,
-                          background: 'rgba(255,255,255,0.1)',
-                          borderRadius: 1,
+                          width: `${RANK_POWER[r]}%`,
+                          height: '100%',
+                          background: isLocked
+                            ? 'rgba(255,255,255,0.12)'
+                            : c,
+                          borderRadius: 2,
+                          boxShadow: !isLocked
+                            ? `0 0 9px color-mix(in srgb,${c} 80%,transparent)`
+                            : 'none',
                         }}
-                      >
-                        <div
-                          style={{
-                            width: `${RANK_POWER[r]}%`,
-                            height: '100%',
-                            background: c,
-                            borderRadius: 1,
-                            boxShadow: `0 0 6px color-mix(in srgb,${c} 80%,transparent)`,
-                          }}
-                        />
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 9,
-                          color: c,
-                          letterSpacing: '0.1em',
-                          fontFamily: 'var(--font-display,system-ui,sans-serif)',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {RANK_POWER[r]}%
-                      </span>
+                      />
                     </div>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: isLocked ? 'rgba(255,255,255,0.18)' : c,
+                        fontFamily:
+                          'var(--font-display, system-ui, sans-serif)',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {RANK_POWER[r]}%
+                    </span>
                   </div>
                 </div>
               </div>
@@ -373,13 +528,58 @@ export default function CharacterPage() {
         })}
       </div>
 
-      {/* Scroll hint */}
-      <p
-        className="text-center text-text-muted pb-4"
-        style={{ fontSize: 9, letterSpacing: '0.18em', textTransform: 'uppercase' }}
+      {/* ── Swipe arrows ────────────────────────────────────────────── */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 72,
+          left: 0,
+          right: 0,
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '0 20px',
+          pointerEvents: 'none',
+          zIndex: 20,
+        }}
       >
-        ← swipe the sequence →
-      </p>
+        <button
+          onClick={() => scrollToIdx(activeIdx - 1)}
+          disabled={activeIdx === 0}
+          style={{
+            pointerEvents: 'auto',
+            opacity: activeIdx === 0 ? 0 : 0.4,
+            color: 'white',
+            fontSize: 22,
+            background: 'none',
+            border: 'none',
+            cursor: activeIdx === 0 ? 'default' : 'pointer',
+            transition: 'opacity 0.2s',
+            padding: '8px',
+          }}
+          aria-label="Previous rank"
+        >
+          ←
+        </button>
+        <button
+          onClick={() => scrollToIdx(activeIdx + 1)}
+          disabled={activeIdx === RANK_ORDER.length - 1}
+          style={{
+            pointerEvents: 'auto',
+            opacity: activeIdx === RANK_ORDER.length - 1 ? 0 : 0.4,
+            color: 'white',
+            fontSize: 22,
+            background: 'none',
+            border: 'none',
+            cursor:
+              activeIdx === RANK_ORDER.length - 1 ? 'default' : 'pointer',
+            transition: 'opacity 0.2s',
+            padding: '8px',
+          }}
+          aria-label="Next rank"
+        >
+          →
+        </button>
+      </div>
     </div>
   );
 }
