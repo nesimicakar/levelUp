@@ -247,3 +247,12 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
+
+/* Hide scrollbar while keeping scroll (used on horizontal card strips) */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -2,33 +2,36 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
-import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, getLastEvaluatedPct, type WeeklyCompletionInput } from '@/lib/logic/rank';
+import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { checkAndUnlockAchievements } from '@/lib/logic/achievements';
-import { computeAgiStreak, computeStatCompletedDays } from '@/lib/logic/streaks';
+import { computeAgiStreak, computeStatCompletedDays, daysBetween } from '@/lib/logic/streaks';
 import { getCourseProgress } from '@/lib/db';
 import type { Achievement, Rank } from '@/types';
 import { RANK_ORDER } from '@/types';
 
-const RANK_LABELS: Record<Rank, string> = {
-  E: 'Awakened · the threshold',
-  D: 'Initiate · early ascent',
-  C: 'Hunter · operational',
-  B: 'Adept · sustained mastery',
-  A: 'Master · elite tier',
-  S: 'Monarch · ascended',
+const RANK_TITLES: Record<Rank, string> = {
+  E: 'Weak Hunter',
+  D: 'Initiate Hunter',
+  C: 'Rising Hunter',
+  B: 'Elite Hunter',
+  A: 'Awakened Hunter',
+  S: 'Ascendant Hunter',
 };
 
-export default function AchievementsPage() {
-  const router = useRouter();
+type DayStatus = 'done' | 'active' | 'empty';
+
+export default function RecordPage() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [weeklyPct, setWeeklyPct] = useState(0);
   const [rank, setRank] = useState<Rank>('E');
   const [promotionWeeks, setPromotionWeeks] = useState(0);
-  const [lastEvalPct, setLastEvalPct] = useState<number | null>(null);
-  const [recentStats, setRecentStats] = useState<Record<string, number>>({});
-  const [recent30Stats, setRecent30Stats] = useState<Record<string, number>>({});
+  const [weeklyStatCounts, setWeeklyStatCounts] = useState({ str: 0, agi: 0, vit: 0, int: 0, per: 0, strRequired: 3 });
+  const [weekDayStatuses, setWeekDayStatuses] = useState<DayStatus[]>([]);
+  const [daysCompleted, setDaysCompleted] = useState(0);
+  const [daysElapsed, setDaysElapsed] = useState(0);
+  const [dayCount, setDayCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -56,37 +59,73 @@ export default function AchievementsPage() {
       totalWeeks: 0,
       currentRankIdx: latestRank ? RANK_ORDER.indexOf(latestRank.rank) : 0,
     };
-
     const newOnes = await checkAndUnlockAchievements(ctx);
     const updated = [...all, ...newOnes].sort((a, b) => b.unlockedAt - a.unlockedAt);
     setAchievements(updated);
 
     const today = getToday();
+    const settings = await getSettings();
+
+    // Day count — same source and math as Profile: settings.firstUseDate + daysBetween()
+    const firstUse = settings.firstUseDate ?? today;
+    setDayCount(daysBetween(firstUse, today));
     const weekStart = getWeekStart(today);
+
+    // STR for current week
     const weekStrSessions = await db.strSessions.where('date').between(weekStart, today + '￿').toArray();
     const strCompleted = weekStrSessions.filter(s => s.completed || s.isRestDay).length;
 
-    const allDates: string[] = [];
-    const d = new Date(weekStart + 'T12:00:00');
-    const todayDate = new Date(today + 'T12:00:00');
-    while (d <= todayDate) {
-      allDates.push(d.toISOString().split('T')[0]);
-      d.setDate(d.getDate() + 1);
+    // All 7 days of current week
+    const weekDays: string[] = [];
+    const wdStart = new Date(weekStart + 'T12:00:00');
+    for (let i = 0; i < 7; i++) {
+      const wd = new Date(wdStart);
+      wd.setDate(wd.getDate() + i);
+      weekDays.push(wd.toISOString().split('T')[0]);
     }
 
     let agiComp = 0, vitComp = 0, intComp = 0, perComp = 0;
-    for (const date of allDates) {
+    const dayStatuses: DayStatus[] = [];
+    let daysComp = 0;
+    let daysEl = 0;
+
+    for (const date of weekDays) {
+      if (date > today) {
+        dayStatuses.push('empty');
+        continue;
+      }
+      daysEl++;
       const a = await db.agiLogs.where('date').equals(date).first();
-      if (a?.completed) agiComp++;
       const v = await db.vitLogs.where('date').equals(date).first();
-      if (v?.completed) vitComp++;
-      const i = await db.intLogs.where('date').equals(date).first();
-      if (i?.completed) intComp++;
+      const il = await db.intLogs.where('date').equals(date).first();
       const p = await db.perLogs.where('date').equals(date).first();
+
+      // Weekly totals — unchanged, used for the % calculation
+      if (a?.completed) agiComp++;
+      if (v?.completed) vitComp++;
+      if (il?.completed) intComp++;
       if (p?.completed) perComp++;
+
+      // Day-square logic: AGI, VIT, INT, PER only (4 daily pillars; STR is weekly)
+      const dailyDone = [a?.completed, v?.completed, il?.completed, p?.completed].filter(Boolean).length;
+
+      if (dailyDone >= 3) {
+        // ≥ 3/4 pillars → green check (3 = qualifying, 4 = full)
+        daysComp++;
+        dayStatuses.push('done');
+      } else if (dailyDone >= 1 || date === today) {
+        // 1–2 pillars done (any day) or today still in progress → partial dot
+        dayStatuses.push('active');
+      } else {
+        // 0 pillars, past day → dim
+        dayStatuses.push('empty');
+      }
     }
 
-    const settings = await getSettings();
+    setWeekDayStatuses(dayStatuses);
+    setDaysCompleted(daysComp);
+    setDaysElapsed(daysEl);
+
     const strRequired = settings.strSessionsPerWeek ?? 3;
     const input: WeeklyCompletionInput = {
       strCompleted: Math.min(strCompleted, strRequired),
@@ -96,40 +135,16 @@ export default function AchievementsPage() {
       perCompleted: perComp,
     };
     setWeeklyPct(computeWeeklyCompletionPct(input, strRequired));
+    setWeeklyStatCounts({ str: input.strCompleted, agi: agiComp, vit: vitComp, int: intComp, per: perComp, strRequired });
     setRank(latestRank?.rank ?? 'E');
 
     const rankRecords = await db.rankHistory.orderBy('weekStart').reverse().toArray();
     setPromotionWeeks(countConsecutiveWeeksAbove80(rankRecords));
-    setLastEvalPct(getLastEvaluatedPct(rankRecords));
-
-    const recent7: Record<string, number> = { STR: 0, AGI: 0, VIT: 0, INT: 0, PER: 0 };
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const sevenStr = sevenDaysAgo.toISOString().split('T')[0];
-    recent7.STR = (await db.strSessions.where('date').above(sevenStr).toArray()).filter(s => s.completed && !s.isRestDay).length;
-    recent7.AGI = new Set((await db.agiLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).map(l => l.date)).size;
-    recent7.VIT = (await db.vitLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length;
-    recent7.INT = (await db.intLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length;
-    recent7.PER = (await db.perLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length;
-    setRecentStats(recent7);
-
-    const recent30: Record<string, number> = { STR: 0, AGI: 0, VIT: 0, INT: 0, PER: 0 };
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyStr = thirtyDaysAgo.toISOString().split('T')[0];
-    recent30.STR = (await db.strSessions.where('date').above(thirtyStr).toArray()).filter(s => s.completed && !s.isRestDay).length;
-    recent30.AGI = new Set((await db.agiLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).map(l => l.date)).size;
-    recent30.VIT = (await db.vitLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
-    recent30.INT = (await db.intLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
-    recent30.PER = (await db.perLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length;
-    setRecent30Stats(recent30);
 
     setLoaded(true);
   }, []);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   if (!loaded) return null;
 
@@ -137,291 +152,355 @@ export default function AchievementsPage() {
   const currentIdx = RANK_ORDER.indexOf(rank);
   const nextIdx = currentIdx + 1;
   const nextRank: Rank | null = nextIdx < RANK_ORDER.length ? RANK_ORDER[nextIdx] : null;
-  const promotionPct = Math.min(promotionWeeks / 4, 1) * 100;
-  const promotionStatus = currentIdx === RANK_ORDER.length - 1 ? 'PEAK' : promotionPct >= 100 ? 'READY' : promotionPct >= 50 ? 'RISING' : 'STEADY';
+  const weeksRemaining = Math.max(0, 4 - promotionWeeks);
   const rankColor = `var(--color-rank-${rank.toLowerCase()})`;
+  const nextRankColor = nextRank ? `var(--color-rank-${nextRank.toLowerCase()})` : null;
+  const progressPct = Math.round(Math.min(promotionWeeks / 4, 1) * 100);
+
+  const qualifyColor = weeklyPct >= 80 ? 'var(--color-success)' : weeklyPct >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';
+  const weeklyStatus = weeklyPct >= 80 ? 'QUALIFYING' : weeklyPct >= 60 ? 'BUILDING' : 'BELOW';
+  const weeklyStatusColor = weeklyPct >= 80 ? 'var(--color-success)' : weeklyPct >= 60 ? 'var(--color-warning)' : 'var(--color-text-muted)';
+  const weeklyStatusBorder = weeklyPct >= 80 ? 'rgba(34,197,94,0.4)' : weeklyPct >= 60 ? 'rgba(245,158,11,0.4)' : 'var(--color-border)';
+  const dayQualified = daysElapsed > 0 && daysCompleted / daysElapsed >= 0.8;
+
+  const titleWords = RANK_TITLES[rank].split(' ');
 
   return (
     <div>
-      <main className="max-w-lg mx-auto px-4 pt-4 pb-4 space-y-3">
-        {/* Diegetic header */}
-        <div className="flex items-center gap-3 mb-2">
-          <button
-            onClick={() => router.back()}
-            className="text-text-muted hover:text-text transition-colors text-lg flex-shrink-0"
-            aria-label="Back"
-          >
-            ←
-          </button>
-          <div>
-            <p className="text-glow-bright text-[10px] tracking-[0.32em]">‹ RANK ASSESSMENT ›</p>
-            <h1 className="font-display text-xl font-bold glow-text leading-none mt-1">HUNTER CLASSIFICATION</h1>
-          </div>
+      <main className="max-w-lg mx-auto px-4 pt-4 pb-24 space-y-3">
+
+        {/* Header */}
+        <div className="mb-1">
+          <p className="text-[10px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>‹ HUNTER RECORD ›</p>
+          <h1 className="font-display text-xl font-bold glow-text leading-none mt-0.5">RECORD</h1>
         </div>
 
-        {/* Rank glyph + progress */}
+        {/* ── Hero Character Card ─────────────────────────────────────────── */}
         <div className="frame-bracketed">
-          <div className="frame-cut p-5 text-center">
-            <p className="text-text-muted text-[10px] tracking-[0.18em] uppercase">Current Rank</p>
-            <div
-              className="font-display font-bold leading-none my-2"
-              style={{
-                fontSize: 96,
-                color: rankColor,
-                textShadow: `0 0 24px color-mix(in srgb, ${rankColor} 60%, transparent), 0 0 60px color-mix(in srgb, ${rankColor} 30%, transparent)`,
-              }}
-            >
-              {rank}
-            </div>
-            <p className="font-display tracking-[0.18em] text-glow-bright text-sm">{promotionStatus}</p>
-            <hr className="border-0 h-px my-3" style={{ background: 'linear-gradient(90deg, transparent, var(--color-border), transparent)' }} />
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-left">
-                <p className="text-text-muted text-[10px] tracking-[0.18em] uppercase">
-                  {nextRank ? `Progress to ${nextRank}` : 'Peak Rank'}
-                </p>
-                <p className="font-display font-bold text-2xl leading-none mt-1">
-                  {nextRank ? `${promotionWeeks} / 4 wk` : '—'}
-                </p>
-                <p className="text-text-muted text-[10px] mt-1">
-                  Last eval: {lastEvalPct !== null ? `${lastEvalPct}%` : '—'} · This week: {weeklyPct}%
-                </p>
+          {/* frame-cut clips the image to octagon shape */}
+          <div className="frame-cut" style={{ padding: 0 }}>
+            <div className="relative" style={{ height: 'clamp(480px, 62vh, 620px)' }}>
+              <Image
+                src={`/${rank.toLowerCase()}-rank.png`}
+                alt={RANK_TITLES[rank]}
+                fill
+                style={{ objectFit: 'cover', objectPosition: 'top center' }}
+                priority
+              />
+              {/* Cinematic gradient overlay — fades only the bottom third */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(10,14,23,0.15) 0%, transparent 18%, rgba(10,14,23,0.35) 62%, rgba(10,14,23,0.97) 100%)',
+                }}
+              />
+              {/* Rank-color vignette */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: `radial-gradient(ellipse at center, transparent 45%, color-mix(in srgb, ${rankColor} 10%, transparent) 100%)`,
+                }}
+              />
+              {/* Top labels */}
+              <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                <div
+                  className="font-display text-[9px] tracking-[0.22em] px-2 py-1"
+                  style={{
+                    border: '1px solid rgba(96,165,250,0.4)',
+                    background: 'rgba(10,14,23,0.55)',
+                    color: 'var(--color-glow-bright)',
+                    clipPath: 'polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%)',
+                  }}
+                >
+                  CURRENT EVOLUTION
+                </div>
+                {dayCount > 0 && (
+                  <div className="font-display text-[9px] tracking-[0.18em] text-text-muted">
+                    DAY {dayCount}
+                  </div>
+                )}
               </div>
-              {nextRank && (
-                <div className="relative" style={{ width: 64, height: 64 }}>
-                  <svg width={64} height={64}>
-                    <circle cx={32} cy={32} r={27} fill="none" stroke="var(--color-border)" strokeWidth={4} />
-                    <circle
-                      cx={32} cy={32} r={27}
-                      fill="none"
-                      stroke={`var(--color-rank-${nextRank.toLowerCase()})`}
-                      strokeWidth={4}
-                      strokeLinecap="round"
-                      strokeDasharray={2 * Math.PI * 27}
-                      strokeDashoffset={2 * Math.PI * 27 - (promotionPct / 100) * 2 * Math.PI * 27}
-                      transform="rotate(-90 32 32)"
-                      style={{ filter: `drop-shadow(0 0 4px var(--color-rank-${nextRank.toLowerCase()}))` }}
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span
-                      className="font-display font-bold text-lg leading-none"
-                      style={{ color: `var(--color-rank-${nextRank.toLowerCase()})` }}
-                    >
-                      {nextRank}
-                    </span>
+              {/* Bottom overlay: rank letter + title + CTA */}
+              <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
+                <div className="flex items-end gap-3 mb-3">
+                  <span
+                    className="font-display font-black"
+                    style={{
+                      fontSize: 72,
+                      lineHeight: 0.85,
+                      color: rankColor,
+                      textShadow: `0 0 36px color-mix(in srgb, ${rankColor} 90%, transparent), 0 0 10px color-mix(in srgb, ${rankColor} 60%, transparent)`,
+                    }}
+                  >
+                    {rank}
+                  </span>
+                  <div className="mb-1">
+                    {titleWords.map(word => (
+                      <div
+                        key={word}
+                        className="font-display font-black text-white leading-none"
+                        style={{ fontSize: 22, letterSpacing: '0.06em', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}
+                      >
+                        {word.toUpperCase()}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
+                <Link
+                  href="/achievements/character"
+                  className="inline-flex items-center gap-2 font-display text-[10px] tracking-[0.24em] uppercase px-4 py-1.5 hover:brightness-125 transition-all"
+                  style={{
+                    color: rankColor,
+                    border: `1px solid color-mix(in srgb, ${rankColor} 45%, transparent)`,
+                    background: `color-mix(in srgb, ${rankColor} 10%, rgba(10,14,23,0.75))`,
+                    clipPath: 'polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)',
+                  }}
+                >
+                  View Character →
+                </Link>
+              </div>
             </div>
           </div>
           <span className="frame-bracket-bottom" aria-hidden />
         </div>
 
-        {/* Rank ladder */}
-        <div className="section-heading text-glow-bright mt-3">// RANK LADDER</div>
-        <div className="frame-cut p-2">
-          {[...RANK_ORDER].reverse().map((r, i, arr) => {
-            const idx = RANK_ORDER.indexOf(r);
-            const isCurrent = idx === currentIdx;
-            const isAttained = idx < currentIdx;
-            const isNext = idx === nextIdx;
-            const isLocked = idx > nextIdx;
-            const c = `var(--color-rank-${r.toLowerCase()})`;
-            const status = isCurrent ? 'CURRENT' : isNext ? 'NEXT' : isAttained ? 'ATTAINED' : 'LOCKED';
-            const rowBg = isCurrent ? 'rgba(96,165,250,0.06)' : isNext ? 'rgba(34,197,94,0.04)' : 'transparent';
-            return (
-              <div
-                key={r}
-                className="flex items-center justify-between px-2 py-2.5"
-                style={{
-                  background: rowBg,
-                  borderBottom: i < arr.length - 1 ? '1px dashed var(--color-border)' : 'none',
-                }}
-              >
-                <div className="flex items-center gap-3">
+        {/* ── Rank Progression ────────────────────────────────────────────── */}
+        <div className="frame-cut p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              {/* E → D */}
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-display font-bold text-2xl" style={{ color: rankColor }}>{rank}</span>
+                <span className="font-display text-text-muted text-lg">→</span>
+                {nextRank ? (
+                  <span className="font-display font-bold text-2xl" style={{ color: nextRankColor ?? undefined }}>{nextRank}</span>
+                ) : (
+                  <span className="font-display font-bold text-2xl text-text-muted">—</span>
+                )}
+              </div>
+              {nextRank ? (
+                <>
+                  <div className="font-display font-bold leading-none" style={{ fontSize: 30 }}>
+                    {promotionWeeks}
+                    <span className="font-normal text-text-muted" style={{ fontSize: 15 }}> / 4</span>
+                  </div>
                   <div
-                    className="cut-tile flex items-center justify-center font-display font-bold text-xl"
-                    style={{
-                      width: 36, height: 36,
-                      color: isAttained || isNext || isCurrent ? c : 'var(--color-text-muted)',
-                      border: `1px solid ${isAttained || isNext || isCurrent ? c : 'var(--color-border)'}`,
-                      background: isCurrent ? `color-mix(in srgb, ${c} 14%, transparent)` : 'transparent',
-                      textShadow: isCurrent ? `0 0 12px ${c}` : 'none',
-                    }}
+                    className="font-display tracking-[0.16em] uppercase mt-1"
+                    style={{ fontSize: 11, color: 'var(--color-text-muted)' }}
                   >
-                    {r}
+                    {weeksRemaining > 0
+                      ? `${weeksRemaining} WEEK${weeksRemaining === 1 ? '' : 'S'} AWAY`
+                      : 'READY TO PROMOTE'}
                   </div>
-                  <div>
-                    <div className="text-sm text-text">{RANK_LABELS[r]}</div>
-                    <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">{status}</div>
-                  </div>
-                </div>
-                {isCurrent ? (
-                  <span className="hud-chip" style={{ color: 'var(--color-glow-bright)', borderColor: 'rgba(96,165,250,0.4)', background: 'rgba(96,165,250,0.06)' }}>
-                    <span className="hud-chip__dot" />YOU
+                </>
+              ) : (
+                <div className="font-display font-semibold text-text mt-1">Peak rank achieved</div>
+              )}
+            </div>
+
+            {/* Circular ring */}
+            {nextRank && (
+              <div className="relative flex-shrink-0" style={{ width: 80, height: 80 }}>
+                <svg width={80} height={80}>
+                  <circle cx={40} cy={40} r={32} fill="none" stroke="var(--color-border)" strokeWidth={5} />
+                  <circle
+                    cx={40} cy={40} r={32}
+                    fill="none"
+                    stroke={nextRankColor ?? 'var(--color-border)'}
+                    strokeWidth={5}
+                    strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 32}
+                    strokeDashoffset={2 * Math.PI * 32 * (1 - Math.min(promotionWeeks / 4, 1))}
+                    transform="rotate(-90 40 40)"
+                    style={{
+                      filter: `drop-shadow(0 0 5px ${nextRankColor})`,
+                      transition: 'stroke-dashoffset 0.6s ease',
+                    }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span
+                    className="font-display font-bold leading-none"
+                    style={{ fontSize: 16, color: nextRankColor ?? undefined }}
+                  >
+                    {progressPct}%
                   </span>
-                ) : isAttained ? (
-                  <span className="text-success text-sm">✓</span>
-                ) : isLocked ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
-                    <rect x="5" y="11" width="14" height="10" rx="1.5" />
-                    <path d="M8 11V8a4 4 0 1 1 8 0v3" />
-                  </svg>
-                ) : null}
+                </div>
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
 
-        {/* Last 7 days */}
-        <div className="section-heading text-text-dim mt-3">// LAST 7 DAYS</div>
-        <div className="frame-cut p-3">
-          <div className="grid grid-cols-5 gap-2 text-center">
-            {Object.entries(recentStats).map(([stat, count]) => (
-              <div key={stat}>
-                <p className="font-display font-bold text-glow-bright text-lg leading-none">
-                  {count}<span className="text-text-muted text-xs font-normal">/{stat === 'STR' ? 3 : 7}</span>
+        {/* ── Weekly Qualifying ────────────────────────────────────────────── */}
+        <div className="frame-cut p-4">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <p className="section-heading text-text-muted">// THIS WEEK</p>
+            <span
+              className="hud-chip"
+              style={{ color: weeklyStatusColor, borderColor: weeklyStatusBorder, background: 'transparent' }}
+            >
+              <span className="hud-chip__dot" />
+              {weeklyStatus}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Circular ring */}
+            <div className="relative flex-shrink-0" style={{ width: 80, height: 80 }}>
+              <svg width={80} height={80}>
+                <circle cx={40} cy={40} r={32} fill="none" stroke="var(--color-border)" strokeWidth={5} />
+                <circle
+                  cx={40} cy={40} r={32}
+                  fill="none"
+                  stroke={qualifyColor}
+                  strokeWidth={5}
+                  strokeLinecap="round"
+                  strokeDasharray={2 * Math.PI * 32}
+                  strokeDashoffset={2 * Math.PI * 32 * (1 - weeklyPct / 100)}
+                  transform="rotate(-90 40 40)"
+                  style={{
+                    filter: `drop-shadow(0 0 5px ${qualifyColor})`,
+                    transition: 'stroke-dashoffset 0.6s ease',
+                  }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="font-display font-bold leading-none" style={{ fontSize: 18 }}>
+                  {weeklyPct}<span className="text-text-muted font-normal" style={{ fontSize: 11 }}>%</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Day boxes */}
+            <div className="flex-1">
+              <div className="flex gap-1 justify-between">
+                {(['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const).map((day, i) => {
+                  const status: DayStatus = weekDayStatuses[i] ?? 'empty';
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-1">
+                      <div
+                        style={{
+                          width: 30, height: 30,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: '1px solid',
+                          borderColor:
+                            status === 'done' ? 'rgba(34,197,94,0.55)'
+                            : status === 'active' ? 'rgba(96,165,250,0.5)'
+                            : 'var(--color-border)',
+                          background:
+                            status === 'done' ? 'rgba(34,197,94,0.1)'
+                            : status === 'active' ? 'rgba(96,165,250,0.06)'
+                            : 'transparent',
+                          clipPath: 'polygon(3px 0, 100% 0, calc(100% - 3px) 100%, 0 100%)',
+                          fontSize: 13,
+                          color:
+                            status === 'done' ? 'var(--color-success)'
+                            : status === 'active' ? 'var(--color-glow-bright)'
+                            : 'var(--color-border)',
+                        }}
+                      >
+                        {status === 'done' ? '✓' : status === 'active' ? '•' : ''}
+                      </div>
+                      <span style={{ fontSize: 8, color: 'var(--color-text-muted)', letterSpacing: '0.1em' }}>{day}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 tracking-[0.14em]" style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                {daysCompleted} / {daysElapsed} DAYS TO QUALIFY
+                {dayQualified && <span style={{ color: 'var(--color-success)', marginLeft: 4 }}>✓</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Stat breakdown */}
+          <div
+            className="grid grid-cols-5 gap-2 text-center mt-4 pt-3"
+            style={{ borderTop: '1px dashed var(--color-border)' }}
+          >
+            {(
+              [
+                { key: 'STR', val: weeklyStatCounts.str, max: weeklyStatCounts.strRequired },
+                { key: 'AGI', val: weeklyStatCounts.agi, max: 7 },
+                { key: 'VIT', val: weeklyStatCounts.vit, max: 7 },
+                { key: 'INT', val: weeklyStatCounts.int, max: 7 },
+                { key: 'PER', val: weeklyStatCounts.per, max: 7 },
+              ] as const
+            ).map(({ key, val, max }) => (
+              <div key={key}>
+                <p
+                  className="font-display font-bold text-sm leading-none"
+                  style={{ color: `var(--color-stat-${key.toLowerCase()})` }}
+                >
+                  {val}<span className="text-text-muted font-normal" style={{ fontSize: 9 }}>/{max}</span>
                 </p>
-                <p className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-1">{stat === 'STR' ? 'sess' : 'days'}</p>
+                <p className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-0.5">{key}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Last 30 days */}
-        <div className="section-heading text-text-dim mt-3">// LAST 30 DAYS</div>
-        <div className="frame-cut p-3">
-          <div className="grid grid-cols-5 gap-2 text-center">
-            {Object.entries(recent30Stats).map(([stat, count]) => (
-              <div key={stat}>
-                <p className="font-display font-bold text-glow-bright text-lg leading-none">{count}</p>
-                <p className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-1">{stat === 'STR' ? 'sess' : 'days'}</p>
+        {/* ── Quick Access ─────────────────────────────────────────────────── */}
+        <div className="section-heading text-text-muted mt-1">// Quick Access</div>
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            {
+              label: 'Character',
+              sub: 'Evolution ladder',
+              href: '/achievements/character',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 2a4 4 0 0 1 4 4v2H8V6a4 4 0 0 1 4-4z" /><path d="M8 8v2a4 4 0 0 0 8 0V8" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+                </svg>
+              ),
+            },
+            {
+              label: 'Achievements',
+              sub: `${unlockedCount} unlocked`,
+              href: '/achievements/list',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
+                </svg>
+              ),
+            },
+            {
+              label: 'Profile',
+              sub: 'Identity · acquired',
+              href: '/achievements/profile',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" />
+                </svg>
+              ),
+            },
+            {
+              label: 'Growth',
+              sub: 'Weekly history',
+              href: '/growth',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M4 19V5M4 19h16M8 16V11M12 16V8M16 16V13" />
+                </svg>
+              ),
+            },
+          ].map(({ label, sub, href, icon }) => (
+            <Link
+              key={href}
+              href={href}
+              className="frame-cut p-4 flex flex-col gap-2 hover:brightness-110 transition-all"
+            >
+              <div style={{ color: 'var(--color-glow-bright)' }}>{icon}</div>
+              <div>
+                <div className="font-display font-semibold text-sm text-text">{label}</div>
+                <div className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-0.5">{sub}</div>
               </div>
-            ))}
-          </div>
+              <div className="text-text-muted text-xs">→</div>
+            </Link>
+          ))}
         </div>
-
-        {/* Achievements link */}
-        <Link
-          href="/achievements/list"
-          className="frame-cut p-4 flex items-center justify-between gap-3 hover:brightness-110 transition-all"
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center flex-shrink-0"
-              style={{
-                width: 36, height: 36,
-                clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
-                background: 'rgba(96,165,250,0.10)',
-                border: '1px solid rgba(96,165,250,0.4)',
-                boxShadow: '0 0 8px rgba(96,165,250,0.2)',
-              }}
-            >
-              <svg
-                width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-                className="text-glow-bright"
-                aria-hidden
-              >
-                <path d="M7 4h10v4a5 5 0 0 1-10 0zM5 5H3v2a3 3 0 0 0 3 3M19 5h2v2a3 3 0 0 1-3 3M10 13h4v4h-4zM8 21h8M12 17v4" />
-              </svg>
-            </div>
-            <div>
-              <div className="font-display font-semibold text-sm text-text">ACHIEVEMENTS</div>
-              <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">{unlockedCount} unlocked · view all →</div>
-            </div>
-          </div>
-          <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            className="text-text-muted flex-shrink-0"
-            aria-hidden
-          >
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-        </Link>
-
-        {/* Profile link — identity, acquired, lifetime */}
-        <Link
-          href="/achievements/profile"
-          className="frame-cut p-4 flex items-center justify-between gap-3 hover:brightness-110 transition-all"
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center flex-shrink-0"
-              style={{
-                width: 36, height: 36,
-                clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
-                background: 'rgba(96,165,250,0.10)',
-                border: '1px solid rgba(96,165,250,0.4)',
-                boxShadow: '0 0 8px rgba(96,165,250,0.2)',
-              }}
-            >
-              <svg
-                width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-                className="text-glow-bright"
-                aria-hidden
-              >
-                <circle cx="12" cy="8" r="4" />
-                <path d="M4 21a8 8 0 0 1 16 0" />
-              </svg>
-            </div>
-            <div>
-              <div className="font-display font-semibold text-sm text-text">PROFILE</div>
-              <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">Identity · acquired · lifetime →</div>
-            </div>
-          </div>
-          <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            className="text-text-muted flex-shrink-0"
-            aria-hidden
-          >
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-        </Link>
-
-        {/* Growth link — weekly history & longitudinal view */}
-        <Link
-          href="/growth"
-          className="frame-cut p-4 flex items-center justify-between gap-3 hover:brightness-110 transition-all"
-        >
-          <div className="flex items-center gap-3">
-            <div
-              className="flex items-center justify-center flex-shrink-0"
-              style={{
-                width: 36, height: 36,
-                clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
-                background: 'rgba(96,165,250,0.10)',
-                border: '1px solid rgba(96,165,250,0.4)',
-                boxShadow: '0 0 8px rgba(96,165,250,0.2)',
-              }}
-            >
-              <svg
-                width="16" height="16" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
-                className="text-glow-bright"
-                aria-hidden
-              >
-                <path d="M4 19V5M4 19h16M8 16V11M12 16V8M16 16V13" />
-              </svg>
-            </div>
-            <div>
-              <div className="font-display font-semibold text-sm text-text">GROWTH</div>
-              <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-0.5">Weekly history · longitudinal →</div>
-            </div>
-          </div>
-          <svg
-            width="14" height="14" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-            className="text-text-muted flex-shrink-0"
-            aria-hidden
-          >
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-        </Link>
 
       </main>
     </div>

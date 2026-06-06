@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(/Users/ncakar/.aio-dev-env/nodejs/bin/node /Users/ncakar/Desktop/levelUp/node_modules/.bin/tsc --noEmit)"
+      "Bash(/Users/ncakar/.aio-dev-env/nodejs/bin/node /Users/ncakar/Desktop/levelUp/node_modules/.bin/tsc --noEmit)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(xargs -I {} basename {})",
+      "Bash(npx tsc *)",
+      "Bash(/usr/local/bin/node_modules/.bin/tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(/opt/homebrew/bin/node --version)",
+      "Bash(ls /usr/local/bin/node* /Users/ncakar/.nvm/versions/node/*/bin/node 2>/dev/null | head -5; ls ~/.nvm/versions/node/ 2>/dev/null | head -5)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/ncakar/.nvm/versions/**)"
     ]
   }
 }
