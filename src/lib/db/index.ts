@@ -12,6 +12,8 @@ import type {
   UserSettings,
   CustomTaskLog,
   StatType,
+  DisciplineStreak,
+  DisciplineLog,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
@@ -26,6 +28,8 @@ export class LevelUpDB extends Dexie {
   achievements!: Table<Achievement, number>;
   settings!: Table<UserSettings, number>;
   customTaskLogs!: Table<CustomTaskLog, number>;
+  disciplineStreaks!: Table<DisciplineStreak, string>;
+  disciplineLogs!: Table<DisciplineLog, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -65,6 +69,21 @@ export class LevelUpDB extends Dexie {
       achievements: '++id, key, stat, unlockedAt',
       settings: '++id',
       customTaskLogs: '++id, [date+taskId], date, taskId',
+    });
+    this.version(5).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
     });
   }
 }

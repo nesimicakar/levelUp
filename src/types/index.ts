@@ -228,6 +228,37 @@ export interface UserSettings {
   showCharacterVisuals?: boolean;
 }
 
+// ── Discipline System ────────────────────────────────────────────────────────
+
+export type DisciplineLogStatus = 'clear' | 'failed' | 'skipped' | 'unset';
+export type DisciplineStreakType = 'anti-habit' | 'positive-habit';
+export type DisciplineStreakStatus = 'active' | 'paused' | 'archived';
+
+export interface DisciplineStreak {
+  id: string;                        // UUID — caller-assigned
+  name: string;
+  description?: string;
+  type: DisciplineStreakType;
+  status: DisciplineStreakStatus;
+  createdAt: number;
+  startDate: string;                 // ISO date of first day of current streak
+  currentStreak: number;             // recalculated from logs
+  bestStreak: number;                // persisted across resets
+  totalClearDays: number;
+  totalFailedDays: number;
+  lastUpdated: number;
+}
+
+export interface DisciplineLog {
+  id?: number;                       // auto-increment PK
+  streakId: string;
+  date: string;                      // ISO date YYYY-MM-DD
+  status: DisciplineLogStatus;
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface StatLevel {
   level: number;
   currentXP: number;

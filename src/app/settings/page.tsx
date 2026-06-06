@@ -104,7 +104,8 @@ export default function SettingsPage() {
 
   const exportBackup = async () => {
     const [strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries,
-      courseProgress, rankHistory, achievements, settingsArr, customTaskLogs] = await Promise.all([
+      courseProgress, rankHistory, achievements, settingsArr, customTaskLogs,
+      disciplineStreaks, disciplineLogs] = await Promise.all([
       db.strSessions.toArray(),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
@@ -116,11 +117,13 @@ export default function SettingsPage() {
       db.achievements.toArray(),
       db.settings.toArray(),
       db.customTaskLogs.toArray(),
+      db.disciplineStreaks.toArray(),
+      db.disciplineLogs.toArray(),
     ]);
     const data = {
       appVersion: 'dev',
       exportedAt: new Date().toISOString(),
-      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs },
+      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -156,19 +159,22 @@ export default function SettingsPage() {
       await db.transaction('rw',
         [db.strSessions, db.agiLogs, db.vitLogs, db.intLogs, db.perLogs,
         db.weeklySummaries, db.courseProgress, db.rankHistory,
-        db.achievements, db.settings, db.customTaskLogs],
+        db.achievements, db.settings, db.customTaskLogs,
+        db.disciplineStreaks, db.disciplineLogs],
         async () => {
-          await db.strSessions.clear();    await db.strSessions.bulkPut(arr('strSessions') as never[]);
-          await db.agiLogs.clear();        await db.agiLogs.bulkPut(arr('agiLogs') as never[]);
-          await db.vitLogs.clear();        await db.vitLogs.bulkPut(arr('vitLogs') as never[]);
-          await db.intLogs.clear();        await db.intLogs.bulkPut(arr('intLogs') as never[]);
-          await db.perLogs.clear();        await db.perLogs.bulkPut(arr('perLogs') as never[]);
-          await db.weeklySummaries.clear();await db.weeklySummaries.bulkPut(arr('weeklySummaries') as never[]);
-          await db.courseProgress.clear(); await db.courseProgress.bulkPut(arr('courseProgress') as never[]);
-          await db.rankHistory.clear();    await db.rankHistory.bulkPut(arr('rankHistory') as never[]);
-          await db.achievements.clear();   await db.achievements.bulkPut(arr('achievements') as never[]);
-          await db.settings.clear();       await db.settings.bulkPut(arr('settings') as never[]);
-          await db.customTaskLogs.clear(); await db.customTaskLogs.bulkPut(arr('customTaskLogs') as never[]);
+          await db.strSessions.clear();        await db.strSessions.bulkPut(arr('strSessions') as never[]);
+          await db.agiLogs.clear();            await db.agiLogs.bulkPut(arr('agiLogs') as never[]);
+          await db.vitLogs.clear();            await db.vitLogs.bulkPut(arr('vitLogs') as never[]);
+          await db.intLogs.clear();            await db.intLogs.bulkPut(arr('intLogs') as never[]);
+          await db.perLogs.clear();            await db.perLogs.bulkPut(arr('perLogs') as never[]);
+          await db.weeklySummaries.clear();    await db.weeklySummaries.bulkPut(arr('weeklySummaries') as never[]);
+          await db.courseProgress.clear();     await db.courseProgress.bulkPut(arr('courseProgress') as never[]);
+          await db.rankHistory.clear();        await db.rankHistory.bulkPut(arr('rankHistory') as never[]);
+          await db.achievements.clear();       await db.achievements.bulkPut(arr('achievements') as never[]);
+          await db.settings.clear();           await db.settings.bulkPut(arr('settings') as never[]);
+          await db.customTaskLogs.clear();     await db.customTaskLogs.bulkPut(arr('customTaskLogs') as never[]);
+          await db.disciplineStreaks.clear();   await db.disciplineStreaks.bulkPut(arr('disciplineStreaks') as never[]);
+          await db.disciplineLogs.clear();     await db.disciplineLogs.bulkPut(arr('disciplineLogs') as never[]);
         }
       );
       window.location.reload();

@@ -12,7 +12,9 @@ import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
 import { SystemMessage } from '@/components/SystemMessage';
 import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
-import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings } from '@/types';
+import Link from 'next/link';
+import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
+import { setDisciplineLog } from '@/lib/logic/discipline';
 
 const HUNTER_TITLES: Record<string, string> = {
   E: 'Weak Hunter',
@@ -59,9 +61,27 @@ export default function Dashboard() {
   const [showSystemHint, setShowSystemHint] = useState(false);
   const router = useRouter();
 
+  // Discipline section state
+  const [disciplines, setDisciplines] = useState<DisciplineStreak[]>([]);
+  const [discLogs, setDiscLogs] = useState<Record<string, DisciplineLogStatus>>({});
+  const [discFailConfirm, setDiscFailConfirm] = useState<string | null>(null); // streakId
+
   useEffect(() => {
     setShowSystemHint(localStorage.getItem('systemHintSeen') !== 'true');
   }, []);
+
+  const loadDisciplineData = useCallback(async () => {
+    const today = getToday();
+    const active = await db.disciplineStreaks.where('status').equals('active').toArray();
+    active.sort((a, b) => b.currentStreak - a.currentStreak);
+    const todayLogs = await db.disciplineLogs.where('date').equals(today).toArray();
+    const logMap: Record<string, DisciplineLogStatus> = {};
+    for (const l of todayLogs) logMap[l.streakId] = l.status as DisciplineLogStatus;
+    setDisciplines(active);
+    setDiscLogs(logMap);
+  }, []);
+
+  useEffect(() => { loadDisciplineData(); }, [loadDisciplineData]);
 
   const loadData = useCallback(async () => {
     const today = getToday();
@@ -541,6 +561,189 @@ export default function Dashboard() {
           </div>
         );
       })()}
+
+      {/* ── Discipline Section ──────────────────────────────────────── */}
+      {disciplines.length > 0 && (
+        <div className="mt-5">
+          <div className="flex items-center justify-between mb-2">
+            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', letterSpacing: '0.18em' }}>
+              // DISCIPLINE
+            </span>
+            <Link
+              href="/discipline"
+              style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em', textDecoration: 'none' }}
+            >
+              VIEW ALL →
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {disciplines.slice(0, 3).map(streak => {
+              const todayStatus = discLogs[streak.id] ?? 'unset';
+              const isConfirming = discFailConfirm === streak.id;
+
+              const handleClear = async () => {
+                await setDisciplineLog(streak.id, getToday(), 'clear');
+                await loadDisciplineData();
+              };
+              const handleFail = async () => {
+                await setDisciplineLog(streak.id, getToday(), 'failed');
+                setDiscFailConfirm(null);
+                await loadDisciplineData();
+              };
+              const handleUndo = async () => {
+                await setDisciplineLog(streak.id, getToday(), 'unset');
+                await loadDisciplineData();
+              };
+
+              return (
+                <div key={streak.id} className="frame-cut" style={{ padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Name + streak */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {streak.name}
+                      </div>
+                      <div style={{ fontSize: 10, color: streak.currentStreak > 0 ? '#f97316' : '#4b5563', marginTop: 1 }}>
+                        {streak.currentStreak > 0 ? `🔥 ${streak.currentStreak}d` : '— 0 days'}
+                      </div>
+                    </div>
+
+                    {/* Today status / actions */}
+                    {todayStatus === 'unset' && !isConfirming && (
+                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                        <button
+                          onClick={handleClear}
+                          style={{
+                            padding: '4px 9px',
+                            background: 'rgba(74,222,128,0.1)',
+                            border: '1px solid rgba(74,222,128,0.3)',
+                            borderRadius: 4,
+                            color: '#4ade80',
+                            fontSize: 10,
+                            letterSpacing: 0.8,
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          CLEAR
+                        </button>
+                        <button
+                          onClick={() => setDiscFailConfirm(streak.id)}
+                          style={{
+                            padding: '4px 9px',
+                            background: 'rgba(239,68,68,0.08)',
+                            border: '1px solid rgba(239,68,68,0.25)',
+                            borderRadius: 4,
+                            color: '#ef4444',
+                            fontSize: 10,
+                            letterSpacing: 0.8,
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          FAIL
+                        </button>
+                      </div>
+                    )}
+
+                    {todayStatus === 'unset' && isConfirming && (
+                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                        <button
+                          onClick={handleFail}
+                          style={{
+                            padding: '4px 9px',
+                            background: 'rgba(239,68,68,0.15)',
+                            border: '1px solid rgba(239,68,68,0.4)',
+                            borderRadius: 4,
+                            color: '#ef4444',
+                            fontSize: 10,
+                            letterSpacing: 0.8,
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          CONFIRM
+                        </button>
+                        <button
+                          onClick={() => setDiscFailConfirm(null)}
+                          style={{
+                            padding: '4px 9px',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: '1px solid rgba(255,255,255,0.12)',
+                            borderRadius: 4,
+                            color: '#6b7280',
+                            fontSize: 10,
+                            letterSpacing: 0.8,
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
+                    {todayStatus !== 'unset' && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: todayStatus === 'clear' ? '#4ade80' : todayStatus === 'failed' ? '#ef4444' : '#6b7280',
+                        }}>
+                          {todayStatus === 'clear' ? '✓' : todayStatus === 'failed' ? '✗' : '—'}
+                        </span>
+                        <button
+                          onClick={handleUndo}
+                          style={{
+                            padding: '3px 7px',
+                            background: 'none',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 3,
+                            color: '#4b5563',
+                            fontSize: 9,
+                            letterSpacing: 0.8,
+                            cursor: 'pointer',
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          UNDO
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {disciplines.length > 3 && (
+            <Link
+              href="/discipline"
+              style={{
+                display: 'block',
+                textAlign: 'center',
+                marginTop: 8,
+                fontSize: 10,
+                color: 'var(--color-text-muted)',
+                letterSpacing: '0.12em',
+                textDecoration: 'none',
+              }}
+            >
+              +{disciplines.length - 3} more disciplines →
+            </Link>
+          )}
+        </div>
+      )}
+
+      {disciplines.length === 0 && (
+        <div className="mt-5">
+          <Link
+            href="/discipline"
+            style={{ display: 'block', fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.12em', textDecoration: 'none', textAlign: 'center', padding: '8px 0' }}
+          >
+            + TRACK DISCIPLINE →
+          </Link>
+        </div>
+      )}
 
     </main>
     </>
