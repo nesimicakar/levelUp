@@ -224,6 +224,8 @@ export interface UserSettings {
    *  Stage Academy courseProgress on first load. */
   intCourses?: IntCourse[];
   recallItems?: RecallItem[];
+  /** Show anime/character artwork on SYSTEM, RECORD, and Character pages. Default true. */
+  showCharacterVisuals?: boolean;
 }
 
 export interface StatLevel {

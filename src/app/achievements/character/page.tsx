@@ -39,6 +39,7 @@ export default function CharacterPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [rank, setRank] = useState<Rank>('E');
   const [activeIdx, setActiveIdx] = useState(0);
+  const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -47,6 +48,9 @@ export default function CharacterPage() {
       const r: Rank = latestRank?.rank ?? 'E';
       setRank(r);
       setActiveIdx(RANK_ORDER.indexOf(r));
+      const { getSettings } = await import('@/lib/db');
+      const settings = await getSettings();
+      setShowCharacterVisuals(settings.showCharacterVisuals ?? true);
       setLoaded(true);
     }
     load();
@@ -198,21 +202,30 @@ export default function CharacterPage() {
                 overflow: 'hidden',
               }}
             >
-              {/* Portrait artwork */}
-              <Image
-                src={`/${r.toLowerCase()}-rank.png`}
-                alt={RANK_TITLES[r]}
-                fill
-                style={{
-                  objectFit: 'contain',
-                  objectPosition: 'center',
-                  filter: isLocked
-                    ? 'brightness(0.35) grayscale(0.25)'
-                    : 'none',
-                }}
-                priority={Math.abs(idx - currentIdx) <= 1}
-                sizes="100vw"
-              />
+              {/* Portrait artwork or rank-color background */}
+              {showCharacterVisuals ? (
+                <Image
+                  src={`/${r.toLowerCase()}-rank.png`}
+                  alt={RANK_TITLES[r]}
+                  fill
+                  style={{
+                    objectFit: 'contain',
+                    objectPosition: 'center',
+                    filter: isLocked ? 'brightness(0.35) grayscale(0.25)' : 'none',
+                  }}
+                  priority={Math.abs(idx - currentIdx) <= 1}
+                  sizes="100vw"
+                />
+              ) : (
+                /* Text-only mode: rank-colored radial gradient as background */
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: `radial-gradient(ellipse at 50% 60%, color-mix(in srgb, ${c} ${isLocked ? '8%' : '14%'}, transparent) 0%, transparent 70%)`,
+                  }}
+                />
+              )}
 
               {/* Top fade */}
               <div

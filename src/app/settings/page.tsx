@@ -285,6 +285,11 @@ export default function SettingsPage() {
           label="Spirituality"
           on={spiritualityEnabled}
           onChange={v => update({ enableSpirituality: v })}
+        />
+        <CompactToggleRow
+          label="Character Visuals"
+          on={settings.showCharacterVisuals ?? true}
+          onChange={v => update({ showCharacterVisuals: v })}
           last
         />
 

@@ -34,6 +34,7 @@ interface DashboardState {
   dailyPct: number;
   overcharge: boolean;
   requiredComplete: boolean;
+  showCharacterVisuals: boolean;
   loaded: boolean;
 }
 
@@ -51,6 +52,7 @@ export default function Dashboard() {
     dailyPct: 0,
     overcharge: false,
     requiredComplete: false,
+    showCharacterVisuals: true,
     loaded: false,
   });
   const [showDailyComplete, setShowDailyComplete] = useState(false);
@@ -209,6 +211,7 @@ export default function Dashboard() {
       },
       rank: latestRank?.rank ?? 'E',
       promotionWeeks: Math.min(promotionWeeks, 4),
+      showCharacterVisuals: settings.showCharacterVisuals ?? true,
       dailyPct,
       overcharge,
       requiredComplete: basePctRaw >= 100,
@@ -385,26 +388,28 @@ export default function Dashboard() {
         style={{ padding: '10px 14px', border: `1px solid color-mix(in srgb, ${rankColor} 22%, transparent)` }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {/* Rank thumbnail */}
-          <div
-            style={{
-              width: 46,
-              height: 58,
-              position: 'relative',
-              flexShrink: 0,
-              overflow: 'hidden',
-              clipPath: 'polygon(0 6px,6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%)',
-            }}
-          >
-            <Image
-              src={`/${state.rank.toLowerCase()}-rank.png`}
-              alt=""
-              fill
-              style={{ objectFit: 'cover', objectPosition: 'top center' }}
-              sizes="46px"
-            />
-            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,23,0.25)' }} />
-          </div>
+          {/* Rank thumbnail — hidden when character visuals are off */}
+          {state.showCharacterVisuals && (
+            <div
+              style={{
+                width: 46,
+                height: 58,
+                position: 'relative',
+                flexShrink: 0,
+                overflow: 'hidden',
+                clipPath: 'polygon(0 6px,6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%)',
+              }}
+            >
+              <Image
+                src={`/${state.rank.toLowerCase()}-rank.png`}
+                alt=""
+                fill
+                style={{ objectFit: 'cover', objectPosition: 'top center' }}
+                sizes="46px"
+              />
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,23,0.25)' }} />
+            </div>
+          )}
 
           {/* Identity + progress */}
           <div style={{ flex: 1, minWidth: 0 }}>

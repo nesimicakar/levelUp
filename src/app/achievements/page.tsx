@@ -32,6 +32,7 @@ export default function RecordPage() {
   const [daysCompleted, setDaysCompleted] = useState(0);
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [dayCount, setDayCount] = useState(0);
+  const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -69,6 +70,7 @@ export default function RecordPage() {
     // Day count — same source and math as Profile: settings.firstUseDate + daysBetween()
     const firstUse = settings.firstUseDate ?? today;
     setDayCount(daysBetween(firstUse, today));
+    setShowCharacterVisuals(settings.showCharacterVisuals ?? true);
     const weekStart = getWeekStart(today);
 
     // STR for current week
@@ -175,95 +177,134 @@ export default function RecordPage() {
           <h1 className="font-display text-xl font-bold glow-text leading-none mt-0.5">RECORD</h1>
         </div>
 
-        {/* ── Hero Character Card ─────────────────────────────────────────── */}
-        <div className="frame-bracketed">
-          {/* frame-cut clips the image to octagon shape */}
-          <div className="frame-cut" style={{ padding: 0 }}>
-            <div className="relative" style={{ height: 'clamp(480px, 62vh, 620px)' }}>
-              <Image
-                src={`/${rank.toLowerCase()}-rank.png`}
-                alt={RANK_TITLES[rank]}
-                fill
-                style={{ objectFit: 'cover', objectPosition: 'top center' }}
-                priority
-              />
-              {/* Cinematic gradient overlay — fades only the bottom third */}
-              <div
-                className="absolute inset-0"
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgba(10,14,23,0.15) 0%, transparent 18%, rgba(10,14,23,0.35) 62%, rgba(10,14,23,0.97) 100%)',
-                }}
-              />
-              {/* Rank-color vignette */}
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: `radial-gradient(ellipse at center, transparent 45%, color-mix(in srgb, ${rankColor} 10%, transparent) 100%)`,
-                }}
-              />
-              {/* Top labels */}
-              <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+        {/* ── Hero — character image or text HUD depending on setting ───── */}
+        {showCharacterVisuals ? (
+          /* ── Character artwork hero ──────────────────────────────────── */
+          <div className="frame-bracketed">
+            <div className="frame-cut" style={{ padding: 0 }}>
+              <div className="relative" style={{ height: 'clamp(480px, 62vh, 620px)' }}>
+                <Image
+                  src={`/${rank.toLowerCase()}-rank.png`}
+                  alt={RANK_TITLES[rank]}
+                  fill
+                  style={{ objectFit: 'cover', objectPosition: 'top center' }}
+                  priority
+                />
                 <div
-                  className="font-display text-[9px] tracking-[0.22em] px-2 py-1"
-                  style={{
-                    border: '1px solid rgba(96,165,250,0.4)',
-                    background: 'rgba(10,14,23,0.55)',
-                    color: 'var(--color-glow-bright)',
-                    clipPath: 'polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%)',
-                  }}
-                >
-                  CURRENT EVOLUTION
-                </div>
-                {dayCount > 0 && (
-                  <div className="font-display text-[9px] tracking-[0.18em] text-text-muted">
-                    DAY {dayCount}
-                  </div>
-                )}
-              </div>
-              {/* Bottom overlay: rank letter + title + CTA */}
-              <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
-                <div className="flex items-end gap-3 mb-3">
-                  <span
-                    className="font-display font-black"
-                    style={{
-                      fontSize: 72,
-                      lineHeight: 0.85,
-                      color: rankColor,
-                      textShadow: `0 0 36px color-mix(in srgb, ${rankColor} 90%, transparent), 0 0 10px color-mix(in srgb, ${rankColor} 60%, transparent)`,
-                    }}
+                  className="absolute inset-0"
+                  style={{ background: 'linear-gradient(180deg, rgba(10,14,23,0.15) 0%, transparent 18%, rgba(10,14,23,0.35) 62%, rgba(10,14,23,0.97) 100%)' }}
+                />
+                <div
+                  className="absolute inset-0"
+                  style={{ background: `radial-gradient(ellipse at center, transparent 45%, color-mix(in srgb, ${rankColor} 10%, transparent) 100%)` }}
+                />
+                <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
+                  <div
+                    className="font-display text-[9px] tracking-[0.22em] px-2 py-1"
+                    style={{ border: '1px solid rgba(96,165,250,0.4)', background: 'rgba(10,14,23,0.55)', color: 'var(--color-glow-bright)', clipPath: 'polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%)' }}
                   >
-                    {rank}
-                  </span>
-                  <div className="mb-1">
-                    {titleWords.map(word => (
-                      <div
-                        key={word}
-                        className="font-display font-black text-white leading-none"
-                        style={{ fontSize: 22, letterSpacing: '0.06em', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}
-                      >
-                        {word.toUpperCase()}
-                      </div>
-                    ))}
+                    CURRENT EVOLUTION
                   </div>
+                  {dayCount > 0 && (
+                    <div className="font-display text-[9px] tracking-[0.18em] text-text-muted">DAY {dayCount}</div>
+                  )}
                 </div>
-                <Link
-                  href="/achievements/character"
-                  className="inline-flex items-center gap-2 font-display text-[10px] tracking-[0.24em] uppercase px-4 py-1.5 hover:brightness-125 transition-all"
-                  style={{
-                    color: rankColor,
-                    border: `1px solid color-mix(in srgb, ${rankColor} 45%, transparent)`,
-                    background: `color-mix(in srgb, ${rankColor} 10%, rgba(10,14,23,0.75))`,
-                    clipPath: 'polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)',
-                  }}
-                >
-                  View Character →
-                </Link>
+                <div className="absolute bottom-0 left-0 right-0 px-4 pb-4">
+                  <div className="flex items-end gap-3 mb-3">
+                    <span
+                      className="font-display font-black"
+                      style={{ fontSize: 72, lineHeight: 0.85, color: rankColor, textShadow: `0 0 36px color-mix(in srgb, ${rankColor} 90%, transparent), 0 0 10px color-mix(in srgb, ${rankColor} 60%, transparent)` }}
+                    >
+                      {rank}
+                    </span>
+                    <div className="mb-1">
+                      {titleWords.map(word => (
+                        <div key={word} className="font-display font-black text-white leading-none" style={{ fontSize: 22, letterSpacing: '0.06em', textShadow: '0 2px 12px rgba(0,0,0,0.9)' }}>
+                          {word.toUpperCase()}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <Link
+                    href="/achievements/character"
+                    className="inline-flex items-center gap-2 font-display text-[10px] tracking-[0.24em] uppercase px-4 py-1.5 hover:brightness-125 transition-all"
+                    style={{ color: rankColor, border: `1px solid color-mix(in srgb, ${rankColor} 45%, transparent)`, background: `color-mix(in srgb, ${rankColor} 10%, rgba(10,14,23,0.75))`, clipPath: 'polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%)' }}
+                  >
+                    View Character →
+                  </Link>
+                </div>
               </div>
             </div>
+            <span className="frame-bracket-bottom" aria-hidden />
           </div>
-          <span className="frame-bracket-bottom" aria-hidden />
-        </div>
+        ) : (
+          /* ── Text-only HUD hero (character visuals disabled) ─────────── */
+          <div className="frame-bracketed">
+            <div
+              className="frame-cut"
+              style={{ padding: '28px 24px 24px', border: `1px solid color-mix(in srgb, ${rankColor} 28%, transparent)` }}
+            >
+              {/* Top label */}
+              <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.26em', color: 'var(--color-glow-bright)', textTransform: 'uppercase', marginBottom: 18 }}>
+                ‹ CURRENT EVOLUTION ›
+              </div>
+
+              {/* Rank letter + title */}
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, marginBottom: 16 }}>
+                <span
+                  className="font-display font-black leading-none"
+                  style={{ fontSize: 96, color: rankColor, textShadow: `0 0 40px color-mix(in srgb, ${rankColor} 60%, transparent)` }}
+                >
+                  {rank}
+                </span>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.2em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+                    RANK
+                  </div>
+                  {titleWords.map(word => (
+                    <div key={word} className="font-display font-black leading-none" style={{ fontSize: 22, letterSpacing: '0.06em', color: 'var(--color-text)', textTransform: 'uppercase' }}>
+                      {word}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ height: 1, background: `color-mix(in srgb, ${rankColor} 20%, var(--color-border))`, marginBottom: 16 }} />
+
+              {/* Stats row */}
+              <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
+                {dayCount > 0 && (
+                  <div>
+                    <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.18em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>Day</div>
+                    <div className="font-display font-bold" style={{ fontSize: 22, color: 'var(--color-text)' }}>{dayCount}</div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.18em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>Promotion</div>
+                  <div className="font-display font-bold" style={{ fontSize: 22, color: rankColor }}>{promotionWeeks}/4 wks</div>
+                </div>
+                <div>
+                  <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.18em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>This week</div>
+                  <div className="font-display font-bold" style={{ fontSize: 22, color: weeklyPct >= 80 ? 'var(--color-success)' : 'var(--color-text)' }}>{weeklyPct}%</div>
+                </div>
+              </div>
+
+              {/* Promotion bar */}
+              <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
+                {[0, 1, 2, 3].map(i => (
+                  <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < promotionWeeks ? rankColor : 'rgba(255,255,255,0.08)', boxShadow: i < promotionWeeks ? `0 0 6px color-mix(in srgb, ${rankColor} 70%, transparent)` : 'none', transition: 'background 0.3s' }} />
+                ))}
+              </div>
+              {nextRank && (
+                <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.16em', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  {weeksRemaining > 0 ? `${weeksRemaining} weeks to ${RANK_TITLES[nextRank]}` : `Ready for promotion`}
+                </div>
+              )}
+            </div>
+            <span className="frame-bracket-bottom" aria-hidden />
+          </div>
+        )}
 
         {/* ── Rank Progression ────────────────────────────────────────────── */}
         <div className="frame-cut p-4">
