@@ -248,6 +248,24 @@ body {
   text-transform: uppercase;
 }
 
+/* Particle rise animation — full-viewport upward drift for SYSTEM background.
+   Particles start just below the viewport and exit through the top.
+   Negative animation-delay pre-seeds particles at various heights on load. */
+@keyframes particle-rise {
+  0%   { transform: translateY(0);        opacity: 0; }
+  8%   { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateY(-120vh);   opacity: 0; }
+}
+
+/* Disable for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .aura-particle {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
 /* Hide scrollbar while keeping scroll (used on horizontal card strips) */
 .scrollbar-hide {
   scrollbar-width: none;

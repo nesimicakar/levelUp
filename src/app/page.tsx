@@ -7,10 +7,21 @@ import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, c
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
 import { loadIntCourses, isIntCompleteFromCourses, getDailyUnitsForCourse, buildIntSubtitle, totalCompletedUnitsAcrossCourses } from '@/lib/logic/intCourses';
+import Image from 'next/image';
 import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
 import { SystemMessage } from '@/components/SystemMessage';
-import type { DayStatus, StatLevel, UserSettings } from '@/types';
+import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
+import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings } from '@/types';
+
+const HUNTER_TITLES: Record<string, string> = {
+  E: 'Weak Hunter',
+  D: 'Initiate Hunter',
+  C: 'Rising Hunter',
+  B: 'Elite Hunter',
+  A: 'Awakened Hunter',
+  S: 'Ascendant Hunter',
+};
 
 interface DashboardState {
   str: { level: StatLevel; status: DayStatus; subtitle: string };
@@ -19,6 +30,7 @@ interface DashboardState {
   int: { level: StatLevel; status: DayStatus; subtitle: string };
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
+  promotionWeeks: number;
   dailyPct: number;
   overcharge: boolean;
   requiredComplete: boolean;
@@ -35,6 +47,7 @@ export default function Dashboard() {
     int: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
+    promotionWeeks: 0,
     dailyPct: 0,
     overcharge: false,
     requiredComplete: false,
@@ -123,8 +136,10 @@ export default function Dashboard() {
       return `${read} · ${pray} · ${quran}`;
     })();
 
-    // Rank
+    // Rank + promotion progress
     const latestRank = await db.rankHistory.orderBy('createdAt').last();
+    const rankHistory = await db.rankHistory.orderBy('weekStart').reverse().toArray();
+    const promotionWeeks = countConsecutiveWeeksAbove80(rankHistory);
 
     // Weighted daily progress (Model C)
     const strDomainProgress = (strStatus === 'complete' || strStatus === 'rest') ? 1 : 0;
@@ -193,6 +208,7 @@ export default function Dashboard() {
         subtitle: perSubtitle,
       },
       rank: latestRank?.rank ?? 'E',
+      promotionWeeks: Math.min(promotionWeeks, 4),
       dailyPct,
       overcharge,
       requiredComplete: basePctRaw >= 100,
@@ -223,8 +239,122 @@ export default function Dashboard() {
 
   if (!state.loaded) return null;
 
+  // Rank-specific atmospheric layers (no image — pure color aura)
+  const RANK_AURA: Record<string, { layers: string[]; particleRgb: string }> = {
+    E: {
+      layers: [
+        'radial-gradient(ellipse 80% 55% at 50% 92%, rgba(148,163,184,0.10) 0%, transparent 70%)',
+        'radial-gradient(ellipse 45% 38% at 22% 28%, rgba(226,232,240,0.06) 0%, transparent 60%)',
+        'radial-gradient(ellipse 35% 30% at 78% 18%, rgba(203,213,225,0.05) 0%, transparent 55%)',
+      ],
+      particleRgb: '203,213,225',
+    },
+    D: {
+      layers: [
+        'radial-gradient(ellipse 78% 58% at 50% 95%, rgba(109,40,217,0.12) 0%, transparent 70%)',
+        'radial-gradient(ellipse 48% 42% at 72% 18%, rgba(167,139,250,0.08) 0%, transparent 55%)',
+        'radial-gradient(ellipse 30% 28% at 18% 40%, rgba(139,92,246,0.06) 0%, transparent 50%)',
+      ],
+      particleRgb: '167,139,250',
+    },
+    C: {
+      layers: [
+        'radial-gradient(ellipse 75% 55% at 50% 92%, rgba(59,130,246,0.11) 0%, transparent 68%)',
+        'radial-gradient(ellipse 50% 44% at 20% 22%, rgba(147,197,253,0.07) 0%, transparent 55%)',
+        'radial-gradient(ellipse 28% 26% at 82% 14%, rgba(96,165,250,0.07) 0%, transparent 48%)',
+      ],
+      particleRgb: '147,197,253',
+    },
+    B: {
+      layers: [
+        'radial-gradient(ellipse 80% 58% at 50% 94%, rgba(22,163,74,0.11) 0%, transparent 70%)',
+        'radial-gradient(ellipse 44% 38% at 68% 20%, rgba(74,222,128,0.08) 0%, transparent 52%)',
+        'radial-gradient(ellipse 32% 28% at 15% 35%, rgba(34,197,94,0.06) 0%, transparent 50%)',
+      ],
+      particleRgb: '74,222,128',
+    },
+    A: {
+      layers: [
+        'radial-gradient(ellipse 78% 58% at 50% 92%, rgba(217,119,6,0.11) 0%, transparent 68%)',
+        'radial-gradient(ellipse 60% 50% at 50% 8%, rgba(251,191,36,0.08) 0%, transparent 55%)',
+        'radial-gradient(ellipse 30% 28% at 80% 38%, rgba(245,158,11,0.07) 0%, transparent 48%)',
+      ],
+      particleRgb: '251,191,36',
+    },
+    S: {
+      layers: [
+        'radial-gradient(ellipse 80% 60% at 50% 96%, rgba(185,28,28,0.13) 0%, transparent 70%)',
+        'radial-gradient(ellipse 50% 45% at 25% 12%, rgba(126,34,206,0.09) 0%, transparent 55%)',
+        'radial-gradient(ellipse 35% 32% at 80% 42%, rgba(239,68,68,0.07) 0%, transparent 50%)',
+      ],
+      particleRgb: '220,38,38',
+    },
+  };
+
+  const aura = RANK_AURA[state.rank] ?? RANK_AURA.E;
+  const rankColor = `var(--color-rank-${state.rank.toLowerCase()})`;
+  const rankIdx = RANK_ORDER.indexOf(state.rank as typeof RANK_ORDER[number]);
+  const nextRank = rankIdx >= 0 && rankIdx < RANK_ORDER.length - 1 ? RANK_ORDER[rankIdx + 1] : null;
+
+  // Particles — start just below viewport (top: 102%), rise to -120vh.
+  // Negative delay pre-seeds each particle mid-animation so the screen
+  // is populated immediately on load, with no hydration mismatch.
+  const PARTICLES = [
+    { x: 8,  size: 2.5, opacity: 0.45, dur: 14, delay: -7  },
+    { x: 18, size: 2,   opacity: 0.38, dur: 18, delay: -4  },
+    { x: 30, size: 3,   opacity: 0.32, dur: 11, delay: -9  },
+    { x: 42, size: 2,   opacity: 0.40, dur: 16, delay: -2  },
+    { x: 55, size: 1.5, opacity: 0.42, dur: 13, delay: -10 },
+    { x: 66, size: 2.5, opacity: 0.36, dur: 20, delay: -14 },
+    { x: 78, size: 2,   opacity: 0.38, dur: 14, delay: -6  },
+    { x: 89, size: 3,   opacity: 0.28, dur: 22, delay: -16 },
+    { x: 12, size: 2,   opacity: 0.35, dur: 12, delay: -5  },
+    { x: 24, size: 1.5, opacity: 0.42, dur: 15, delay: -12 },
+    { x: 48, size: 2.5, opacity: 0.32, dur: 19, delay: -8  },
+    { x: 60, size: 2,   opacity: 0.40, dur: 13, delay: -3  },
+    { x: 72, size: 1.5, opacity: 0.38, dur: 17, delay: -11 },
+    { x: 85, size: 2.5, opacity: 0.35, dur: 12, delay: -4  },
+    { x: 35, size: 2,   opacity: 0.36, dur: 16, delay: -9  },
+  ] as const;
+
   return (
     <>
+    {/* Rank atmospheric background — no image, pure color aura */}
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: -1,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+        background: 'var(--color-bg)',
+      }}
+      aria-hidden
+    >
+      {/* Layered radial aura gradients */}
+      {aura.layers.map((layer, i) => (
+        <div key={i} style={{ position: 'absolute', inset: 0, background: layer }} />
+      ))}
+
+      {/* Rising ambient particles — positioned at bottom, drift to top */}
+      {PARTICLES.map((p, i) => (
+        <div
+          key={i}
+          className="aura-particle"
+          style={{
+            position: 'absolute',
+            left: `${p.x}%`,
+            top: '102%',
+            width: p.size,
+            height: p.size,
+            borderRadius: '50%',
+            background: `rgba(${aura.particleRgb}, ${p.opacity})`,
+            animation: `particle-rise ${p.dur}s linear ${p.delay}s infinite`,
+            boxShadow: `0 0 ${p.size * 2}px rgba(${aura.particleRgb}, ${p.opacity * 0.6})`,
+          }}
+        />
+      ))}
+    </div>
     <SystemMessage
       title="DAILY PROTOCOL"
       subtitle="Cleared"
@@ -249,10 +379,124 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── Rank Identity Card ────────────────────────────────────── */}
+      <div
+        className="frame-cut mb-4"
+        style={{ padding: '10px 14px', border: `1px solid color-mix(in srgb, ${rankColor} 22%, transparent)` }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {/* Rank thumbnail */}
+          <div
+            style={{
+              width: 46,
+              height: 58,
+              position: 'relative',
+              flexShrink: 0,
+              overflow: 'hidden',
+              clipPath: 'polygon(0 6px,6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%)',
+            }}
+          >
+            <Image
+              src={`/${state.rank.toLowerCase()}-rank.png`}
+              alt=""
+              fill
+              style={{ objectFit: 'cover', objectPosition: 'top center' }}
+              sizes="46px"
+            />
+            <div style={{ position: 'absolute', inset: 0, background: 'rgba(10,14,23,0.25)' }} />
+          </div>
+
+          {/* Identity + progress */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* Rank letter + label */}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+              <span
+                className="font-display font-black leading-none"
+                style={{
+                  fontSize: 26,
+                  color: rankColor,
+                  textShadow: `0 0 14px color-mix(in srgb, ${rankColor} 55%, transparent)`,
+                }}
+              >
+                {state.rank}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'ui-monospace, monospace',
+                  fontSize: 9,
+                  letterSpacing: '0.2em',
+                  color: 'var(--color-text-muted)',
+                  textTransform: 'uppercase',
+                }}
+              >
+                RANK
+              </span>
+            </div>
+
+            {/* Hunter title */}
+            <div
+              className="font-display font-bold uppercase"
+              style={{ fontSize: 13, letterSpacing: '0.07em', color: 'var(--color-text)', marginBottom: 8 }}
+            >
+              {HUNTER_TITLES[state.rank] ?? 'Hunter'}
+            </div>
+
+            {/* Promotion progress */}
+            {nextRank ? (
+              <div>
+                <div style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
+                  {[0, 1, 2, 3].map(i => (
+                    <div
+                      key={i}
+                      style={{
+                        flex: 1,
+                        height: 3,
+                        borderRadius: 2,
+                        background: i < state.promotionWeeks
+                          ? rankColor
+                          : 'rgba(255,255,255,0.08)',
+                        boxShadow: i < state.promotionWeeks
+                          ? `0 0 5px color-mix(in srgb, ${rankColor} 70%, transparent)`
+                          : 'none',
+                        transition: 'background 0.3s ease',
+                      }}
+                    />
+                  ))}
+                </div>
+                <div
+                  style={{
+                    fontFamily: 'ui-monospace, monospace',
+                    fontSize: 9,
+                    letterSpacing: '0.16em',
+                    color: 'var(--color-text-muted)',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {state.promotionWeeks}/4 WKS → {HUNTER_TITLES[nextRank]}
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  fontFamily: 'ui-monospace, monospace',
+                  fontSize: 9,
+                  letterSpacing: '0.18em',
+                  color: rankColor,
+                  textTransform: 'uppercase',
+                }}
+              >
+                ✦ APEX CLASSIFICATION
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="mb-1">
         <CircularProgress
           percentage={state.dailyPct}
           overcharge={state.overcharge}
+          color={rankColor}
         />
       </div>
 
@@ -292,6 +536,7 @@ export default function Dashboard() {
           </div>
         );
       })()}
+
     </main>
     </>
   );

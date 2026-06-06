@@ -5,154 +5,202 @@ import { useEffect, useRef, useState } from 'react';
 interface CircularProgressProps {
   percentage: number;
   overcharge?: boolean;
+  color?: string; // rank color token, e.g. 'var(--color-rank-c)'
 }
 
-export function CircularProgress({ percentage, overcharge = false }: CircularProgressProps) {
-  const size = 160;
-  const center = size / 2;
-  const strokeWidth = 5;
-  const outerStrokeWidth = 1;
+export function CircularProgress({ percentage, overcharge = false, color }: CircularProgressProps) {
+  // SVG coordinate space is 176×176; the component renders at 168px via width/height.
+  // The extra 8px of coordinate space gives room for the outer calibration ticks
+  // without clipping — no overflow:visible hack needed.
+  const displaySize = 168;
+  const coordSize   = 176;
+  const center      = coordSize / 2; // 88
 
-  const outerRadius = (size - 2) / 2;
-  const mainRadius = outerRadius - 8;
+  const strokeWidth      = 5;
+  const outerRadius      = 80;   // thin reference ring
+  const mainRadius       = 70;   // progress track
+  const milestoneR       = mainRadius + strokeWidth / 2 + 3; // 75.5
 
   const circumference = 2 * Math.PI * mainRadius;
-  const offset = circumference - (percentage / 100) * circumference;
-  const isComplete = percentage >= 100;
+  const offset        = circumference - (percentage / 100) * circumference;
+  const isComplete    = percentage >= 100;
 
-  const prevPctRef = useRef(percentage);
-  const [showCompletePulse, setShowCompletePulse] = useState(false);
+  const prevPctRef           = useRef(percentage);
+  const [pulse, setPulse]    = useState(false);
 
   useEffect(() => {
     if (percentage >= 100 && prevPctRef.current < 100) {
-      setShowCompletePulse(true);
-      const timer = setTimeout(() => setShowCompletePulse(false), 1200);
+      setPulse(true);
+      const t = setTimeout(() => setPulse(false), 1200);
       prevPctRef.current = percentage;
-      return () => clearTimeout(timer);
+      return () => clearTimeout(t);
     }
     prevPctRef.current = percentage;
   }, [percentage]);
 
   const completeColor = '#16a34a';
-  const arcColor = isComplete ? completeColor : 'var(--color-glow)';
+  const activeColor   = isComplete ? completeColor : (color ?? 'var(--color-glow)');
 
-  // Milestone nodes at 20% intervals
-  const milestones = [20, 40, 60, 80, 100];
-  const milestoneRadius = mainRadius + strokeWidth / 2 + 4;
-
-  // Endpoint node position
+  // Arc endpoint dot
   const endAngle = (percentage / 100) * 360 - 90;
-  const endRad = (endAngle * Math.PI) / 180;
-  const nodeX = center + mainRadius * Math.cos(endRad);
-  const nodeY = center + mainRadius * Math.sin(endRad);
+  const endRad   = (endAngle * Math.PI) / 180;
+  const nodeX    = center + mainRadius * Math.cos(endRad);
+  const nodeY    = center + mainRadius * Math.sin(endRad);
 
-  // Determine glow usage: none at 100%, subtle when overcharging below 100%
-  const useSubtleGlow = overcharge && !isComplete;
+  // 20 calibration ticks (every 18°) — major tick at every 4th (20% milestones)
+  const TICK_COUNT = 20;
+  const tickOuterR = outerRadius + 5; // 85 — within the 88px half-width
+  const ticks = Array.from({ length: TICK_COUNT }, (_, i) => {
+    const isMajor  = i % 4 === 0;
+    const angleDeg = (i / TICK_COUNT) * 360 - 90;
+    const rad      = (angleDeg * Math.PI) / 180;
+    const innerR   = isMajor ? outerRadius : outerRadius + 3;
+    return {
+      x1: center + innerR   * Math.cos(rad),
+      y1: center + innerR   * Math.sin(rad),
+      x2: center + tickOuterR * Math.cos(rad),
+      y2: center + tickOuterR * Math.sin(rad),
+      isMajor,
+      passed: percentage >= (i / TICK_COUNT) * 100,
+    };
+  });
+
+  // 5 milestone dots at 20% intervals, just outside the main track
+  const milestones = [20, 40, 60, 80, 100];
 
   return (
     <div className="flex justify-center" style={{ pointerEvents: 'none' }}>
-      <div className="relative" style={{ width: size, height: size, pointerEvents: 'none' }}>
-        <svg width={size} height={size} style={{ pointerEvents: 'none' }}>
+      <div className="relative" style={{ width: displaySize, height: displaySize, pointerEvents: 'none' }}>
+        <svg
+          width={displaySize}
+          height={displaySize}
+          viewBox={`0 0 ${coordSize} ${coordSize}`}
+          style={{ pointerEvents: 'none' }}
+        >
           <defs>
-            <filter id="nodeGlow" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur stdDeviation="1.5" result="blur" />
+            {/* Glow applied to active arc and endpoint dot */}
+            <filter id="cpArcGlow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="2.8" result="blur" />
               <feMerge>
                 <feMergeNode in="blur" />
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
-            {useSubtleGlow && (
-              <filter id="subtleGlow" x="-60%" y="-60%" width="220%" height="220%">
-                <feGaussianBlur stdDeviation="1.8" result="blur" />
-                <feMerge>
-                  <feMergeNode in="blur" />
-                  <feMergeNode in="SourceGraphic" />
-                </feMerge>
-              </filter>
-            )}
           </defs>
 
-          {/* Outer ultra-thin static ring */}
+          {/* ── Calibration ticks ──────────────────────────────────── */}
+          {ticks.map((t, i) => (
+            <line
+              key={i}
+              x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
+              stroke={
+                t.isMajor && t.passed && !isComplete
+                  ? activeColor
+                  : 'var(--color-border)'
+              }
+              strokeWidth={t.isMajor ? 1.2 : 0.7}
+              strokeLinecap="round"
+              opacity={
+                t.isMajor
+                  ? (t.passed && !isComplete ? 0.75 : 0.38)
+                  : 0.18
+              }
+              style={{ transition: 'opacity 0.5s ease-out' }}
+            />
+          ))}
+
+          {/* ── Outer reference ring ───────────────────────────────── */}
           <circle
-            cx={center}
-            cy={center}
-            r={outerRadius}
+            cx={center} cy={center} r={outerRadius}
             fill="none"
             stroke="var(--color-border)"
-            strokeWidth={outerStrokeWidth}
-            opacity={0.2}
+            strokeWidth={0.8}
+            opacity={0.22}
           />
 
-          {/* Background track ring */}
+          {/* ── Background track ───────────────────────────────────── */}
           <circle
-            cx={center}
-            cy={center}
-            r={mainRadius}
+            cx={center} cy={center} r={mainRadius}
             fill="none"
             stroke="var(--color-border)"
             strokeWidth={strokeWidth}
-            opacity={0.4}
+            opacity={0.32}
           />
 
-          {/* Continuous progress arc */}
+          {/* ── Active progress arc ────────────────────────────────── */}
           <circle
-            cx={center}
-            cy={center}
-            r={mainRadius}
+            cx={center} cy={center} r={mainRadius}
             fill="none"
-            stroke={arcColor}
+            stroke={activeColor}
             strokeWidth={strokeWidth}
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={offset}
             transform={`rotate(-90 ${center} ${center})`}
-            className={showCompletePulse ? 'seal-complete-pulse' : ''}
-            style={{ transition: 'stroke-dashoffset 0.6s ease-out' }}
-            filter={useSubtleGlow ? 'url(#subtleGlow)' : undefined}
+            className={pulse ? 'seal-complete-pulse' : ''}
+            style={{
+              transition: 'stroke-dashoffset 0.8s ease-out',
+              filter: percentage > 0 ? 'url(#cpArcGlow)' : 'none',
+            }}
           />
 
-          {/* Endpoint node */}
-          {percentage > 0 && (
+          {/* ── Endpoint dot ───────────────────────────────────────── */}
+          {percentage > 0 && !isComplete && (
             <circle
-              cx={nodeX}
-              cy={nodeY}
-              r={isComplete ? 2.5 : useSubtleGlow ? 3 : 2.5}
-              fill={arcColor}
-              opacity={1}
-              filter={useSubtleGlow ? 'url(#subtleGlow)' : !isComplete ? 'url(#nodeGlow)' : undefined}
-              style={{ transition: 'cx 0.6s ease-out, cy 0.6s ease-out' }}
+              cx={nodeX} cy={nodeY} r={3}
+              fill={activeColor}
+              filter="url(#cpArcGlow)"
+              style={{ transition: 'cx 0.8s ease-out, cy 0.8s ease-out' }}
             />
           )}
 
-          {/* Milestone nodes */}
+          {/* ── Milestone dots ─────────────────────────────────────── */}
           {milestones.map((m) => {
-            const angle = (m / 100) * 360 - 90;
-            const rad = (angle * Math.PI) / 180;
-            const mx = center + milestoneRadius * Math.cos(rad);
-            const my = center + milestoneRadius * Math.sin(rad);
+            const rad = ((m / 100) * 360 - 90) * (Math.PI / 180);
+            const mx  = center + milestoneR * Math.cos(rad);
+            const my  = center + milestoneR * Math.sin(rad);
             const passed = percentage >= m;
             return (
               <circle
                 key={m}
-                cx={mx}
-                cy={my}
-                r={1.8}
-                fill={arcColor}
-                opacity={passed ? (isComplete ? 0.7 : useSubtleGlow ? 0.7 : 0.55) : 0.12}
-                style={{ transition: 'opacity 0.4s ease-out' }}
+                cx={mx} cy={my} r={1.8}
+                fill={passed ? activeColor : 'var(--color-border)'}
+                opacity={passed ? 0.65 : 0.14}
+                style={{ transition: 'opacity 0.5s ease-out, fill 0.5s ease-out' }}
               />
             );
           })}
         </svg>
 
-        {/* Center text */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ pointerEvents: 'none' }}>
+        {/* ── Center text ────────────────────────────────────────────── */}
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center"
+          style={{ pointerEvents: 'none' }}
+        >
           <span
-            className="text-4xl font-bold tracking-tight"
-            style={{ color: isComplete ? '#bbf7d0' : undefined }}
+            className="font-bold tracking-tight leading-none"
+            style={{
+              fontSize: 34,
+              color: isComplete ? '#bbf7d0' : (color ?? 'var(--color-text)'),
+              textShadow: !isComplete && color
+                ? `0 0 18px color-mix(in srgb, ${color} 45%, transparent)`
+                : undefined,
+            }}
           >
-            {!isComplete && <span className="text-glow">{percentage}%</span>}
-            {isComplete && `${percentage}%`}
+            {percentage}%
+          </span>
+          <span
+            style={{
+              fontFamily: 'ui-monospace, monospace',
+              fontSize: 7,
+              letterSpacing: '0.22em',
+              color: isComplete ? completeColor : 'var(--color-text-muted)',
+              textTransform: 'uppercase',
+              marginTop: 5,
+              opacity: 0.7,
+            }}
+          >
+            DAILY PROTOCOL
           </span>
         </div>
       </div>
