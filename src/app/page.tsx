@@ -14,7 +14,7 @@ import { SystemMessage } from '@/components/SystemMessage';
 import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
 import Link from 'next/link';
 import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
-import { setDisciplineLog } from '@/lib/logic/discipline';
+import { setDisciplineLog, getYesterday } from '@/lib/logic/discipline';
 
 const HUNTER_TITLES: Record<string, string> = {
   E: 'Weak Hunter',
@@ -64,7 +64,9 @@ export default function Dashboard() {
   // Discipline section state
   const [disciplines, setDisciplines] = useState<DisciplineStreak[]>([]);
   const [discLogs, setDiscLogs] = useState<Record<string, DisciplineLogStatus>>({});
-  const [discFailConfirm, setDiscFailConfirm] = useState<string | null>(null); // streakId
+  const [discYesterdayLogs, setDiscYesterdayLogs] = useState<Record<string, DisciplineLogStatus>>({});
+  // null | { streakId, date } so one confirm state covers both today & yesterday fails
+  const [discFailConfirm, setDiscFailConfirm] = useState<{ streakId: string; date: string } | null>(null);
 
   useEffect(() => {
     setShowSystemHint(localStorage.getItem('systemHintSeen') !== 'true');
@@ -72,13 +74,20 @@ export default function Dashboard() {
 
   const loadDisciplineData = useCallback(async () => {
     const today = getToday();
+    const yesterday = getYesterday(today);
     const active = await db.disciplineStreaks.where('status').equals('active').toArray();
     active.sort((a, b) => b.currentStreak - a.currentStreak);
-    const todayLogs = await db.disciplineLogs.where('date').equals(today).toArray();
+    const [todayLogs, yLogs] = await Promise.all([
+      db.disciplineLogs.where('date').equals(today).toArray(),
+      db.disciplineLogs.where('date').equals(yesterday).toArray(),
+    ]);
     const logMap: Record<string, DisciplineLogStatus> = {};
     for (const l of todayLogs) logMap[l.streakId] = l.status as DisciplineLogStatus;
+    const yMap: Record<string, DisciplineLogStatus> = {};
+    for (const l of yLogs) yMap[l.streakId] = l.status as DisciplineLogStatus;
     setDisciplines(active);
     setDiscLogs(logMap);
+    setDiscYesterdayLogs(yMap);
   }, []);
 
   useEffect(() => { loadDisciplineData(); }, [loadDisciplineData]);
@@ -563,187 +572,147 @@ export default function Dashboard() {
       })()}
 
       {/* ── Discipline Section ──────────────────────────────────────── */}
-      {disciplines.length > 0 && (
-        <div className="mt-5">
-          <div className="flex items-center justify-between mb-2">
-            <span style={{ fontSize: 10, color: 'var(--color-text-muted)', letterSpacing: '0.18em' }}>
-              // DISCIPLINE
-            </span>
-            <Link
-              href="/discipline"
-              style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em', textDecoration: 'none' }}
-            >
-              VIEW ALL →
-            </Link>
-          </div>
-          <div className="space-y-2">
-            {disciplines.slice(0, 3).map(streak => {
-              const todayStatus = discLogs[streak.id] ?? 'unset';
-              const isConfirming = discFailConfirm === streak.id;
+      {(() => {
+        const today = getToday();
+        const yesterday = getYesterday(today);
+        const reviewCount = disciplines.filter(s => (discYesterdayLogs[s.id] ?? 'unset') === 'unset').length;
 
-              const handleClear = async () => {
-                await setDisciplineLog(streak.id, getToday(), 'clear');
-                await loadDisciplineData();
-              };
-              const handleFail = async () => {
-                await setDisciplineLog(streak.id, getToday(), 'failed');
-                setDiscFailConfirm(null);
-                await loadDisciplineData();
-              };
-              const handleUndo = async () => {
-                await setDisciplineLog(streak.id, getToday(), 'unset');
-                await loadDisciplineData();
-              };
+        const logDate = async (streakId: string, date: string, status: DisciplineLogStatus) => {
+          await setDisciplineLog(streakId, date, status);
+          setDiscFailConfirm(null);
+          await loadDisciplineData();
+        };
 
-              return (
-                <div key={streak.id} className="frame-cut" style={{ padding: '10px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {/* Name + streak */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {streak.name}
+        const btnStyle = (color: string, bg: string) => ({
+          padding: '4px 9px',
+          background: bg,
+          border: `1px solid ${color}`,
+          borderRadius: 4,
+          color,
+          fontSize: 10,
+          letterSpacing: 0.8,
+          cursor: 'pointer' as const,
+          fontFamily: 'monospace',
+        });
+
+        return (
+          <div className="mt-5">
+            {/* Section header */}
+            <div className="flex items-center justify-between mb-2">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10, color: 'var(--color-text-muted)', letterSpacing: '0.18em' }}>
+                  // DISCIPLINE
+                </span>
+                {reviewCount > 0 && disciplines.length > 0 && (
+                  <span style={{
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    color: '#fbbf24',
+                    letterSpacing: 0.8,
+                    padding: '1px 5px',
+                    background: 'rgba(251,191,36,0.08)',
+                    border: '1px solid rgba(251,191,36,0.25)',
+                    borderRadius: 3,
+                  }}>
+                    ⚠ {reviewCount} REVIEW
+                  </span>
+                )}
+              </div>
+              <Link
+                href="/discipline"
+                style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em', textDecoration: 'none' }}
+              >
+                {disciplines.length === 0 ? '+ ADD →' : 'MANAGE →'}
+              </Link>
+            </div>
+
+            {disciplines.length === 0 && (
+              <p style={{ fontSize: 10, color: 'var(--color-text-dim)', textAlign: 'center', padding: '6px 0' }}>
+                No active disciplines
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {disciplines.map(streak => {
+                const id = streak.id;
+                const todayStatus = discLogs[id] ?? 'unset';
+                const yesterdayStatus = discYesterdayLogs[id] ?? 'unset';
+                const needsReview = yesterdayStatus === 'unset';
+                const isConfirmingToday = discFailConfirm?.streakId === id && discFailConfirm.date === today;
+                const isConfirmingYesterday = discFailConfirm?.streakId === id && discFailConfirm.date === yesterday;
+
+                return (
+                  <div key={id} className="frame-cut" style={{ padding: '10px 12px' }}>
+                    {/* Name + streak + today actions — top row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {streak.name}
+                        </div>
+                        <div style={{ fontSize: 10, color: streak.currentStreak > 0 ? '#f97316' : '#4b5563', marginTop: 1 }}>
+                          {streak.currentStreak > 0 ? `🔥 ${streak.currentStreak}d` : '— 0 days'}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 10, color: streak.currentStreak > 0 ? '#f97316' : '#4b5563', marginTop: 1 }}>
-                        {streak.currentStreak > 0 ? `🔥 ${streak.currentStreak}d` : '— 0 days'}
-                      </div>
+
+                      {/* Today: unset — CLEAR / FAIL */}
+                      {todayStatus === 'unset' && !isConfirmingToday && (
+                        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                          <button onClick={() => logDate(id, today, 'clear')} style={btnStyle('rgba(74,222,128,0.9)', 'rgba(74,222,128,0.1)')}>CLEAR</button>
+                          <button onClick={() => setDiscFailConfirm({ streakId: id, date: today })} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.08)')}>FAIL</button>
+                        </div>
+                      )}
+
+                      {/* Today: fail confirm */}
+                      {todayStatus === 'unset' && isConfirmingToday && (
+                        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                          <button onClick={() => logDate(id, today, 'failed')} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)')}>CONFIRM</button>
+                          <button onClick={() => setDiscFailConfirm(null)} style={btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)')}>✕</button>
+                        </div>
+                      )}
+
+                      {/* Today: already marked */}
+                      {todayStatus !== 'unset' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, fontFamily: 'monospace', color: todayStatus === 'clear' ? '#4ade80' : todayStatus === 'failed' ? '#ef4444' : '#6b7280' }}>
+                            {todayStatus === 'clear' ? '✓' : todayStatus === 'failed' ? '✗' : '—'}
+                          </span>
+                          <button onClick={() => logDate(id, today, 'unset')} style={{ padding: '3px 7px', background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 3, color: '#4b5563', fontSize: 9, letterSpacing: 0.8, cursor: 'pointer', fontFamily: 'monospace' }}>
+                            UNDO
+                          </button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Today status / actions */}
-                    {todayStatus === 'unset' && !isConfirming && (
-                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                        <button
-                          onClick={handleClear}
-                          style={{
-                            padding: '4px 9px',
-                            background: 'rgba(74,222,128,0.1)',
-                            border: '1px solid rgba(74,222,128,0.3)',
-                            borderRadius: 4,
-                            color: '#4ade80',
-                            fontSize: 10,
-                            letterSpacing: 0.8,
-                            cursor: 'pointer',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          CLEAR
-                        </button>
-                        <button
-                          onClick={() => setDiscFailConfirm(streak.id)}
-                          style={{
-                            padding: '4px 9px',
-                            background: 'rgba(239,68,68,0.08)',
-                            border: '1px solid rgba(239,68,68,0.25)',
-                            borderRadius: 4,
-                            color: '#ef4444',
-                            fontSize: 10,
-                            letterSpacing: 0.8,
-                            cursor: 'pointer',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          FAIL
-                        </button>
-                      </div>
-                    )}
-
-                    {todayStatus === 'unset' && isConfirming && (
-                      <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                        <button
-                          onClick={handleFail}
-                          style={{
-                            padding: '4px 9px',
-                            background: 'rgba(239,68,68,0.15)',
-                            border: '1px solid rgba(239,68,68,0.4)',
-                            borderRadius: 4,
-                            color: '#ef4444',
-                            fontSize: 10,
-                            letterSpacing: 0.8,
-                            cursor: 'pointer',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          CONFIRM
-                        </button>
-                        <button
-                          onClick={() => setDiscFailConfirm(null)}
-                          style={{
-                            padding: '4px 9px',
-                            background: 'rgba(255,255,255,0.04)',
-                            border: '1px solid rgba(255,255,255,0.12)',
-                            borderRadius: 4,
-                            color: '#6b7280',
-                            fontSize: 10,
-                            letterSpacing: 0.8,
-                            cursor: 'pointer',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-
-                    {todayStatus !== 'unset' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                        <span style={{
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: todayStatus === 'clear' ? '#4ade80' : todayStatus === 'failed' ? '#ef4444' : '#6b7280',
-                        }}>
-                          {todayStatus === 'clear' ? '✓' : todayStatus === 'failed' ? '✗' : '—'}
-                        </span>
-                        <button
-                          onClick={handleUndo}
-                          style={{
-                            padding: '3px 7px',
-                            background: 'none',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            borderRadius: 3,
-                            color: '#4b5563',
-                            fontSize: 9,
-                            letterSpacing: 0.8,
-                            cursor: 'pointer',
-                            fontFamily: 'monospace',
-                          }}
-                        >
-                          UNDO
-                        </button>
+                    {/* Yesterday review row — shown when yesterday is unset */}
+                    {needsReview && (
+                      <div style={{ marginTop: 8, paddingTop: 7, borderTop: '1px solid rgba(251,191,36,0.15)' }}>
+                        {!isConfirmingYesterday ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 9, color: '#fbbf24', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>⚠ YESTERDAY</span>
+                            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                              <button onClick={() => logDate(id, yesterday, 'clear')} style={{ ...btnStyle('rgba(74,222,128,0.8)', 'rgba(74,222,128,0.08)'), padding: '3px 7px', fontSize: 9 }}>CLEAR</button>
+                              <button onClick={() => logDate(id, yesterday, 'skipped')} style={{ ...btnStyle('rgba(107,114,128,0.8)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>SKIP</button>
+                              <button onClick={() => setDiscFailConfirm({ streakId: id, date: yesterday })} style={{ ...btnStyle('rgba(239,68,68,0.8)', 'rgba(239,68,68,0.06)'), padding: '3px 7px', fontSize: 9 }}>FAIL</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 9, color: '#ef4444', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>CONFIRM FAIL YESTERDAY?</span>
+                            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                              <button onClick={() => logDate(id, yesterday, 'failed')} style={{ ...btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)'), padding: '3px 7px', fontSize: 9 }}>YES</button>
+                              <button onClick={() => setDiscFailConfirm(null)} style={{ ...btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>✕</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-          {disciplines.length > 3 && (
-            <Link
-              href="/discipline"
-              style={{
-                display: 'block',
-                textAlign: 'center',
-                marginTop: 8,
-                fontSize: 10,
-                color: 'var(--color-text-muted)',
-                letterSpacing: '0.12em',
-                textDecoration: 'none',
-              }}
-            >
-              +{disciplines.length - 3} more disciplines →
-            </Link>
-          )}
-        </div>
-      )}
-
-      {disciplines.length === 0 && (
-        <div className="mt-5">
-          <Link
-            href="/discipline"
-            style={{ display: 'block', fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.12em', textDecoration: 'none', textAlign: 'center', padding: '8px 0' }}
-          >
-            + TRACK DISCIPLINE →
-          </Link>
-        </div>
-      )}
+        );
+      })()}
 
     </main>
     </>

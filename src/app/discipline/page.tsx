@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { db, getToday } from '@/lib/db';
 import type { DisciplineStreak, DisciplineLog, DisciplineLogStatus, DisciplineStreakType } from '@/types';
-import { computeStreakStats, setDisciplineLog, clearRatePct, recalculateStreak } from '@/lib/logic/discipline';
+import { computeStreakStats, setDisciplineLog, clearRatePct, recalculateStreak, getYesterday } from '@/lib/logic/discipline';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,8 +79,9 @@ export default function DisciplinePage() {
   const [formType, setFormType] = useState<DisciplineStreakType>('anti-habit');
   const [formDescription, setFormDescription] = useState('');
 
-  // failure confirmation
-  const [failConfirming, setFailConfirming] = useState<string | null>(null); // streakId
+  // failure confirmation — streakId + which date (today or yesterday)
+  const [failConfirming, setFailConfirming] = useState<string | null>(null);
+  const [failConfirmingDate, setFailConfirmingDate] = useState<string>('');
   const [failNote, setFailNote] = useState('');
 
   // archive confirmation
@@ -181,20 +183,22 @@ export default function DisciplinePage() {
     await load();
   }
 
-  async function startFailConfirm(streakId: string) {
+  function startFailConfirm(streakId: string, date: string) {
     setFailNote('');
     setFailConfirming(streakId);
+    setFailConfirmingDate(date);
   }
 
   async function confirmFail(streakId: string) {
-    await setDisciplineLog(streakId, today, 'failed', failNote.trim() || undefined);
+    await setDisciplineLog(streakId, failConfirmingDate || today, 'failed', failNote.trim() || undefined);
     setFailConfirming(null);
+    setFailConfirmingDate('');
     setFailNote('');
     await load();
   }
 
-  async function undoToday(streakId: string) {
-    await setDisciplineLog(streakId, today, 'unset');
+  async function undoDate(streakId: string, date: string) {
+    await setDisciplineLog(streakId, date, 'unset');
     await load();
   }
 
@@ -231,165 +235,139 @@ export default function DisciplinePage() {
   // ── Render helpers ────────────────────────────────────────────────────────
 
   function renderTodayActions(entry: LoadedStreak) {
-    const { streak, todayLog } = entry;
+    const { streak, logs, todayLog } = entry;
     const id = streak.id;
-    const isFailing = failConfirming === id;
+    const yesterday = getYesterday(today);
+    const logMap = new Map(logs.map(l => [l.date, l.status as DisciplineLogStatus]));
+    const yesterdayLog = logMap.get(yesterday) ?? 'unset';
+    const needsReview = yesterdayLog === 'unset';
 
-    if (isFailing) {
-      return (
-        <div style={{ marginTop: 10 }}>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6, letterSpacing: 1 }}>
-            CONFIRM FAILURE — note (optional)
-          </div>
-          <input
-            value={failNote}
-            onChange={e => setFailNote(e.target.value)}
-            placeholder="What happened?"
-            style={{
-              width: '100%',
-              background: 'rgba(239,68,68,0.08)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              borderRadius: 4,
-              padding: '6px 10px',
-              color: '#f9fafb',
-              fontSize: 13,
-              marginBottom: 8,
-              boxSizing: 'border-box',
-            }}
-          />
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => confirmFail(id)}
-              style={{
-                flex: 1,
-                padding: '7px 0',
-                background: 'rgba(239,68,68,0.15)',
-                border: '1px solid rgba(239,68,68,0.5)',
-                borderRadius: 4,
-                color: '#ef4444',
-                fontSize: 11,
-                letterSpacing: 1,
-                cursor: 'pointer',
-                fontFamily: 'monospace',
-              }}
-            >
-              CONFIRM FAIL
-            </button>
-            <button
-              onClick={() => setFailConfirming(null)}
-              style={{
-                flex: 1,
-                padding: '7px 0',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 4,
-                color: '#9ca3af',
-                fontSize: 11,
-                letterSpacing: 1,
-                cursor: 'pointer',
-                fontFamily: 'monospace',
-              }}
-            >
-              CANCEL
-            </button>
-          </div>
-        </div>
-      );
-    }
+    const isFailingToday = failConfirming === id && failConfirmingDate === today;
+    const isFailingYesterday = failConfirming === id && failConfirmingDate === yesterday;
+    const isFailing = isFailingToday || isFailingYesterday;
 
-    if (todayLog === 'unset') {
-      return (
-        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button
-            onClick={() => handleClear(id)}
-            style={{
-              flex: 2,
-              padding: '7px 0',
-              background: 'rgba(74,222,128,0.12)',
-              border: '1px solid rgba(74,222,128,0.35)',
-              borderRadius: 4,
-              color: '#4ade80',
-              fontSize: 11,
-              letterSpacing: 1,
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-            }}
-          >
-            CLEAR
-          </button>
-          <button
-            onClick={() => handleSkip(id)}
-            style={{
-              flex: 1,
-              padding: '7px 0',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 4,
-              color: '#6b7280',
-              fontSize: 11,
-              letterSpacing: 1,
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-            }}
-          >
-            SKIP
-          </button>
-          <button
-            onClick={() => startFailConfirm(id)}
-            style={{
-              flex: 1,
-              padding: '7px 0',
-              background: 'rgba(239,68,68,0.08)',
-              border: '1px solid rgba(239,68,68,0.25)',
-              borderRadius: 4,
-              color: '#ef4444',
-              fontSize: 11,
-              letterSpacing: 1,
-              cursor: 'pointer',
-              fontFamily: 'monospace',
-            }}
-          >
-            FAIL
-          </button>
-        </div>
-      );
-    }
-
-    const statusLabels: Record<DisciplineLogStatus, string> = {
-      clear: '✓ Cleared today',
-      failed: '✗ Failed today',
-      skipped: '— Skipped today',
-      unset: '',
-    };
-    const statusColors: Record<DisciplineLogStatus, string> = {
-      clear: '#4ade80',
-      failed: '#ef4444',
-      skipped: '#6b7280',
-      unset: '#6b7280',
+    const btnBase = {
+      borderRadius: 4,
+      cursor: 'pointer' as const,
+      fontFamily: 'monospace',
+      letterSpacing: 1,
     };
 
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-        <span style={{ color: statusColors[todayLog], fontSize: 12, fontFamily: 'monospace', letterSpacing: 0.5 }}>
-          {statusLabels[todayLog]}
-        </span>
-        <button
-          onClick={() => undoToday(id)}
-          style={{
-            marginLeft: 'auto',
-            padding: '4px 10px',
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.12)',
+      <div style={{ marginTop: 10 }}>
+        {/* Fail confirmation dialog (today or yesterday) */}
+        {isFailing && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 6, letterSpacing: 1 }}>
+              {isFailingYesterday ? 'CONFIRM FAIL YESTERDAY' : 'CONFIRM FAILURE'} — note (optional)
+            </div>
+            <input
+              value={failNote}
+              onChange={e => setFailNote(e.target.value)}
+              placeholder="What happened?"
+              style={{
+                width: '100%',
+                background: 'rgba(239,68,68,0.08)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 4,
+                padding: '6px 10px',
+                color: '#f9fafb',
+                fontSize: 13,
+                marginBottom: 8,
+                boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => confirmFail(id)}
+                style={{ ...btnBase, flex: 1, padding: '7px 0', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.5)', color: '#ef4444', fontSize: 11 }}
+              >
+                CONFIRM FAIL
+              </button>
+              <button
+                onClick={() => { setFailConfirming(null); setFailConfirmingDate(''); }}
+                style={{ ...btnBase, flex: 1, padding: '7px 0', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#9ca3af', fontSize: 11 }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Yesterday review — shown when yesterday is unset and not currently in fail confirm */}
+        {needsReview && !isFailing && (
+          <div style={{
+            marginBottom: 10,
+            padding: '8px 10px',
+            background: 'rgba(251,191,36,0.05)',
+            border: '1px solid rgba(251,191,36,0.2)',
             borderRadius: 4,
-            color: '#6b7280',
-            fontSize: 10,
-            letterSpacing: 1,
-            cursor: 'pointer',
-            fontFamily: 'monospace',
-          }}
-        >
-          UNDO
-        </button>
+          }}>
+            <div style={{ fontSize: 9, color: '#fbbf24', letterSpacing: 1, marginBottom: 7 }}>⚠ YESTERDAY NOT REVIEWED</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={async () => { await setDisciplineLog(id, yesterday, 'clear'); await load(); }}
+                style={{ ...btnBase, flex: 2, padding: '6px 0', background: 'rgba(74,222,128,0.1)', border: '1px solid rgba(74,222,128,0.3)', color: '#4ade80', fontSize: 11 }}
+              >
+                CLEAR
+              </button>
+              <button
+                onClick={async () => { await setDisciplineLog(id, yesterday, 'skipped'); await load(); }}
+                style={{ ...btnBase, flex: 1, padding: '6px 0', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#6b7280', fontSize: 11 }}
+              >
+                SKIP
+              </button>
+              <button
+                onClick={() => startFailConfirm(id, yesterday)}
+                style={{ ...btnBase, flex: 1, padding: '6px 0', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', fontSize: 11 }}
+              >
+                FAIL
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Today actions */}
+        {!isFailing && todayLog === 'unset' && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => handleClear(id)}
+              style={{ ...btnBase, flex: 2, padding: '7px 0', background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.35)', color: '#4ade80', fontSize: 11 }}
+            >
+              CLEAR
+            </button>
+            <button
+              onClick={() => handleSkip(id)}
+              style={{ ...btnBase, flex: 1, padding: '7px 0', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', color: '#6b7280', fontSize: 11 }}
+            >
+              SKIP
+            </button>
+            <button
+              onClick={() => startFailConfirm(id, today)}
+              style={{ ...btnBase, flex: 1, padding: '7px 0', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', color: '#ef4444', fontSize: 11 }}
+            >
+              FAIL
+            </button>
+          </div>
+        )}
+
+        {!isFailing && todayLog !== 'unset' && (() => {
+          const labels: Record<DisciplineLogStatus, string> = { clear: '✓ Cleared today', failed: '✗ Failed today', skipped: '— Skipped today', unset: '' };
+          const colors: Record<DisciplineLogStatus, string> = { clear: '#4ade80', failed: '#ef4444', skipped: '#6b7280', unset: '#6b7280' };
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ color: colors[todayLog], fontSize: 12, fontFamily: 'monospace', letterSpacing: 0.5 }}>
+                {labels[todayLog]}
+              </span>
+              <button
+                onClick={() => undoDate(id, today)}
+                style={{ marginLeft: 'auto', padding: '4px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4, color: '#6b7280', fontSize: 10, letterSpacing: 1, cursor: 'pointer', fontFamily: 'monospace' }}
+              >
+                UNDO
+              </button>
+            </div>
+          );
+        })()}
       </div>
     );
   }
@@ -517,7 +495,14 @@ export default function DisciplinePage() {
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{streak.description}</div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <Link
+              href={`/discipline/${id}/history`}
+              style={{ color: '#6b7280', fontSize: 10, fontFamily: 'monospace', letterSpacing: 0.5, textDecoration: 'none', padding: '2px 4px' }}
+              title="Full History"
+            >
+              HISTORY
+            </Link>
             {!isArchived && (
               <button
                 onClick={() => openEdit(streak)}
@@ -660,6 +645,24 @@ export default function DisciplinePage() {
                 <div style={{ fontSize: 9, color: '#6b7280', letterSpacing: 1 }}>STARTED</div>
               </div>
             </div>
+            <Link
+              href={`/discipline/${id}/history`}
+              style={{
+                display: 'block',
+                marginTop: 12,
+                padding: '7px 0',
+                textAlign: 'center',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 4,
+                color: '#6b7280',
+                fontSize: 10,
+                letterSpacing: 1.5,
+                textDecoration: 'none',
+              }}
+            >
+              VIEW FULL HISTORY →
+            </Link>
           </div>
         )}
       </div>

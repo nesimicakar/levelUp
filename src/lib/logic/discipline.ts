@@ -24,6 +24,7 @@ export function computeStreakStats(allLogs: DisciplineLog[], today: string): Str
     const status = logMap.get(dateStr) ?? 'unset';
 
     if (i === 0 && status === 'unset') continue; // today not yet decided — skip
+    if (i === 1 && status === 'unset') continue; // yesterday grace period — don't break
     if (status === 'unset') break;
     if (status === 'failed') break;
     if (status === 'clear') { currentStreak++; streakStartDate = dateStr; }
@@ -119,6 +120,18 @@ export async function setDisciplineLog(
   }
 
   return recalculateStreak(streakId);
+}
+
+export function getYesterday(today: string): string {
+  const d = new Date(today + 'T12:00:00');
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+export function needsYesterdayReview(logs: DisciplineLog[], today: string): boolean {
+  const yesterday = getYesterday(today);
+  const logMap = new Map(logs.map(l => [l.date, l.status]));
+  return (logMap.get(yesterday) ?? 'unset') === 'unset';
 }
 
 export function clearRatePct(totalClear: number, totalFailed: number): number {
