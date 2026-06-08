@@ -290,6 +290,51 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 export const RANK_ORDER: Rank[] = ['E', 'D', 'C', 'B', 'A', 'S'];
 
+// ── Knowledge Vault ──────────────────────────────────────────────────────────
+
+export type KnowledgeSourceType = 'book' | 'course' | 'recall' | 'yuno' | 'memoryos' | 'note' | 'manual';
+export type ReviewRating = 'again' | 'hard' | 'good' | 'easy';
+
+export interface KnowledgeDomain {
+  id: string;           // UUID — caller-assigned
+  name: string;
+  icon: string;         // emoji
+  color: string;        // hex color
+  createdAt: number;
+}
+
+export interface KnowledgeConcept {
+  id: string;           // UUID — caller-assigned
+  title: string;
+  summary: string;
+  keyTakeaways?: string[];      // optional bullet points; absent on pre-existing concepts
+  personalNotes?: string;
+  primaryDomainId: string;
+  tags: string[];
+  relatedConceptIds: string[];
+  sourceType: KnowledgeSourceType;
+  sourceTitle?: string;
+  retentionScore: number;       // 0–100
+  reviewCount: number;
+  reviewIntervalDays: number;   // current interval
+  nextReviewAt: number;         // timestamp ms
+  lastReviewedAt?: number;      // timestamp ms
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface KnowledgeReview {
+  id?: number;          // auto-increment
+  conceptId: string;
+  rating: ReviewRating;
+  previousRetention: number;
+  newRetention: number;
+  previousIntervalDays: number;
+  newIntervalDays: number;
+  date: string;         // YYYY-MM-DD
+  createdAt: number;
+}
+
 export const STAT_LABELS: Record<StatType, string> = {
   STR: 'Strength',
   AGI: 'Agility',

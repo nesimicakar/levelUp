@@ -14,6 +14,9 @@ import type {
   StatType,
   DisciplineStreak,
   DisciplineLog,
+  KnowledgeDomain,
+  KnowledgeConcept,
+  KnowledgeReview,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
@@ -30,6 +33,9 @@ export class LevelUpDB extends Dexie {
   customTaskLogs!: Table<CustomTaskLog, number>;
   disciplineStreaks!: Table<DisciplineStreak, string>;
   disciplineLogs!: Table<DisciplineLog, number>;
+  knowledgeDomains!: Table<KnowledgeDomain, string>;
+  knowledgeConcepts!: Table<KnowledgeConcept, string>;
+  knowledgeReviews!: Table<KnowledgeReview, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -84,6 +90,24 @@ export class LevelUpDB extends Dexie {
       customTaskLogs: '++id, [date+taskId], date, taskId',
       disciplineStreaks: '&id, status, createdAt',
       disciplineLogs: '++id, streakId, date, [streakId+date]',
+    });
+    this.version(6).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
     });
   }
 }
@@ -213,4 +237,65 @@ export async function deleteCustomTask(taskId: string): Promise<void> {
   const updated = (settings.customTasks ?? []).filter(t => t.id !== taskId);
   await updateSettings({ customTasks: updated });
   await db.customTaskLogs.where('taskId').equals(taskId).delete();
+}
+
+// ===== Knowledge Vault Helpers ===== //
+
+export async function getAllDomains(): Promise<KnowledgeDomain[]> {
+  return db.knowledgeDomains.orderBy('createdAt').toArray();
+}
+
+export async function addDomain(domain: KnowledgeDomain): Promise<void> {
+  await db.knowledgeDomains.put(domain);
+}
+
+export async function updateDomain(id: string, partial: Partial<KnowledgeDomain>): Promise<void> {
+  await db.knowledgeDomains.update(id, partial);
+}
+
+export async function deleteDomain(id: string): Promise<void> {
+  await db.transaction('rw', [db.knowledgeDomains, db.knowledgeConcepts, db.knowledgeReviews], async () => {
+    const concepts = await db.knowledgeConcepts.where('primaryDomainId').equals(id).toArray();
+    for (const c of concepts) {
+      await db.knowledgeReviews.where('conceptId').equals(c.id).delete();
+    }
+    await db.knowledgeConcepts.where('primaryDomainId').equals(id).delete();
+    await db.knowledgeDomains.delete(id);
+  });
+}
+
+export async function getAllConcepts(): Promise<KnowledgeConcept[]> {
+  return db.knowledgeConcepts.orderBy('createdAt').toArray();
+}
+
+export async function getConceptsByDomain(domainId: string): Promise<KnowledgeConcept[]> {
+  return db.knowledgeConcepts.where('primaryDomainId').equals(domainId).toArray();
+}
+
+export async function getDueConcepts(): Promise<KnowledgeConcept[]> {
+  const now = Date.now();
+  return db.knowledgeConcepts.filter(c => c.nextReviewAt <= now).toArray();
+}
+
+export async function addConcept(concept: KnowledgeConcept): Promise<void> {
+  await db.knowledgeConcepts.put(concept);
+}
+
+export async function updateConcept(id: string, partial: Partial<KnowledgeConcept>): Promise<void> {
+  await db.knowledgeConcepts.update(id, { ...partial, updatedAt: Date.now() });
+}
+
+export async function deleteConcept(id: string): Promise<void> {
+  await db.transaction('rw', [db.knowledgeConcepts, db.knowledgeReviews], async () => {
+    await db.knowledgeReviews.where('conceptId').equals(id).delete();
+    await db.knowledgeConcepts.delete(id);
+  });
+}
+
+export async function getReviewsForConcept(conceptId: string): Promise<KnowledgeReview[]> {
+  return db.knowledgeReviews.where('conceptId').equals(conceptId).sortBy('createdAt');
+}
+
+export async function addReview(review: KnowledgeReview): Promise<void> {
+  await db.knowledgeReviews.add(review);
 }

@@ -172,9 +172,17 @@ export default function RecordPage() {
       <main className="max-w-lg mx-auto px-4 pt-4 pb-24 space-y-3">
 
         {/* Header */}
-        <div className="mb-1">
-          <p className="text-[10px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>‹ HUNTER RECORD ›</p>
-          <h1 className="font-display text-xl font-bold glow-text leading-none mt-0.5">RECORD</h1>
+        <div className="flex items-center justify-between mb-1">
+          <div>
+            <p className="text-[10px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>‹ HUNTER RECORD ›</p>
+            <h1 className="font-display text-xl font-bold glow-text leading-none mt-0.5">RECORD</h1>
+          </div>
+          <Link href="/settings" className="text-text-muted hover:text-text transition-colors" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          </Link>
         </div>
 
         {/* ── Hero — character image or text HUD depending on setting ───── */}

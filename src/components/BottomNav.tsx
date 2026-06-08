@@ -11,10 +11,19 @@ function HomeIcon() {
   );
 }
 
-const NAV_ITEMS: Array<{ href: string; label: string; icon: React.ReactNode }> = [
-  { href: '/', label: 'System', icon: <HomeIcon /> },
+function VaultIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </svg>
+  );
+}
+
+const NAV_ITEMS = [
+  { href: '/',             label: 'System', icon: <HomeIcon /> },
   { href: '/achievements', label: 'Record', icon: '◆' },
-  { href: '/settings', label: 'Config', icon: '⚙' },
+  { href: '/knowledge',   label: 'Vault',  icon: <VaultIcon /> },
 ];
 
 export function BottomNav() {
@@ -23,7 +32,7 @@ export function BottomNav() {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur border-t border-border z-50"
-      style={{ pointerEvents: 'auto', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
         {NAV_ITEMS.map(item => {
@@ -35,9 +44,7 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center gap-0.5 px-3 py-2 transition-colors ${
-                isActive
-                  ? 'text-glow glow-text'
-                  : 'text-text-muted'
+                isActive ? 'text-glow glow-text' : 'text-text-muted'
               }`}
             >
               <span className="text-xl">{item.icon}</span>
