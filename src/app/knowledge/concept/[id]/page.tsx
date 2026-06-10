@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { getAllDomains, getAllConcepts, getReviewsForConcept, updateConcept, deleteConcept, db } from '@/lib/db';
-import type { KnowledgeDomain, KnowledgeConcept, KnowledgeReview } from '@/types';
+import type { KnowledgeDomain, KnowledgeConcept, KnowledgeReview, KeyIdea } from '@/types';
+import { KeyIdeasEditor } from '@/components/KeyIdeasEditor';
+import { KeyIdeasAccordion } from '@/components/KeyIdeasAccordion';
 import {
   retentionColor, retentionLabel, SOURCE_LABELS, timeAgo, nextReviewLabel, conceptCode,
 } from '@/lib/logic/knowledge';
@@ -43,7 +45,7 @@ function EditConceptModal({
 }) {
   const [title, setTitle] = useState(concept.title);
   const [summary, setSummary] = useState(concept.summary);
-  const [takeaways, setTakeaways] = useState((concept.keyTakeaways ?? []).join('\n'));
+  const [keyIdeas, setKeyIdeas] = useState<KeyIdea[]>(concept.keyIdeas ?? []);
   const [notes, setNotes] = useState(concept.personalNotes ?? '');
   const [domainId, setDomainId] = useState(concept.primaryDomainId);
   const [sourceTitle, setSourceTitle] = useState(concept.sourceTitle ?? '');
@@ -60,7 +62,7 @@ function EditConceptModal({
             onClick={() => onSave({
               title: title.trim(),
               summary: summary.trim(),
-              keyTakeaways: takeaways.split('\n').map(t => t.trim()).filter(Boolean),
+              keyIdeas: keyIdeas.filter(k => k.title.trim() || k.body.trim()),
               personalNotes: notes.trim() || undefined,
               primaryDomainId: domainId,
               sourceTitle: sourceTitle.trim() || undefined,
@@ -106,13 +108,10 @@ function EditConceptModal({
         onChange={e => setSummary(e.target.value)}
         placeholder="Summary *"
       />
-      <textarea
-        className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text placeholder-text-muted mb-3 outline-none resize-none"
-        rows={3}
-        value={takeaways}
-        onChange={e => setTakeaways(e.target.value)}
-        placeholder={"Key Takeaways (one per line)\n- ...\n- ..."}
-      />
+      <p className="text-[9px] text-text-muted uppercase tracking-widest mb-2">Key Ideas</p>
+      <div className="mb-3">
+        <KeyIdeasEditor value={keyIdeas} onChange={setKeyIdeas} />
+      </div>
       <select
         className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text mb-3 outline-none"
         value={domainId}
@@ -286,7 +285,15 @@ export default function ConceptPage() {
         </div>
       </div>
 
-      {/* Key Takeaways */}
+      {/* Key Ideas — accordion cards */}
+      {concept.keyIdeas && concept.keyIdeas.length > 0 && (
+        <div className="mb-5">
+          <p className="text-[10px] text-text-muted uppercase tracking-widest mb-3">// KEY IDEAS</p>
+          <KeyIdeasAccordion ideas={concept.keyIdeas} accentColor={domain?.color ?? '#f59e0b'} />
+        </div>
+      )}
+
+      {/* Key Takeaways — legacy bullet format for old concepts */}
       {concept.keyTakeaways && concept.keyTakeaways.length > 0 && (
         <div className="mb-5">
           <p className="text-[10px] text-text-muted uppercase tracking-widest mb-3">// KEY TAKEAWAYS</p>

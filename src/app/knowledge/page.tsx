@@ -1,19 +1,24 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   db, getAllDomains, getAllConcepts, getDueConcepts,
   addDomain, addConcept,
 } from '@/lib/db';
-import type { KnowledgeDomain, KnowledgeConcept, KnowledgeSourceType } from '@/types';
+import type { KnowledgeDomain, KnowledgeConcept, KnowledgeSourceType, KeyIdea } from '@/types';
+import { KeyIdeasEditor } from '@/components/KeyIdeasEditor';
 import {
   avgRetention, getDueCount, uniqueSources, retentionColor, retentionLabel,
   estMinutes, reviewStreakDays, DOMAIN_COLORS, DOMAIN_ICONS, SOURCE_LABELS,
 } from '@/lib/logic/knowledge';
 import { VaultSecondaryNav } from '@/components/VaultSecondaryNav';
 import { VaultSheet } from '@/components/VaultSheet';
+import {
+  validateVaultPack, importVaultPack, exportVaultPack, downloadVaultPack,
+  type ImportResult,
+} from '@/lib/logic/vaultPack';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -137,7 +142,7 @@ function AddConceptModal({
 }) {
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
-  const [takeaways, setTakeaways] = useState('');
+  const [keyIdeas, setKeyIdeas] = useState<KeyIdea[]>([]);
   const [notes, setNotes] = useState('');
   const [domainId, setDomainId] = useState(domains[0]?.id ?? '');
   const [sourceType, setSourceType] = useState<KnowledgeSourceType>('manual');
@@ -151,7 +156,7 @@ function AddConceptModal({
       id: uuid(),
       title: title.trim(),
       summary: summary.trim(),
-      keyTakeaways: takeaways.split('\n').map(t => t.trim()).filter(Boolean),
+      keyIdeas: keyIdeas.filter(k => k.title.trim() || k.body.trim()),
       personalNotes: notes.trim() || undefined,
       primaryDomainId: domainId,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
@@ -196,13 +201,10 @@ function AddConceptModal({
         value={summary}
         onChange={e => setSummary(e.target.value)}
       />
-      <textarea
-        className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text placeholder-text-muted mb-3 outline-none resize-none"
-        placeholder={"Key Takeaways (one per line)\n- ...\n- ..."}
-        rows={3}
-        value={takeaways}
-        onChange={e => setTakeaways(e.target.value)}
-      />
+      <p className="text-[9px] text-text-muted uppercase tracking-widest mb-2">Key Ideas</p>
+      <div className="mb-3">
+        <KeyIdeasEditor value={keyIdeas} onChange={setKeyIdeas} />
+      </div>
       <select
         className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text mb-3 outline-none"
         value={domainId}
@@ -312,6 +314,15 @@ export default function KnowledgePage() {
   const [loaded, setLoaded] = useState(false);
   const [showAddDomain, setShowAddDomain] = useState(false);
   const [showAddConcept, setShowAddConcept] = useState(false);
+  const [showPackMenu, setShowPackMenu] = useState(false);
+  const [packState, setPackState] = useState<
+    | { status: 'importing' }
+    | { status: 'exporting' }
+    | { status: 'success'; result: ImportResult }
+    | { status: 'error'; message: string }
+    | null
+  >(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
     const [doms, concs, due, reviews] = await Promise.all([
@@ -339,6 +350,35 @@ export default function KnowledgePage() {
     await addConcept(c);
     setShowAddConcept(false);
     loadData();
+  };
+
+  const handleExport = async () => {
+    setPackState({ status: 'exporting' });
+    try {
+      const pack = await exportVaultPack();
+      downloadVaultPack(pack);
+      setPackState(null);
+    } catch (e) {
+      setPackState({ status: 'error', message: (e as Error).message });
+    }
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset so the same file can be re-imported if needed
+    e.target.value = '';
+    setPackState({ status: 'importing' });
+    try {
+      const text = await file.text();
+      const raw = JSON.parse(text) as unknown;
+      const pack = validateVaultPack(raw);
+      const result = await importVaultPack(pack);
+      setPackState({ status: 'success', result });
+      loadData();
+    } catch (e) {
+      setPackState({ status: 'error', message: (e as Error).message });
+    }
   };
 
   const totalRet = avgRetention(concepts);
@@ -375,15 +415,75 @@ export default function KnowledgePage() {
           </h1>
           <p className="text-[9px] text-text-muted uppercase tracking-widest mt-0.5">// REMEMBER</p>
         </div>
-        <button
-          onClick={() => router.push('/knowledge/search')}
-          className="text-text-muted hover:text-text transition-colors mt-1.5"
-          aria-label="Search"
-        >
-          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
-          </svg>
-        </button>
+
+        {/* Right icon cluster */}
+        <div className="flex items-center gap-2 mt-1.5">
+          <button
+            onClick={() => router.push('/knowledge/search')}
+            className="text-text-muted hover:text-text transition-colors"
+            aria-label="Search"
+          >
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+            </svg>
+          </button>
+
+          {/* ⋯ overflow menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowPackMenu(v => !v)}
+              className="text-text-muted hover:text-text transition-colors flex items-center"
+              aria-label="More options"
+            >
+              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="5" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="19" r="1" fill="currentColor" />
+              </svg>
+            </button>
+
+            {showPackMenu && (
+              <>
+                {/* Backdrop */}
+                <div className="fixed inset-0 z-40" onClick={() => setShowPackMenu(false)} />
+                {/* Dropdown */}
+                <div
+                  className="absolute right-0 z-50 flex flex-col overflow-hidden"
+                  style={{ top: 26, width: 152, background: '#0f1623', border: '1px solid #1e293b', borderRadius: 10 }}
+                >
+                  <button
+                    onClick={() => { fileInputRef.current?.click(); setShowPackMenu(false); }}
+                    disabled={packState?.status === 'importing'}
+                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-[11px] text-text-muted uppercase tracking-widest font-bold hover:bg-white/5 transition-colors disabled:opacity-40 text-left"
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    {packState?.status === 'importing' ? 'Importing…' : 'Import Pack'}
+                  </button>
+                  <div style={{ height: 1, background: '#1e293b' }} />
+                  <button
+                    onClick={() => { handleExport(); setShowPackMenu(false); }}
+                    disabled={packState?.status === 'exporting' || concepts.length === 0}
+                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-[11px] text-text-muted uppercase tracking-widest font-bold hover:bg-white/5 transition-colors disabled:opacity-40 text-left"
+                  >
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    {packState?.status === 'exporting' ? 'Exporting…' : 'Export Pack'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+        </div>
       </div>
 
       {/* ── Secondary vault nav ─────────────────────────────────────────── */}
@@ -495,6 +595,59 @@ export default function KnowledgePage() {
           </div>
         )}
       </button>
+
+      {/* Import result card */}
+      {packState && packState.status !== 'importing' && packState.status !== 'exporting' && (
+        <div
+          className="rounded-xl px-4 py-3 mb-4 flex flex-col gap-1"
+          style={{
+            background: packState.status === 'error' ? '#ef444411' : '#22c55e11',
+            border: `1px solid ${packState.status === 'error' ? '#ef4444' : '#22c55e'}`,
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span
+              className="text-[10px] font-bold uppercase tracking-widest"
+              style={{ color: packState.status === 'error' ? '#ef4444' : '#22c55e' }}
+            >
+              {packState.status === 'error' ? '// IMPORT FAILED' : '// IMPORT COMPLETE'}
+            </span>
+            <button
+              onClick={() => setPackState(null)}
+              className="text-text-muted text-sm leading-none"
+            >
+              ✕
+            </button>
+          </div>
+
+          {packState.status === 'error' && (
+            <p className="text-[11px] text-text-dim leading-relaxed">{packState.message}</p>
+          )}
+
+          {packState.status === 'success' && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1">
+              {[
+                { label: 'Domains created',   value: packState.result.domainsCreated },
+                { label: 'Domains reused',    value: packState.result.domainsReused },
+                { label: 'Concepts imported', value: packState.result.conceptsImported },
+                { label: 'Concepts skipped',  value: packState.result.conceptsSkipped },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-[10px] text-text-muted">{label}</span>
+                  <span className="text-[10px] font-bold text-text font-mono">{value}</span>
+                </div>
+              ))}
+              {packState.result.errors.length > 0 && (
+                <div className="col-span-2 mt-1">
+                  {packState.result.errors.map((err, i) => (
+                    <p key={i} className="text-[10px] text-danger">{err}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Domains section ─────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3">

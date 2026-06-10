@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { getAllDomains, getConceptsByDomain, getDueConcepts, db, addConcept } from '@/lib/db';
-import type { KnowledgeDomain, KnowledgeConcept, KnowledgeSourceType } from '@/types';
+import type { KnowledgeDomain, KnowledgeConcept, KnowledgeSourceType, KeyIdea } from '@/types';
+import { KeyIdeasEditor } from '@/components/KeyIdeasEditor';
 import {
   retentionColor, retentionLabel, avgRetention, getDueCount,
   SOURCE_LABELS, timeAgo, DOMAIN_ICONS, DOMAIN_COLORS,
@@ -55,7 +56,7 @@ function AddConceptModal({
 }) {
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
-  const [takeaways, setTakeaways] = useState('');
+  const [keyIdeas, setKeyIdeas] = useState<KeyIdea[]>([]);
   const [notes, setNotes] = useState('');
   const [sourceType, setSourceType] = useState<KnowledgeSourceType>('manual');
   const [sourceTitle, setSourceTitle] = useState('');
@@ -68,7 +69,7 @@ function AddConceptModal({
       id: uuid(),
       title: title.trim(),
       summary: summary.trim(),
-      keyTakeaways: takeaways.split('\n').map(t => t.trim()).filter(Boolean),
+      keyIdeas: keyIdeas.filter(k => k.title.trim() || k.body.trim()),
       personalNotes: notes.trim() || undefined,
       primaryDomainId: domain.id,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),
@@ -116,13 +117,10 @@ function AddConceptModal({
         value={summary}
         onChange={e => setSummary(e.target.value)}
       />
-      <textarea
-        className="w-full bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text placeholder-text-muted mb-3 outline-none resize-none"
-        placeholder={"Key Takeaways (one per line)\n- ...\n- ..."}
-        rows={3}
-        value={takeaways}
-        onChange={e => setTakeaways(e.target.value)}
-      />
+      <p className="text-[9px] text-text-muted uppercase tracking-widest mb-2">Key Ideas</p>
+      <div className="mb-3">
+        <KeyIdeasEditor value={keyIdeas} onChange={setKeyIdeas} accentColor={domain.color} />
+      </div>
       <div className="flex gap-2 mb-3">
         <select
           className="flex-1 bg-surface-light border border-border rounded-lg px-3 py-2.5 text-sm text-text outline-none"

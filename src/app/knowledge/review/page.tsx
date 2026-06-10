@@ -10,6 +10,7 @@ import {
 } from '@/lib/logic/knowledge';
 import { VaultSecondaryNav } from '@/components/VaultSecondaryNav';
 import { ArticleText } from '@/components/ArticleText';
+import { KeyIdeasAccordion } from '@/components/KeyIdeasAccordion';
 
 // ── Rating config ─────────────────────────────────────────────────────────────
 
@@ -263,18 +264,23 @@ export default function ReviewPage() {
             <div className="mb-3">
               <ArticleText text={current.summary} />
             </div>
+            {current.keyIdeas && current.keyIdeas.length > 0 && (
+              <div className="mt-3 pt-3" style={{ borderTop: '1px solid #1e293b' }}>
+                <p className="text-[9px] text-text-muted uppercase tracking-widest mb-2">// KEY IDEAS</p>
+                <KeyIdeasAccordion
+                  ideas={current.keyIdeas}
+                  accentColor={domain?.color ?? '#f59e0b'}
+                  compact
+                />
+              </div>
+            )}
             {current.keyTakeaways && current.keyTakeaways.length > 0 && (
               <div className="mt-3 pt-3" style={{ borderTop: '1px solid #1e293b' }}>
                 <p className="text-[9px] text-text-muted uppercase tracking-widest mb-2">// KEY TAKEAWAYS</p>
-                <ul className="space-y-2">
+                <ul className="space-y-1.5">
                   {current.keyTakeaways.map((item, i) => (
                     <li key={i} className="flex items-start gap-2">
-                      <span
-                        className="flex-shrink-0"
-                        style={{ color: domain?.color ?? '#f59e0b', fontSize: 8, marginTop: 5, lineHeight: 1 }}
-                      >
-                        ◆
-                      </span>
+                      <span className="flex-shrink-0" style={{ color: domain?.color ?? '#f59e0b', fontSize: 8, marginTop: 5, lineHeight: 1 }}>◆</span>
                       <span className="text-[12px] text-text leading-[1.65]">{item}</span>
                     </li>
                   ))}

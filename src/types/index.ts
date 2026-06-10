@@ -303,11 +303,17 @@ export interface KnowledgeDomain {
   createdAt: number;
 }
 
+export interface KeyIdea {
+  title: string;
+  body: string;
+}
+
 export interface KnowledgeConcept {
   id: string;           // UUID — caller-assigned
   title: string;
   summary: string;
-  keyTakeaways?: string[];      // optional bullet points; absent on pre-existing concepts
+  keyIdeas?: KeyIdea[];         // structured idea cards (title + explanation)
+  keyTakeaways?: string[];      // legacy bullet format; kept for backward compat
   personalNotes?: string;
   primaryDomainId: string;
   tags: string[];
