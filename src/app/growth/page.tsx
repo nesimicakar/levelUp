@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getWeekStart, getCourseProgress, getSettings } from '@/lib/db';
+import { db, getToday, getWeekStart, getCourseProgress, getSettings, getActiveStrAllSessions } from '@/lib/db';
 import {
   computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP,
   getIntDailyCap, getAgiDailyCap,
@@ -71,7 +71,7 @@ export default function GrowthPage() {
     setStrRequired(reqStr);
 
     // ── Levels ──────────────────────────────────────────────────────────────
-    const allStr = await db.strSessions.toArray();
+    const allStr = await getActiveStrAllSessions(settings);
     const strCompleted = allStr.filter(s => s.completed && !s.isRestDay).length;
     const strLevel = computeLevel(computeStrXP(strCompleted, 0));
 
@@ -147,7 +147,7 @@ export default function GrowthPage() {
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const sevenStr = sevenDaysAgo.toISOString().split('T')[0];
     setRecent7({
-      str: (await db.strSessions.where('date').above(sevenStr).toArray()).filter(s => s.completed && !s.isRestDay).length,
+      str: allStr.filter(s => s.date > sevenStr && s.completed && !s.isRestDay).length,
       agi: new Set((await db.agiLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).map(l => l.date)).size,
       vit: (await db.vitLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length,
       int: (await db.intLogs.where('date').above(sevenStr).toArray()).filter(l => l.completed).length,
@@ -159,7 +159,7 @@ export default function GrowthPage() {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const thirtyStr = thirtyDaysAgo.toISOString().split('T')[0];
     setRecent30({
-      str: (await db.strSessions.where('date').above(thirtyStr).toArray()).filter(s => s.completed && !s.isRestDay).length,
+      str: allStr.filter(s => s.date > thirtyStr && s.completed && !s.isRestDay).length,
       agi: new Set((await db.agiLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).map(l => l.date)).size,
       vit: (await db.vitLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length,
       int: (await db.intLogs.where('date').above(thirtyStr).toArray()).filter(l => l.completed).length,

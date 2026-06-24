@@ -99,6 +99,14 @@ export interface PerLog {
   createdAt: number;
 }
 
+/** Optional nafile (voluntary) prayer tracking — purely informational, no XP/rank effect. */
+export interface NafileLog {
+  id?: number;
+  date: string;       // YYYY-MM-DD
+  prayers: Record<string, boolean>; // keyed by prayer id, e.g. { evvabin: true }
+  createdAt: number;
+}
+
 export interface WeeklySummary {
   id?: number;
   weekStart: string; // Monday YYYY-MM-DD
@@ -218,6 +226,10 @@ export interface UserSettings {
   strSessionsPerWeek?: number;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
   strMode?: 'workout' | 'session';
+  /** Gym vs Calisthenics STR training mode. Default 'gym'. */
+  strTrainingMode?: 'gym' | 'calisthenics';
+  /** Per-exercise progression level selections. Keys are CALI_EXERCISES ids. */
+  caliProgressionLevels?: Record<string, string>;
   activeBooks?: ActiveBook[];
   finishedBooks?: FinishedBook[];
   /** Course list for INT (active + acquired). Seeded from legacy Real Estate +
@@ -289,6 +301,32 @@ export const DEFAULT_SETTINGS: UserSettings = {
 };
 
 export const RANK_ORDER: Rank[] = ['E', 'D', 'C', 'B', 'A', 'S'];
+
+// ── Calisthenics (STR Calisthenics Mode) ─────────────────────────────────────
+
+export interface CaliSetRecord {
+  setNumber: number;
+  reps: number;
+  completed: boolean;
+}
+
+export interface CaliExerciseRecord {
+  id: string;               // stable exercise id from CALI_EXERCISES
+  name: string;             // display name
+  progressionLevel: string; // progression id e.g. 'regular', 'pullup'
+  sets: CaliSetRecord[];
+}
+
+export interface CaliSession {
+  id?: number;
+  date: string;             // YYYY-MM-DD
+  exercises: CaliExerciseRecord[];
+  completed: boolean;
+  isRestDay?: boolean;
+  createdAt: number;
+  /** 'full' = all 4 exercises; 'quick' = user-selected subset. Absent on legacy rows = full. */
+  sessionType?: 'full' | 'quick';
+}
 
 // ── Knowledge Vault ──────────────────────────────────────────────────────────
 

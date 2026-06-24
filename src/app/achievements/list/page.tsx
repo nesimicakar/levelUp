@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday } from '@/lib/db';
+import { db, getToday, getSettings, getActiveStrAllCompleted } from '@/lib/db';
 import { getCourseProgress } from '@/lib/db';
 import { getAllAchievementDefs, checkAndUnlockAchievements } from '@/lib/logic/achievements';
 import { computeAgiStreak, computeStatCompletedDays } from '@/lib/logic/streaks';
@@ -27,7 +27,8 @@ export default function AchievementsListPage() {
   const load = useCallback(async () => {
     const all = await db.achievements.toArray();
 
-    const strSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
+    const settings = await getSettings();
+    const strSessions = await getActiveStrAllCompleted(settings);
     const allAgiLogs = await db.agiLogs.toArray();
     const totalAgiMinutes = allAgiLogs.reduce((s, l) => s + l.minutes, 0);
     const agiStreak = await computeAgiStreak(getToday());

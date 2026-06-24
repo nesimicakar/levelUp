@@ -106,7 +106,8 @@ export default function SettingsPage() {
     const [strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries,
       courseProgress, rankHistory, achievements, settingsArr, customTaskLogs,
       disciplineStreaks, disciplineLogs,
-      knowledgeDomains, knowledgeConcepts, knowledgeReviews] = await Promise.all([
+      knowledgeDomains, knowledgeConcepts, knowledgeReviews,
+      caliSessions] = await Promise.all([
       db.strSessions.toArray(),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
@@ -123,11 +124,12 @@ export default function SettingsPage() {
       db.knowledgeDomains.toArray(),
       db.knowledgeConcepts.toArray(),
       db.knowledgeReviews.toArray(),
+      db.caliSessions.toArray(),
     ]);
     const data = {
       appVersion: 'dev',
       exportedAt: new Date().toISOString(),
-      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews },
+      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews, caliSessions },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -165,7 +167,8 @@ export default function SettingsPage() {
         db.weeklySummaries, db.courseProgress, db.rankHistory,
         db.achievements, db.settings, db.customTaskLogs,
         db.disciplineStreaks, db.disciplineLogs,
-        db.knowledgeDomains, db.knowledgeConcepts, db.knowledgeReviews],
+        db.knowledgeDomains, db.knowledgeConcepts, db.knowledgeReviews,
+        db.caliSessions],
         async () => {
           await db.strSessions.clear();        await db.strSessions.bulkPut(arr('strSessions') as never[]);
           await db.agiLogs.clear();            await db.agiLogs.bulkPut(arr('agiLogs') as never[]);
@@ -183,6 +186,7 @@ export default function SettingsPage() {
           await db.knowledgeDomains.clear();   await db.knowledgeDomains.bulkPut(arr('knowledgeDomains') as never[]);
           await db.knowledgeConcepts.clear();  await db.knowledgeConcepts.bulkPut(arr('knowledgeConcepts') as never[]);
           await db.knowledgeReviews.clear();   await db.knowledgeReviews.bulkPut(arr('knowledgeReviews') as never[]);
+          await db.caliSessions.clear();       await db.caliSessions.bulkPut(arr('caliSessions') as never[]);
         }
       );
       window.location.reload();

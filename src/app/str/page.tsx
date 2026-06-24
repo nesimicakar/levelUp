@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getToday, getWeekStart, getSettings, updateSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
-import { getStrWeeklyStatus, canUseRestToken, getNextTemplate, getDefaultExercises, isSessionComplete, isSessionModeEntry, buildWeightPrefillMaps, applyWeightPrefill, applyExerciseNames, TEMPLATE_A, TEMPLATE_B } from '@/lib/logic/str';
+import { getStrWeeklyStatus, canUseRestToken, computeStrWeekStrip, getNextTemplate, getDefaultExercises, isSessionComplete, isSessionModeEntry, buildWeightPrefillMaps, applyWeightPrefill, applyExerciseNames, TEMPLATE_A, TEMPLATE_B, type StrDayState } from '@/lib/logic/str';
+import { getActiveStrWeekSessions } from '@/lib/db';
+import CaliPage from './CaliPage';
 import { computeLevel, computeStrXP } from '@/lib/logic/levels';
 import { Toggle } from '@/components/Toggle';
 import { LogDateToggle } from '@/components/LogDateToggle';
@@ -12,27 +14,7 @@ import { CustomTasksSection } from '@/components/CustomTasksSection';
 import { SystemMessage } from '@/components/SystemMessage';
 import type { StrSession, StatLevel, UserSettings } from '@/types';
 
-const WEEKDAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
-
-type DayState = 'done' | 'rest' | 'cur' | 'todo' | 'missed';
-
-function computeWeekStrip(weekSessions: StrSession[], today: string, weekStart: string): { date: string; label: string; state: DayState }[] {
-  return WEEKDAY_LABELS.map((label, i) => {
-    const d = new Date(weekStart + 'T12:00:00');
-    d.setDate(d.getDate() + i);
-    const date = d.toISOString().split('T')[0];
-    const session = weekSessions.find(s => s.date === date);
-    let state: DayState;
-    if (session?.completed && !session.isRestDay) state = 'done';
-    else if (session?.isRestDay) state = 'rest';
-    else if (date === today) state = 'cur';
-    else if (date < today) state = 'missed';
-    else state = 'todo';
-    return { date, label, state };
-  });
-}
-
-const DAY_STATE_STYLE: Record<DayState, { bg: string; border: string; color: string; symbol: string }> = {
+const DAY_STATE_STYLE: Record<StrDayState, { bg: string; border: string; color: string; symbol: string }> = {
   done:   { bg: 'rgba(34,197,94,0.15)',  border: 'rgba(34,197,94,0.5)',  color: 'var(--color-stat-agi)', symbol: '✓' },
   rest:   { bg: 'rgba(234,179,8,0.15)',  border: 'rgba(234,179,8,0.5)',  color: 'var(--color-stat-vit)', symbol: 'z' },
   cur:    { bg: 'rgba(239,68,68,0.18)',  border: 'var(--color-stat-str)',color: 'var(--color-stat-str)', symbol: '▸' },
@@ -53,23 +35,32 @@ export default function StrPage() {
   const [loaded, setLoaded] = useState(false);
   const [showStrComplete, setShowStrComplete] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [caliSessionToday, setCaliSessionToday] = useState<{ completed: boolean; isRestDay: boolean } | null>(null);
 
   const loadData = useCallback(async () => {
     const s = await getSettings();
     setSettings(s);
 
+    // Early exit — CaliPage handles its own data loading
+    if ((s.strTrainingMode ?? 'gym') === 'calisthenics') {
+      setLoaded(true);
+      return;
+    }
+
     const realToday = getToday();
     const weekStart = getWeekStart(realToday);
-    const sessions = await db.strSessions
-      .where('date')
-      .between(weekStart, realToday + '￿')
-      .toArray();
-    setWeekSessions(sessions);
 
-    const existing = sessions.find(s => s.date === logDate)
-      ?? await db.strSessions.where('date').equals(logDate).first()
-      ?? null;
+    // Combined gym + cali for the weekly strip and session count
+    const combinedWeekSessions = await getActiveStrWeekSessions(weekStart, realToday + '￿', s);
+    setWeekSessions(combinedWeekSessions);
+
+    // Gym-only session for the active tracker UI
+    const existing = await db.strSessions.where('date').equals(logDate).first() ?? null;
     setTodaySession(existing ?? null);
+
+    // Cali session today (for cross-mode status card)
+    const caliToday = await db.caliSessions.where('date').equals(logDate).first();
+    setCaliSessionToday(caliToday ? { completed: !!caliToday.completed, isRestDay: !!caliToday.isRestDay } : null);
 
     const allSessions = await db.strSessions.toArray();
     const totalCompleted = allSessions.filter(s => s.completed).length;
@@ -197,6 +188,8 @@ export default function StrPage() {
 
   if (!loaded) return null;
 
+  if ((settings?.strTrainingMode ?? 'gym') === 'calisthenics') return <CaliPage onModeChange={loadData} />;
+
   const strMode = settings?.strMode ?? 'workout';
   const weekly = getStrWeeklyStatus(weekSessions, settings?.strSessionsPerWeek ?? 3);
   const canRest = canUseRestToken(weekSessions, settings?.strSessionsPerWeek ?? 3);
@@ -204,7 +197,7 @@ export default function StrPage() {
   const displayExercises = todaySession
     ? applyExerciseNames(todaySession.exercises, nameMap)
     : [];
-  const weekStrip = computeWeekStrip(weekSessions, today, getWeekStart(today));
+  const weekStrip = computeStrWeekStrip(weekSessions, today, getWeekStart(today));
 
   return (
     <div>
@@ -276,6 +269,32 @@ export default function StrPage() {
                 >
                   close
                 </button>
+              </div>
+
+              {/* Training mode — Gym vs Calisthenics */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-medium text-text-muted tracking-[0.14em] uppercase">Training Mode</p>
+                <div
+                  className="flex items-center justify-between px-3 py-2 rounded-md"
+                  style={{ border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.05)' }}
+                >
+                  <div className="min-w-0">
+                    <span className="text-sm text-text">Mode</span>
+                    <p className="text-[10px] text-text-muted mt-0.5">Weighted barbell & dumbbell training</p>
+                  </div>
+                  <select
+                    value={settings?.strTrainingMode ?? 'gym'}
+                    onChange={async e => {
+                      await updateSettings({ strTrainingMode: e.target.value as 'gym' | 'calisthenics' });
+                      await loadData();
+                    }}
+                    className="rounded px-2 py-1 text-sm focus:outline-none"
+                    style={{ background: 'var(--color-bg)', border: '1px solid rgba(239,68,68,0.4)', color: 'var(--color-stat-str)' }}
+                  >
+                    <option value="gym">Gym</option>
+                    <option value="calisthenics">Calisthenics</option>
+                  </select>
+                </div>
               </div>
 
               {/* Tracking mode */}
@@ -456,6 +475,16 @@ export default function StrPage() {
                 USE REST TOKEN ({weekly.restTokensTotal - weekly.restTokensUsed} REMAINING)
               </button>
             )}
+          </div>
+        ) : caliSessionToday?.isRestDay && !todaySession ? (
+          <div className="frame-cut p-6 text-center">
+            <p className="text-text-muted text-sm tracking-wider">REST DAY</p>
+            <p className="text-text-dim text-xs mt-1">Recovery logged via Calisthenics</p>
+          </div>
+        ) : caliSessionToday?.completed && !todaySession ? (
+          <div className="frame-cut p-6 text-center">
+            <p className="text-success text-sm font-medium tracking-wider animate-pulse-glow">STR SESSION COMPLETE</p>
+            <p className="text-text-muted text-xs mt-1">Calisthenics session logged today</p>
           </div>
         ) : !todaySession ? (
           <div className="space-y-3">

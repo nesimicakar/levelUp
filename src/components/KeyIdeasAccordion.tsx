@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import type { KeyIdea } from '@/types';
+import { ConceptBodyText } from './ConceptBodyText';
 
 interface Props {
   ideas: KeyIdea[];
@@ -74,11 +75,9 @@ export function KeyIdeasAccordion({ ideas, accentColor = '#f59e0b', compact = fa
                   opacity: isOpen ? 1 : 0,
                 }}
               >
-                <p
-                  className={`pl-5 pr-4 pb-4 text-text-dim leading-[1.7] ${compact ? 'text-[11px]' : 'text-[13px]'}`}
-                >
-                  {idea.body}
-                </p>
+                <div className={`pl-5 pr-4 pb-4`}>
+                  <ConceptBodyText text={idea.body} compact={compact} />
+                </div>
               </div>
             )}
           </div>

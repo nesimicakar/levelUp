@@ -19,6 +19,7 @@ import {
   validateVaultPack, importVaultPack, exportVaultPack, downloadVaultPack,
   type ImportResult,
 } from '@/lib/logic/vaultPack';
+import { runNormalizeVaultBodies } from '@/lib/migrations/normalizeVaultBodies';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -339,6 +340,9 @@ export default function KnowledgePage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // One-time migration: normalize inline "Label: Value" → "Label:\nValue" in key idea bodies
+  useEffect(() => { runNormalizeVaultBodies().catch(console.error); }, []);
 
   const handleAddDomain = async (d: KnowledgeDomain) => {
     await addDomain(d);

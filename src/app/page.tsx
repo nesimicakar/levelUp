@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate } from '@/lib/db';
+import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate, getActiveStrAllCompleted, getActiveStrWeekSessions } from '@/lib/db';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
@@ -100,16 +100,13 @@ export default function Dashboard() {
       router.replace('/guide');
       return;
     }
-    // STR
-    const allStrSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
-    const weekStrSessions = await db.strSessions
-      .where('date')
-      .between(weekStart, today + '\uffff')
-      .toArray();
+    // STR \u2014 routes to strSessions or caliSessions based on strTrainingMode
+    const allStrCompleted = await getActiveStrAllCompleted(settings);
+    const weekStrSessions = await getActiveStrWeekSessions(weekStart, today + '\uffff', settings);
     const strWeekly = getStrWeeklyStatus(weekStrSessions, settings.strSessionsPerWeek ?? 3);
     const todayStr = weekStrSessions.find(s => s.date === today);
     const strStatus: DayStatus = todayStr?.isRestDay ? 'rest' : todayStr?.completed ? 'complete' : 'incomplete';
-    const strXP = computeStrXP(allStrSessions, 0);
+    const strXP = computeStrXP(allStrCompleted, 0);
     const strLevel = computeLevel(strXP);
 
     // AGI — multiple logs per day allowed (one per modality), so sum across all

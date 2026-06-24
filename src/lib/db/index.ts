@@ -5,6 +5,7 @@ import type {
   VitLog,
   IntLog,
   PerLog,
+  NafileLog,
   WeeklySummary,
   CourseProgress,
   RankRecord,
@@ -17,10 +18,12 @@ import type {
   KnowledgeDomain,
   KnowledgeConcept,
   KnowledgeReview,
+  CaliSession,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
   strSessions!: Table<StrSession, number>;
+  caliSessions!: Table<CaliSession, number>;
   agiLogs!: Table<AgiLog, number>;
   vitLogs!: Table<VitLog, number>;
   intLogs!: Table<IntLog, number>;
@@ -36,6 +39,7 @@ export class LevelUpDB extends Dexie {
   knowledgeDomains!: Table<KnowledgeDomain, string>;
   knowledgeConcepts!: Table<KnowledgeConcept, string>;
   knowledgeReviews!: Table<KnowledgeReview, number>;
+  nafileLogs!: Table<NafileLog, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -108,6 +112,45 @@ export class LevelUpDB extends Dexie {
       knowledgeDomains: '&id, name, createdAt',
       knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
       knowledgeReviews: '++id, conceptId, date, createdAt',
+    });
+    this.version(7).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
+      caliSessions: '++id, date, completed, createdAt',
+    });
+    this.version(8).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
+      caliSessions: '++id, date, completed, createdAt',
+      nafileLogs: '++id, date, createdAt',
     });
   }
 }
@@ -298,4 +341,72 @@ export async function getReviewsForConcept(conceptId: string): Promise<Knowledge
 
 export async function addReview(review: KnowledgeReview): Promise<void> {
   await db.knowledgeReviews.add(review);
+}
+
+// ===== Calisthenics Helpers ===== //
+
+export async function getCaliSessionForDate(date: string): Promise<CaliSession | undefined> {
+  return db.caliSessions.where('date').equals(date).first();
+}
+
+export async function getCaliSessionsInRange(from: string, to: string): Promise<CaliSession[]> {
+  return db.caliSessions.where('date').between(from, to + '￿').toArray();
+}
+
+export async function getAllCaliSessions(): Promise<CaliSession[]> {
+  return db.caliSessions.toArray();
+}
+
+// ===== Active-mode STR routing helpers ===== //
+// These route to strSessions or caliSessions based on strTrainingMode,
+// so dashboard and rank logic don't duplicate the branching.
+
+function caliToStrSessions(rows: CaliSession[]): StrSession[] {
+  return rows.map(s => ({
+    id: s.id,
+    date: s.date,
+    template: 'A' as const,
+    exercises: [],
+    completed: s.completed,
+    isRestDay: s.isRestDay ?? false,
+    createdAt: s.createdAt,
+  }));
+}
+
+/**
+ * All STR sessions across all time (gym + cali combined), shaped as StrSession[].
+ * Always combines both tables so switching modes never erases cross-mode history.
+ */
+export async function getActiveStrAllSessions(_settings: UserSettings): Promise<StrSession[]> {
+  const [gymRows, caliRows] = await Promise.all([
+    db.strSessions.toArray(),
+    db.caliSessions.toArray(),
+  ]);
+  return [...gymRows, ...caliToStrSessions(caliRows)];
+}
+
+/** Total completed STR sessions across all time (gym + cali), for XP computation. */
+export async function getActiveStrAllCompleted(_settings: UserSettings): Promise<number> {
+  const [gymRows, caliRows] = await Promise.all([
+    db.strSessions.toArray(),
+    db.caliSessions.toArray(),
+  ]);
+  return [...gymRows, ...caliToStrSessions(caliRows)].filter(s => s.completed).length;
+}
+
+/**
+ * STR sessions within [from, to) — gym + cali combined — for weekly status and rank.
+ * Returns StrSession-shaped objects so getStrWeeklyStatus works unchanged.
+ * Callers format `to` as needed (e.g. today + '￿' or next Monday).
+ */
+export async function getActiveStrWeekSessions(
+  from: string,
+  to: string,
+  _settings: UserSettings,
+): Promise<StrSession[]> {
+  const [gymRows, caliRows] = await Promise.all([
+    db.strSessions.where('date').between(from, to).toArray(),
+    db.caliSessions.where('date').between(from, to).toArray(),
+  ]);
+  return [...gymRows, ...caliToStrSessions(caliRows)];
 }

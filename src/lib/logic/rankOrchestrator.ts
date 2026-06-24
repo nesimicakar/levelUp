@@ -1,4 +1,5 @@
-import { db, getWeekStart, getSettings, updateSettings } from '@/lib/db';
+import { db, getWeekStart, getSettings, updateSettings, getActiveStrWeekSessions } from '@/lib/db';
+import type { UserSettings } from '@/types';
 import { computeWeeklyCompletionPct, computeRankUpdate } from '@/lib/logic/rank';
 import { RANK_ORDER } from '@/types';
 import type { Rank, RankRecord } from '@/types';
@@ -50,13 +51,12 @@ export function evaluationDecision(
 
 /**
  * Gather completion counts for a Mon–Sun week from daily log tables.
+ * Routes STR to the active training mode (gym or calisthenics).
  */
-async function gatherWeekCompletions(weekStart: string, strRequired: number) {
+async function gatherWeekCompletions(weekStart: string, strRequired: number, settings: UserSettings) {
   const wEnd = addDays(weekStart, 7);
 
-  const strSessions = await db.strSessions
-    .where('date').between(weekStart, wEnd, true, false)
-    .toArray();
+  const strSessions = await getActiveStrWeekSessions(weekStart, wEnd, settings);
   const strCompleted = Math.min(
     strSessions.filter(s => s.completed || s.isRestDay).length,
     strRequired,
@@ -190,7 +190,7 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
 
   // 4. Full week evaluation
   const strRequired = settings.strSessionsPerWeek ?? 3;
-  const completions = await gatherWeekCompletions(previousWeekStart, strRequired);
+  const completions = await gatherWeekCompletions(previousWeekStart, strRequired, settings);
   const completionPct = computeWeeklyCompletionPct(completions, strRequired);
   const consecutiveWeeks = await getConsecutiveWeeksAbove80();
   const { newRank } = computeRankUpdate(currentRank, completionPct, consecutiveWeeks);

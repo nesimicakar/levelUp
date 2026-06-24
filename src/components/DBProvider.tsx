@@ -22,6 +22,10 @@ export function DBProvider({ children }: { children: React.ReactNode }) {
           router.replace('/guide');
         }
         setReady(true);
+      })
+      .catch(err => {
+        console.error('[DBProvider] init error:', err);
+        setReady(true);
       });
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');

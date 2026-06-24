@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { db, getToday, getWeekStart, getSettings } from '@/lib/db';
+import { db, getToday, getWeekStart, getSettings, getActiveStrAllCompleted, getActiveStrWeekSessions } from '@/lib/db';
 import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { checkAndUnlockAchievements } from '@/lib/logic/achievements';
 import { computeAgiStreak, computeStatCompletedDays, daysBetween } from '@/lib/logic/streaks';
@@ -33,12 +33,15 @@ export default function RecordPage() {
   const [daysElapsed, setDaysElapsed] = useState(0);
   const [dayCount, setDayCount] = useState(0);
   const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
+  const [spiritualityEnabled, setSpiritualityEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
     const all = await db.achievements.toArray();
 
-    const strSessions = (await db.strSessions.toArray()).filter(s => s.completed).length;
+    const today = getToday();
+    const settings = await getSettings();
+    const strSessions = await getActiveStrAllCompleted(settings);
     const allAgiLogs = await db.agiLogs.toArray();
     const totalAgiMinutes = allAgiLogs.reduce((s, l) => s + l.minutes, 0);
     const agiStreak = await computeAgiStreak(getToday());
@@ -64,17 +67,15 @@ export default function RecordPage() {
     const updated = [...all, ...newOnes].sort((a, b) => b.unlockedAt - a.unlockedAt);
     setAchievements(updated);
 
-    const today = getToday();
-    const settings = await getSettings();
-
     // Day count — same source and math as Profile: settings.firstUseDate + daysBetween()
     const firstUse = settings.firstUseDate ?? today;
     setDayCount(daysBetween(firstUse, today));
     setShowCharacterVisuals(settings.showCharacterVisuals ?? true);
+    setSpiritualityEnabled(settings.enableSpirituality ?? false);
     const weekStart = getWeekStart(today);
 
-    // STR for current week
-    const weekStrSessions = await db.strSessions.where('date').between(weekStart, today + '￿').toArray();
+    // STR for current week — routes to caliSessions or strSessions based on active mode
+    const weekStrSessions = await getActiveStrWeekSessions(weekStart, today + '￿', settings);
     const strCompleted = weekStrSessions.filter(s => s.completed || s.isRestDay).length;
 
     // All 7 days of current week
@@ -535,6 +536,16 @@ export default function RecordPage() {
                 </svg>
               ),
             },
+            ...(spiritualityEnabled ? [{
+              label: 'Nafile',
+              sub: 'Voluntary prayers',
+              href: '/achievements/nafile',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M12 2L9 9H2l6 4.5-2.5 7.5L12 17l6.5 4-2.5-7.5L22 9h-7z" />
+                </svg>
+              ),
+            }] : []),
           ].map(({ label, sub, href, icon }) => (
             <Link
               key={href}

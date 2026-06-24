@@ -1,5 +1,29 @@
 import type { ExerciseRecord, StrSession, StrTemplateExercise, WorkoutTemplate } from '@/types';
 
+export type StrDayState = 'done' | 'rest' | 'cur' | 'todo' | 'missed';
+
+const WEEKDAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
+
+export function computeStrWeekStrip(
+  weekSessions: StrSession[],
+  today: string,
+  weekStart: string,
+): { date: string; label: string; state: StrDayState }[] {
+  return WEEKDAY_LABELS.map((label, i) => {
+    const d = new Date(weekStart + 'T12:00:00');
+    d.setDate(d.getDate() + i);
+    const date = d.toISOString().split('T')[0];
+    const session = weekSessions.find(s => s.date === date);
+    let state: StrDayState;
+    if (session?.isRestDay) state = 'rest';
+    else if (session?.completed) state = 'done';
+    else if (date === today) state = 'cur';
+    else if (date < today) state = 'missed';
+    else state = 'todo';
+    return { date, label, state };
+  });
+}
+
 export interface StrWeekData {
   sessions: StrSession[];
   restTokensUsed: number;

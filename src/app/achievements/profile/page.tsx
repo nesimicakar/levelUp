@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getSettings } from '@/lib/db';
+import { db, getToday, getSettings, getActiveStrAllSessions } from '@/lib/db';
 import { daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
 import { loadIntCourses } from '@/lib/logic/intCourses';
 import type { Rank, IntCourse, FinishedBook } from '@/types';
@@ -52,9 +52,9 @@ export default function ProfilePage() {
     const firstUse = settings.firstUseDate ?? today;
     const daysSinceStart = daysBetween(firstUse, today);
 
-    // All logs
+    // All logs — STR routes to caliSessions or strSessions based on active mode
     const [allStr, allAgi, allVit, allInt, allPer] = await Promise.all([
-      db.strSessions.toArray(),
+      getActiveStrAllSessions(settings),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
       db.intLogs.toArray(),

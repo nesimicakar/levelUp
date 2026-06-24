@@ -10,7 +10,13 @@ import { isPerComplete } from '@/lib/logic/per';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import { getCourseProgress } from '@/lib/db';
-import type { PerLog, StatLevel, UserSettings, ActiveBook } from '@/types';
+import type { PerLog, NafileLog, StatLevel, UserSettings, ActiveBook } from '@/types';
+
+const NAFILE_PRAYERS = [
+  { id: 'evvabin',  label: 'Evvâbin' },
+  { id: 'kusluk',   label: 'Kuşluk (Duhâ)' },
+  { id: 'teheccud', label: 'Teheccüd' },
+] as const;
 
 function addDays(date: string, days: number): string {
   const d = new Date(date + 'T12:00:00');
@@ -33,6 +39,8 @@ export default function PerPage() {
   const [quranPages, setQuranPages] = useState(0);
   const [last7, setLast7] = useState<{ date: string; on: boolean }[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [nafileLog, setNafileLog] = useState<NafileLog | null>(null);
+  const [nafilePrayerState, setNafilePrayerState] = useState<Record<string, boolean>>({});
 
   const loadData = useCallback(async () => {
     const s = await getSettings();
@@ -68,6 +76,10 @@ export default function PerPage() {
       cadence.push({ date: d, on });
     }
     setLast7(cadence);
+
+    const nafile = await db.nafileLogs.where('date').equals(logDate).first();
+    setNafileLog(nafile ?? null);
+    setNafilePrayerState(nafile?.prayers ?? {});
 
     setLoaded(true);
   }, [logDate]);
@@ -134,6 +146,18 @@ export default function PerPage() {
     setQuranPages(next);
     persistFields({ quranPages: next });
   };
+
+  const toggleNafilePrayer = useCallback(async (id: string) => {
+    const next = { ...nafilePrayerState, [id]: !nafilePrayerState[id] };
+    setNafilePrayerState(next);
+    if (nafileLog?.id) {
+      await db.nafileLogs.update(nafileLog.id, { prayers: next });
+      setNafileLog({ ...nafileLog, prayers: next });
+    } else {
+      const newId = await db.nafileLogs.add({ date: logDate, prayers: next, createdAt: Date.now() });
+      setNafileLog({ id: newId as number, date: logDate, prayers: next, createdAt: Date.now() });
+    }
+  }, [nafilePrayerState, nafileLog, logDate]);
 
   if (!loaded || !settings) return null;
 
@@ -379,6 +403,10 @@ export default function PerPage() {
           </>
         )}
 
+        {spiritualityEnabled && (
+          <NafilePrayersSection prayers={nafilePrayerState} onToggle={toggleNafilePrayer} />
+        )}
+
         <CustomTasksSection skill="PER" />
       </main>
     </div>
@@ -545,6 +573,52 @@ function RecallLink() {
 interface CurrentlyReadingProps {
   book: ActiveBook | null;
   pct: number | null;
+}
+
+interface NafilePrayersSectionProps {
+  prayers: Record<string, boolean>;
+  onToggle: (id: string) => void;
+}
+
+function NafilePrayersSection({ prayers, onToggle }: NafilePrayersSectionProps) {
+  return (
+    <div className="frame-cut p-3">
+      <div className="section-heading text-text-dim mb-3">// NAFILE</div>
+      <div className="flex flex-col gap-2.5">
+        {NAFILE_PRAYERS.map(p => {
+          const checked = !!prayers[p.id];
+          return (
+            <button
+              key={p.id}
+              onClick={() => onToggle(p.id)}
+              className="flex items-center gap-3 w-full text-left transition-colors hover:brightness-110"
+            >
+              <div
+                className="flex-shrink-0 w-5 h-5 grid place-items-center"
+                style={{
+                  border: `1px solid ${checked ? 'var(--color-stat-per)' : 'var(--color-border)'}`,
+                  background: checked ? 'rgba(167,139,250,0.12)' : 'transparent',
+                  boxShadow: checked ? '0 0 4px rgba(167,139,250,0.25)' : 'none',
+                }}
+              >
+                {checked && (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-stat-per)' }}>
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                )}
+              </div>
+              <span
+                className="font-display text-sm"
+                style={{ color: checked ? 'var(--color-stat-per)' : 'var(--color-text-dim)' }}
+              >
+                {p.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function CurrentlyReading({ book, pct }: CurrentlyReadingProps) {
