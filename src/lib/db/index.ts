@@ -176,6 +176,7 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.recallItems === undefined) s.recallItems = [];
     if (s.showCharacterVisuals === undefined) s.showCharacterVisuals = true;
     if (s.langCompletions === undefined) s.langCompletions = [];
+    if (s.expressionCompletions === undefined) s.expressionCompletions = [];
     return s;
   }
   const defaults: UserSettings = {

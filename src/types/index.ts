@@ -174,6 +174,20 @@ export interface LangSentence {
   native: string;
 }
 
+export interface ExpressionItem {
+  index: number;
+  expression: string;
+  source: string;
+  meaning: string;
+}
+
+export interface ExpressionCompletion {
+  index: number;
+  date: string;
+  completedAt: number;
+  status?: 'read' | 'known';
+}
+
 export interface LangCompletion {
   index: number;
   date: string;
@@ -256,6 +270,9 @@ export interface UserSettings {
   langTarget?: string;
   langSentenceBank?: string;
   langCompletions?: LangCompletion[];
+  enableDailyExpressions?: boolean;
+  expressionBank?: string;
+  expressionCompletions?: ExpressionCompletion[];
 }
 
 // ── Discipline System ────────────────────────────────────────────────────────

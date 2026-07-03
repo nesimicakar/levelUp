@@ -53,11 +53,13 @@ export default function SettingsPage() {
   const [importError, setImportError] = useState('');
   const [importFileKey, setImportFileKey] = useState(0);
   const [sentenceBankDraft, setSentenceBankDraft] = useState('');
+  const [expressionBankDraft, setExpressionBankDraft] = useState('');
 
   const loadSettings = useCallback(async () => {
     const s = await getSettings();
     setSettingsState(s);
     setSentenceBankDraft(s.langSentenceBank ?? '');
+    setExpressionBankDraft(s.expressionBank ?? '');
   }, []);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
@@ -369,6 +371,38 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* DAILY EXPRESSIONS */}
+        <SectionHeader label="Daily Expressions" />
+        <CompactToggleRow
+          stat="INT"
+          label="Enable Daily Expressions"
+          on={settings.enableDailyExpressions ?? false}
+          onChange={v => update({ enableDailyExpressions: v })}
+          last={!(settings.enableDailyExpressions ?? false)}
+        />
+        {(settings.enableDailyExpressions ?? false) && (
+          <div className="space-y-3 pt-2 pb-3">
+            <div>
+              <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">
+                Expression Bank
+                <span className="normal-case tracking-normal text-text-muted/60 ml-1">(expression | source | meaning, one per line)</span>
+              </p>
+              <textarea
+                value={expressionBankDraft}
+                onChange={e => setExpressionBankDraft(e.target.value)}
+                onBlur={() => update({ expressionBank: expressionBankDraft })}
+                placeholder={'I can resist everything except temptation. | Oscar Wilde | A witty line about desire.\nAlea iacta est. | Julius Caesar / Latin | The die is cast.'}
+                rows={8}
+                className="w-full bg-transparent border border-border text-text text-xs px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors resize-none leading-relaxed font-mono"
+                style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+              />
+              <p className="font-mono-hud text-[9px] text-text-muted mt-1">
+                {parseExpressionCount(expressionBankDraft)} expressions loaded
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* CUSTOM TASKS */}
         <SectionHeader label="Custom Tasks" />
 
@@ -652,6 +686,10 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
 
 function parseSentenceCount(bank: string): number {
   return bank.split('\n').filter(l => l.includes('|') && l.trim().length > 2).length;
+}
+
+function parseExpressionCount(bank: string): number {
+  return bank.split('\n').filter(l => (l.match(/\|/g) ?? []).length >= 2 && l.trim().length > 4).length;
 }
 
 interface CompactToggleRowProps {

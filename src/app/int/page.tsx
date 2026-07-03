@@ -22,7 +22,7 @@ import {
 } from '@/lib/logic/intCourses';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
-import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse, LangSentence, LangCompletion } from '@/types';
+import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse, LangSentence, LangCompletion, ExpressionItem, ExpressionCompletion } from '@/types';
 
 function parseSentenceBank(bank: string): LangSentence[] {
   return bank
@@ -38,6 +38,23 @@ function parseSentenceBank(bank: string): LangSentence[] {
       };
     })
     .filter(s => s.target && s.native);
+}
+
+function parseExpressionBank(bank: string): ExpressionItem[] {
+  return bank
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => (l.match(/\|/g) ?? []).length >= 2)
+    .map((l, i) => {
+      const parts = l.split('|').map(p => p.trim());
+      return {
+        index: i,
+        expression: parts[0] ?? '',
+        source: parts[1] ?? '',
+        meaning: parts[2] ?? '',
+      };
+    })
+    .filter(e => e.expression);
 }
 
 function formatAcquiredDate(ts: number): string {
@@ -84,6 +101,8 @@ export default function IntPage() {
 
   const [showLangHistory, setShowLangHistory] = useState(false);
   const [showExtraPractice, setShowExtraPractice] = useState(false);
+  const [showExprHistory, setShowExprHistory] = useState(false);
+  const [showExtraReading, setShowExtraReading] = useState(false);
 
   // Active-course overflow menu + delete-confirm flow
   const [overflowOpenId, setOverflowOpenId] = useState<string | null>(null);
@@ -324,6 +343,31 @@ export default function IntPage() {
     if (nowComplete && todayLog?.id) {
       await db.intLogs.update(todayLog.id, { completed: true });
     }
+  };
+
+  // Daily Expressions derived state
+  const exprEnabled = settings.enableDailyExpressions ?? false;
+  const exprExpressions = exprEnabled ? parseExpressionBank(settings.expressionBank ?? '') : [];
+  const exprCompletions: ExpressionCompletion[] = settings.expressionCompletions ?? [];
+  const _exprCompletedIndices = new Set(exprCompletions.map(c => c.index));
+  const exprCurrentIndex = exprExpressions.findIndex((_, i) => !_exprCompletedIndices.has(i));
+  const exprTodayRead = exprCompletions.some(
+    c => c.date === today && (c.status === 'read' || c.status === undefined),
+  );
+  const exprCurrentExpression: ExpressionItem | undefined = exprCurrentIndex >= 0 ? exprExpressions[exprCurrentIndex] : undefined;
+
+  const handleMarkExpression = async (status: 'read' | 'known' = 'read') => {
+    if (!exprCurrentExpression) return;
+    const completion: ExpressionCompletion = {
+      index: exprCurrentIndex,
+      date: today,
+      completedAt: Date.now(),
+      status,
+    };
+    const updated = [...exprCompletions, completion];
+    await updateSettings({ expressionCompletions: updated });
+    setSettings({ ...settings, expressionCompletions: updated });
+    // No INT log update — expressions are purely optional enrichment
   };
 
   const activeCourses = courses.filter(c => c.status === 'active');
@@ -1095,6 +1139,138 @@ export default function IntPage() {
           </div>
         )}
 
+        {/* DAILY EXPRESSIONS */}
+        {exprEnabled && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span
+                className="font-mono-hud text-[11px] font-semibold tracking-[0.18em] uppercase"
+                style={{ color: 'var(--color-stat-int)' }}
+              >
+                // DAILY EXPRESSIONS
+              </span>
+              {exprCompletions.length > 0 && (
+                <button
+                  onClick={() => setShowExprHistory(true)}
+                  className="font-mono-hud text-[9px] tracking-[0.14em] uppercase transition-colors hover:brightness-125"
+                  style={{ color: 'var(--color-stat-int)', opacity: 0.7 }}
+                >
+                  HISTORY ({exprCompletions.length})
+                </button>
+              )}
+            </div>
+
+            <div
+              className="frame-cut p-4"
+              style={{ borderColor: 'rgba(96,165,250,0.20)', background: 'rgba(96,165,250,0.02)' }}
+            >
+              {exprExpressions.length === 0 ? (
+                <p className="text-text-muted text-xs text-center py-2">
+                  No expressions yet. Add your expression bank in Config → Daily Expressions.
+                </p>
+              ) : !exprCurrentExpression && !exprTodayRead ? (
+                <div className="text-center py-2 space-y-1">
+                  <p className="font-display font-semibold text-sm" style={{ color: 'var(--color-stat-int)' }}>
+                    All {exprExpressions.length} expressions read
+                  </p>
+                  <p className="text-text-muted text-xs">Add more expressions in Config to continue.</p>
+                </div>
+              ) : exprTodayRead && !showExtraReading ? (
+                /* Expression read today — offer optional extra reading */
+                <div className="space-y-3 text-center py-1">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-mono-hud text-[10px] font-semibold" style={{ color: 'rgba(34,197,94,0.85)' }}>✓</span>
+                    <span className="font-mono-hud text-[9px] tracking-[0.14em] uppercase text-text-muted">
+                      Expression saved for today
+                    </span>
+                  </div>
+                  {exprCurrentExpression && (
+                    <button
+                      onClick={() => setShowExtraReading(true)}
+                      className="w-full py-2 font-mono-hud text-[10px] tracking-[0.16em] uppercase transition-colors hover:brightness-125"
+                      style={{
+                        background: 'rgba(96,165,250,0.07)',
+                        border: '1px dashed rgba(96,165,250,0.35)',
+                        color: 'var(--color-stat-int)',
+                      }}
+                    >
+                      Read Another Expression
+                    </button>
+                  )}
+                </div>
+              ) : !exprCurrentExpression ? (
+                /* All done (reached during extra reading) */
+                <div className="text-center py-2 space-y-1">
+                  <p className="font-display font-semibold text-sm" style={{ color: 'var(--color-stat-int)' }}>
+                    All {exprExpressions.length} expressions read
+                  </p>
+                  <p className="text-text-muted text-xs">Add more expressions in Config to continue.</p>
+                </div>
+              ) : (
+                /* Active — first read OR extra reading */
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    {showExtraReading ? (
+                      <>
+                        <span
+                          className="font-mono-hud text-[9px] tracking-[0.16em] font-semibold uppercase"
+                          style={{ color: 'var(--color-stat-int)', opacity: 0.7 }}
+                        >
+                          // OPTIONAL READING
+                        </span>
+                        <span className="font-mono-hud text-[9px] text-text-muted tracking-[0.10em]">
+                          {exprCurrentIndex + 1} / {exprExpressions.length}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted uppercase">
+                        Expression {exprCurrentIndex + 1} / {exprExpressions.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 mb-4">
+                    <p className="font-display font-semibold text-base text-text leading-snug">
+                      {exprCurrentExpression.expression}
+                    </p>
+                    <p
+                      className="font-mono-hud text-[10px] tracking-[0.12em] uppercase"
+                      style={{ color: 'var(--color-stat-int)', opacity: 0.7 }}
+                    >
+                      {exprCurrentExpression.source}
+                    </p>
+                    <p className="text-text-muted text-xs leading-relaxed">
+                      {exprCurrentExpression.meaning}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleMarkExpression('read')}
+                      className="w-full py-2.5 font-display font-semibold text-sm tracking-[0.14em] uppercase transition-all"
+                      style={{
+                        background: 'rgba(96,165,250,0.10)',
+                        border: '1px solid rgba(96,165,250,0.4)',
+                        color: 'var(--color-stat-int)',
+                        clipPath: 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
+                      }}
+                    >
+                      Mark as Read
+                    </button>
+                    <button
+                      onClick={() => handleMarkExpression('known')}
+                      className="w-full text-center font-mono-hud text-[10px] tracking-[0.14em] uppercase transition-colors hover:text-text-dim"
+                      style={{ background: 'none', border: 'none', color: 'var(--color-text-dim)', opacity: 0.55 }}
+                    >
+                      Skip — Already Known
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         <CustomTasksSection skill="INT" />
       </main>
 
@@ -1337,6 +1513,116 @@ export default function IntPage() {
                           </>
                         ) : (
                           <p className="text-text-muted text-xs italic">Sentence removed from bank</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <span className="frame-bracket-bottom" aria-hidden />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Daily Expressions History modal */}
+      {showExprHistory && (() => {
+        const sorted = [...exprCompletions].sort((a, b) => a.index - b.index);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 animate-fade-in"
+            style={{
+              background: 'rgba(2, 4, 10, 0.78)',
+              backdropFilter: 'blur(6px)',
+              paddingTop: 'max(1rem, env(safe-area-inset-top))',
+              paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+            }}
+            onClick={() => setShowExprHistory(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="frame-bracketed w-full max-w-sm flex flex-col"
+              style={{ maxHeight: '88%' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div
+                className="frame-cut flex flex-col"
+                style={{
+                  flex: '1 1 auto',
+                  minHeight: 0,
+                  border: '1px solid rgba(96,165,250,0.35)',
+                  borderLeft: '3px solid var(--color-stat-int)',
+                  boxShadow: 'inset 0 0 8px rgba(96,165,250,0.06), 0 0 18px rgba(96,165,250,0.18)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 pt-4 pb-3" style={{ borderBottom: '1px dashed var(--color-border)' }}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="font-mono-hud text-[10px] tracking-[0.18em] font-semibold uppercase"
+                      style={{ color: 'var(--color-stat-int)', textShadow: '0 0 6px rgba(96,165,250,0.4)' }}
+                    >
+                      DAILY EXPRESSIONS
+                    </span>
+                    <span className="font-mono-hud text-[9px] text-text-muted tracking-[0.12em]">
+                      {sorted.length}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowExprHistory(false)}
+                    className="text-text-muted hover:text-text font-mono-hud text-base leading-none px-1.5"
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* List */}
+                <div className="overflow-y-auto px-4 py-3 space-y-3">
+                  {sorted.map((completion) => {
+                    const expr = exprExpressions[completion.index];
+                    return (
+                      <div
+                        key={completion.index}
+                        className="space-y-1 pb-3"
+                        style={{ borderBottom: '1px dashed var(--color-border)' }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted uppercase">
+                            #{completion.index + 1}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="font-mono-hud text-[8px] tracking-[0.10em] uppercase"
+                              style={{
+                                color: completion.status === 'known' ? 'rgba(96,165,250,0.6)' : 'rgba(34,197,94,0.6)',
+                              }}
+                            >
+                              {completion.status === 'known' ? '● known' : '● read'}
+                            </span>
+                            <span className="font-mono-hud text-[9px] tracking-[0.10em] text-text-muted">
+                              {completion.date}
+                            </span>
+                          </div>
+                        </div>
+                        {expr ? (
+                          <>
+                            <p className="font-display text-sm text-text leading-snug">
+                              {expr.expression}
+                            </p>
+                            <p
+                              className="font-mono-hud text-[9px] tracking-[0.10em] uppercase"
+                              style={{ color: 'var(--color-stat-int)', opacity: 0.65 }}
+                            >
+                              {expr.source}
+                            </p>
+                            <p className="text-text-muted text-xs leading-relaxed">
+                              {expr.meaning}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-text-muted text-xs italic">Expression removed from bank</p>
                         )}
                       </div>
                     );
