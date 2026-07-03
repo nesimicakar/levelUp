@@ -6,7 +6,7 @@ import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTa
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
-import { loadIntCourses, isIntCompleteFromCourses, getDailyUnitsForCourse, buildIntSubtitle, totalCompletedUnitsAcrossCourses } from '@/lib/logic/intCourses';
+import { loadIntCourses, getDailyUnitsForCourse, totalCompletedUnitsAcrossCourses, computeIntDailyProgress } from '@/lib/logic/intCourses';
 import Image from 'next/image';
 import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
@@ -133,7 +133,7 @@ export default function Dashboard() {
     const vitLevel = computeLevel(vitXP);
     const vitChecked = todayVit ? [todayVit.sleepHours >= 7, todayVit.proteinGoalMet, todayVit.postureMobilityMet === true].filter(Boolean).length : 0;
 
-    // INT — multi-course system: completion = every active course meets daily target
+    // INT — multi-course system; completion includes optional Language Learning sentence
     const todayInt = await db.intLogs.where('date').equals(today).first();
     const todayPerForInt = await db.perLogs.where('date').equals(today).first();
     const intCourses = await loadIntCourses();
@@ -141,7 +141,8 @@ export default function Dashboard() {
     for (const c of intCourses) {
       todayUnitsByCourse[c.id] = getDailyUnitsForCourse(c, todayInt ?? null, todayPerForInt ?? null);
     }
-    const intStatus: DayStatus = isIntCompleteFromCourses(intCourses, todayUnitsByCourse) ? 'complete' : 'incomplete';
+    const intProgress = computeIntDailyProgress(intCourses, todayUnitsByCourse, todayInt ?? null, todayPerForInt ?? null, settings, today);
+    const intStatus: DayStatus = intProgress.isComplete ? 'complete' : 'incomplete';
     const allIntLogs = await db.intLogs.toArray();
     const intCap = getIntDailyCap(settings.learningMinutesPerDay);
     const cappedIntMinutes = allIntLogs.reduce((s, l) => s + Math.min(l.learningMinutes ?? 0, intCap), 0);
@@ -173,9 +174,16 @@ export default function Dashboard() {
     const strDomainProgress = (strStatus === 'complete' || strStatus === 'rest') ? 1 : 0;
     const agiDomainProgress = Math.min(todayAgiMinutes / settings.agiMinMinutes, 1);
     const vitDomainProgress = vitChecked / 3;
-    // INT: average per-course progress across ACTIVE courses only
+    // INT: blend per-course granular progress with language binary (0 or 1) when enabled
     const activeIntCourses = intCourses.filter(c => c.status === 'active');
-    const intDomainProgress = computeIntDomainProgress(activeIntCourses, todayUnitsByCourse);
+    const coursesDomainProgress = computeIntDomainProgress(activeIntCourses, todayUnitsByCourse);
+    const langRequired = (settings.enableLanguageLearning ?? false) && (settings.langSentenceBank ?? '').includes('|');
+    const langTodayDone = langRequired && (settings.langCompletions ?? []).some(
+      (c: { date: string; status?: string }) => c.date === today && (c.status === 'learned' || c.status === undefined),
+    );
+    const intDomainProgress = langRequired
+      ? (coursesDomainProgress * activeIntCourses.length + (langTodayDone ? 1 : 0)) / Math.max(activeIntCourses.length + 1, 1)
+      : coursesDomainProgress;
     // PER: reading minutes (always) + prayers + Quran (if spirituality on)
     const perDomainProgress = computePerDomainProgress(
       spiritualityEnabled,
@@ -228,7 +236,7 @@ export default function Dashboard() {
       int: {
         level: intLevel,
         status: intStatus,
-        subtitle: buildIntSubtitle(intCourses, todayInt ?? null, todayPerForInt ?? null),
+        subtitle: intProgress.subtitle,
       },
       per: {
         level: perLevel,

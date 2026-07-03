@@ -168,6 +168,19 @@ export interface CustomTaskLog {
   updatedAt: number;
 }
 
+export interface LangSentence {
+  index: number;
+  target: string;
+  native: string;
+}
+
+export interface LangCompletion {
+  index: number;
+  date: string;
+  completedAt: number;
+  status?: 'learned' | 'known';
+}
+
 export interface RecallItem {
   id: string;
   title: string;
@@ -238,6 +251,11 @@ export interface UserSettings {
   recallItems?: RecallItem[];
   /** Show anime/character artwork on SYSTEM, RECORD, and Character pages. Default true. */
   showCharacterVisuals?: boolean;
+  enableLanguageLearning?: boolean;
+  langNative?: string;
+  langTarget?: string;
+  langSentenceBank?: string;
+  langCompletions?: LangCompletion[];
 }
 
 // ── Discipline System ────────────────────────────────────────────────────────

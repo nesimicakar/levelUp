@@ -175,6 +175,7 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.strSessionsPerWeek === undefined) s.strSessionsPerWeek = 3;
     if (s.recallItems === undefined) s.recallItems = [];
     if (s.showCharacterVisuals === undefined) s.showCharacterVisuals = true;
+    if (s.langCompletions === undefined) s.langCompletions = [];
     return s;
   }
   const defaults: UserSettings = {

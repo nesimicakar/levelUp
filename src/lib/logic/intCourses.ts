@@ -107,6 +107,54 @@ export function buildIntSubtitle(
     .join(' · ');
 }
 
+export interface IntDailyProgress {
+  completedToday: number;
+  totalToday: number;
+  isComplete: boolean;
+  subtitle: string;
+}
+
+/** Single source of truth for INT daily progress.
+ *  When Language Learning is enabled and the sentence bank has entries, the
+ *  language sentence is counted as an additional required protocol item.
+ *  Use this in the System dashboard, Record page, and INT page so they agree. */
+export function computeIntDailyProgress(
+  courses: IntCourse[],
+  unitsToday: Record<string, number>,
+  intLog: IntLog | null | undefined,
+  perLog: PerLog | null | undefined,
+  settings: Pick<UserSettings, 'enableLanguageLearning' | 'langSentenceBank' | 'langCompletions' | 'langTarget'>,
+  today: string,
+): IntDailyProgress {
+  const active = courses.filter(c => c.status === 'active');
+  const completedCourses = active.filter(c => (unitsToday[c.id] ?? 0) >= c.dailyTargetUnits).length;
+  const totalCourses = active.length;
+
+  const langEnabled = settings.enableLanguageLearning ?? false;
+  const langRequired = langEnabled && (settings.langSentenceBank ?? '').includes('|');
+  const langTodayDone = langRequired && (settings.langCompletions ?? []).some(
+    c => c.date === today && (c.status === 'learned' || c.status === undefined),
+  );
+
+  const completedToday = completedCourses + (langRequired && langTodayDone ? 1 : 0);
+  const totalToday = totalCourses + (langRequired ? 1 : 0);
+  const isComplete = totalToday > 0 && completedToday === totalToday;
+
+  const parts: string[] = active.map(c => {
+    const todayUnits = getDailyUnitsForCourse(c, intLog, perLog);
+    return `${abbreviateCourseName(c.name)} ${todayUnits}/${c.dailyTargetUnits}`;
+  });
+  if (langRequired) {
+    const langLabel = settings.langTarget
+      ? settings.langTarget.trim().split(/\s+/)[0].slice(0, 4).toUpperCase()
+      : 'LANG';
+    parts.push(`${langLabel} ${langTodayDone ? 1 : 0}/1`);
+  }
+  const subtitle = parts.length > 0 ? parts.join(' · ') : 'No active courses';
+
+  return { completedToday, totalToday, isComplete, subtitle };
+}
+
 export function abbreviateCourseName(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return '?';

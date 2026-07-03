@@ -52,10 +52,12 @@ export default function SettingsPage() {
   const [confirmText, setConfirmText] = useState('');
   const [importError, setImportError] = useState('');
   const [importFileKey, setImportFileKey] = useState(0);
+  const [sentenceBankDraft, setSentenceBankDraft] = useState('');
 
   const loadSettings = useCallback(async () => {
     const s = await getSettings();
     setSettingsState(s);
+    setSentenceBankDraft(s.langSentenceBank ?? '');
   }, []);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
@@ -310,6 +312,62 @@ export default function SettingsPage() {
           onChange={v => update({ showCharacterVisuals: v })}
           last
         />
+
+        {/* LANGUAGE LEARNING */}
+        <SectionHeader label="Language Learning" />
+        <CompactToggleRow
+          stat="INT"
+          label="Enable Language Learning"
+          on={settings.enableLanguageLearning ?? false}
+          onChange={v => update({ enableLanguageLearning: v })}
+          last={!(settings.enableLanguageLearning ?? false)}
+        />
+        {(settings.enableLanguageLearning ?? false) && (
+          <div className="space-y-3 pt-2 pb-3">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">Native Language</p>
+                <input
+                  type="text"
+                  value={settings.langNative ?? ''}
+                  onChange={e => update({ langNative: e.target.value })}
+                  placeholder="e.g. Turkish"
+                  className="w-full bg-transparent border border-border text-text text-sm px-3 py-1.5 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                  style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+                />
+              </div>
+              <div>
+                <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">Target Language</p>
+                <input
+                  type="text"
+                  value={settings.langTarget ?? ''}
+                  onChange={e => update({ langTarget: e.target.value })}
+                  placeholder="e.g. English"
+                  className="w-full bg-transparent border border-border text-text text-sm px-3 py-1.5 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                  style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+                />
+              </div>
+            </div>
+            <div>
+              <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">
+                Sentence Bank
+                <span className="normal-case tracking-normal text-text-muted/60 ml-1">(target | native, one per line)</span>
+              </p>
+              <textarea
+                value={sentenceBankDraft}
+                onChange={e => setSentenceBankDraft(e.target.value)}
+                onBlur={() => update({ langSentenceBank: sentenceBankDraft })}
+                placeholder={'Good morning. | Günaydın.\nHow are you? | Nasılsın?'}
+                rows={8}
+                className="w-full bg-transparent border border-border text-text text-xs px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors resize-none leading-relaxed font-mono"
+                style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+              />
+              <p className="font-mono-hud text-[9px] text-text-muted mt-1">
+                {parseSentenceCount(sentenceBankDraft)} sentences loaded
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* CUSTOM TASKS */}
         <SectionHeader label="Custom Tasks" />
@@ -590,6 +648,10 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
       </div>
     </div>
   );
+}
+
+function parseSentenceCount(bank: string): number {
+  return bank.split('\n').filter(l => l.includes('|') && l.trim().length > 2).length;
 }
 
 interface CompactToggleRowProps {

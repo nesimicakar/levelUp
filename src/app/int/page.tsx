@@ -9,7 +9,6 @@ import {
   loadIntCourses,
   saveIntCourses,
   getDailyUnitsForCourse,
-  isIntCompleteFromCourses,
   applyDailyEdits,
   upsertCourse,
   removeCourse,
@@ -17,12 +16,29 @@ import {
   legacyCourseProgressId,
   settingsKeyForLegacyTarget,
   totalCompletedUnitsAcrossCourses,
+  computeIntDailyProgress,
   LEGACY_RE_ID,
   LEGACY_SA_ID,
 } from '@/lib/logic/intCourses';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
-import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse } from '@/types';
+import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse, LangSentence, LangCompletion } from '@/types';
+
+function parseSentenceBank(bank: string): LangSentence[] {
+  return bank
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.includes('|'))
+    .map((l, i) => {
+      const sep = l.indexOf('|');
+      return {
+        index: i,
+        target: l.slice(0, sep).trim(),
+        native: l.slice(sep + 1).trim(),
+      };
+    })
+    .filter(s => s.target && s.native);
+}
 
 function formatAcquiredDate(ts: number): string {
   const d = new Date(ts);
@@ -65,6 +81,9 @@ export default function IntPage() {
   // Read-only detail for acquired courses
   const [viewingAcquiredId, setViewingAcquiredId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const [showLangHistory, setShowLangHistory] = useState(false);
+  const [showExtraPractice, setShowExtraPractice] = useState(false);
 
   // Active-course overflow menu + delete-confirm flow
   const [overflowOpenId, setOverflowOpenId] = useState<string | null>(null);
@@ -130,7 +149,7 @@ export default function IntPage() {
     }
 
     const reUnits = unitsByCourse[LEGACY_RE_ID] ?? 0;
-    const intCompleted = isIntCompleteFromCourses(updatedCourses, unitsByCourse);
+    const { isComplete: intCompleted } = computeIntDailyProgress(updatedCourses, unitsByCourse, null, null, settings, today);
     if (todayLog?.id) {
       await db.intLogs.update(todayLog.id, {
         unitsByCourse,
@@ -273,12 +292,49 @@ export default function IntPage() {
 
   if (!loaded || !settings) return null;
 
+  // Language Learning derived state
+  const langEnabled = settings.enableLanguageLearning ?? false;
+  const langSentences = langEnabled ? parseSentenceBank(settings.langSentenceBank ?? '') : [];
+  const langCompletions: LangCompletion[] = settings.langCompletions ?? [];
+  // Current sentence = first sentence not yet in completions (known or learned)
+  const _completedIndices = new Set(langCompletions.map(c => c.index));
+  const langCurrentIndex = langSentences.findIndex((_, i) => !_completedIndices.has(i));
+  // Today's protocol only satisfies when a sentence is actively LEARNED (not merely skipped as known)
+  const langTodayCompleted = langCompletions.some(
+    c => c.date === today && (c.status === 'learned' || c.status === undefined),
+  );
+  const langCurrentSentence: LangSentence | undefined = langCurrentIndex >= 0 ? langSentences[langCurrentIndex] : undefined;
+  const langFinished = langCurrentIndex === -1 && langSentences.length > 0;
+
+  const handleMarkLearned = async (status: 'learned' | 'known' = 'learned') => {
+    if (!langCurrentSentence) return;
+    const completion: LangCompletion = {
+      index: langCurrentIndex,
+      date: today,
+      completedAt: Date.now(),
+      status,
+    };
+    const updated = [...langCompletions, completion];
+    await updateSettings({ langCompletions: updated });
+    setSettings({ ...settings, langCompletions: updated });
+
+    // Re-evaluate with the updated completions; if INT is now fully done, persist it
+    const updatedSettings = { ...settings, langCompletions: updated };
+    const { isComplete: nowComplete } = computeIntDailyProgress(courses, unitsToday, todayLog, todayPerLog, updatedSettings, today);
+    if (nowComplete && todayLog?.id) {
+      await db.intLogs.update(todayLog.id, { completed: true });
+    }
+  };
+
   const activeCourses = courses.filter(c => c.status === 'active');
   const acquiredCourses = courses
     .filter(c => c.status === 'acquired')
     .sort((a, b) => (b.acquiredAt ?? 0) - (a.acquiredAt ?? 0));
-  const completedToday = activeCourses.filter(c => (unitsToday[c.id] ?? 0) >= c.dailyTargetUnits).length;
-  const totalToday = activeCourses.length;
+  const langRequired = langEnabled && langSentences.length > 0;
+
+  const { completedToday, totalToday, isComplete: intIsComplete } = computeIntDailyProgress(
+    courses, unitsToday, todayLog, todayPerLog, settings, today,
+  );
   const todayPct = totalToday > 0 ? (completedToday / totalToday) * 100 : 0;
 
   // Ring geometry for hero card
@@ -492,6 +548,45 @@ export default function IntPage() {
                       </div>
                     );
                   })}
+
+                  {/* Language chip — rendered inside the same flex column when lang is required */}
+                  {langRequired && (
+                    <div
+                      className="cut-tile px-3 py-2 flex items-center justify-between gap-2"
+                      style={{
+                        background: langTodayCompleted ? 'rgba(34,197,94,0.10)' : 'var(--color-bg)',
+                        border: `1px solid ${langTodayCompleted ? 'var(--color-stat-agi)' : 'var(--color-border)'}`,
+                        boxShadow: langTodayCompleted ? '0 0 8px rgba(34,197,94,0.18)' : 'none',
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-display text-xs text-text truncate flex items-center gap-1.5">
+                          <span className="truncate">
+                            {settings.langTarget ? `${settings.langTarget} Sentence` : 'Language Sentence'}
+                          </span>
+                          {langTodayCompleted && (
+                            <span className="font-mono-hud text-[9px] font-bold flex-shrink-0" style={{ color: 'var(--color-stat-agi)' }}>✓</span>
+                          )}
+                        </div>
+                        <div className="flex gap-0.5 mt-1">
+                          <div
+                            style={{
+                              width: 14, height: 4,
+                              background: langTodayCompleted ? 'var(--color-stat-int)' : 'transparent',
+                              border: `1px solid ${langTodayCompleted ? 'var(--color-stat-int)' : 'var(--color-border)'}`,
+                              boxShadow: langTodayCompleted ? '0 0 4px var(--color-stat-int)' : 'none',
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <span
+                        className="font-mono-hud text-[9px] tracking-[0.12em] uppercase flex-shrink-0"
+                        style={{ color: langTodayCompleted ? 'var(--color-stat-agi)' : 'var(--color-text-dim)' }}
+                      >
+                        {langTodayCompleted ? 'learned' : 'see below'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -849,6 +944,157 @@ export default function IntPage() {
           </div>
         )}
 
+        {/* LANGUAGE LEARNING */}
+        {langEnabled && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span
+                  className="font-mono-hud text-[11px] font-semibold tracking-[0.18em] uppercase"
+                  style={{ color: 'var(--color-stat-int)' }}
+                >
+                  // LANGUAGE LEARNING
+                </span>
+                {(settings.langTarget || settings.langNative) && (
+                  <span className="font-mono-hud text-[9px] text-text-muted tracking-[0.12em] uppercase">
+                    {settings.langTarget ?? ''}{settings.langNative ? ` · ${settings.langNative}` : ''}
+                  </span>
+                )}
+              </div>
+              {langCompletions.length > 0 && (
+                <button
+                  onClick={() => setShowLangHistory(true)}
+                  className="font-mono-hud text-[9px] tracking-[0.14em] uppercase transition-colors hover:brightness-125"
+                  style={{ color: 'var(--color-stat-int)', opacity: 0.7 }}
+                >
+                  HISTORY ({langCompletions.length})
+                </button>
+              )}
+            </div>
+
+            <div
+              className="frame-cut p-4"
+              style={{ borderColor: 'rgba(96,165,250,0.25)', background: 'rgba(96,165,250,0.03)' }}
+            >
+              {langSentences.length === 0 ? (
+                <p className="text-text-muted text-xs text-center py-2">
+                  No sentences yet. Add your sentence bank in Config → Language Learning.
+                </p>
+              ) : !langCurrentSentence ? (
+                <div className="text-center py-2 space-y-1">
+                  <p className="font-display font-semibold text-sm" style={{ color: 'var(--color-stat-int)' }}>
+                    All {langSentences.length} sentences completed
+                  </p>
+                  <p className="text-text-muted text-xs">Add more sentences in Config to continue.</p>
+                </div>
+              ) : langTodayCompleted && !showExtraPractice ? (
+                /* Required sentence done — offer optional practice */
+                <div className="space-y-3 text-center py-1">
+                  <div className="flex items-center justify-center gap-2">
+                    <span className="font-mono-hud text-[10px] font-semibold" style={{ color: 'rgba(34,197,94,0.85)' }}>✓</span>
+                    <span className="font-mono-hud text-[9px] tracking-[0.14em] uppercase text-text-muted">
+                      Learned today
+                    </span>
+                  </div>
+                  <p className="font-mono-hud text-[9px] tracking-[0.12em] uppercase text-text-muted" style={{ opacity: 0.55 }}>
+                    Next required sentence unlocks tomorrow
+                  </p>
+                  <button
+                    onClick={() => setShowExtraPractice(true)}
+                    className="w-full py-2 font-mono-hud text-[10px] tracking-[0.16em] uppercase transition-colors hover:brightness-125"
+                    style={{
+                      background: 'rgba(96,165,250,0.07)',
+                      border: '1px dashed rgba(96,165,250,0.35)',
+                      color: 'var(--color-stat-int)',
+                    }}
+                  >
+                    Practice Extra Sentence
+                  </button>
+                </div>
+              ) : (
+                /* Active flow — required OR optional practice */
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    {showExtraPractice ? (
+                      <>
+                        <span
+                          className="font-mono-hud text-[9px] tracking-[0.16em] font-semibold uppercase"
+                          style={{ color: 'var(--color-stat-int)', opacity: 0.7 }}
+                        >
+                          // OPTIONAL PRACTICE
+                        </span>
+                        <span className="font-mono-hud text-[9px] text-text-muted tracking-[0.10em]">
+                          {langCurrentIndex + 1} / {langSentences.length}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted uppercase">
+                        Sentence {langCurrentIndex + 1} / {langSentences.length}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 mb-4">
+                    <p className="font-display font-semibold text-base text-text leading-snug">
+                      {langCurrentSentence.target}
+                    </p>
+                    <p
+                      className="font-display text-sm leading-snug"
+                      style={{ color: 'var(--color-stat-int)', opacity: 0.85 }}
+                    >
+                      {langCurrentSentence.native}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleMarkLearned('learned')}
+                      className="w-full py-2.5 font-display font-semibold text-sm tracking-[0.14em] uppercase transition-all"
+                      style={{
+                        background: 'rgba(96,165,250,0.10)',
+                        border: '1px solid rgba(96,165,250,0.4)',
+                        color: 'var(--color-stat-int)',
+                        clipPath: 'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
+                      }}
+                    >
+                      Mark Learned
+                    </button>
+                    <button
+                      onClick={() => handleMarkLearned('known')}
+                      className="w-full text-center font-mono-hud text-[10px] tracking-[0.14em] uppercase transition-colors hover:text-text-dim"
+                      style={{ background: 'none', border: 'none', color: 'var(--color-text-dim)', opacity: 0.55 }}
+                    >
+                      Skip — Already Known
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* INT COMPLETE banner */}
+        {intIsComplete && (
+          <div
+            className="frame-cut p-4 text-center"
+            style={{
+              border: '1px solid var(--color-stat-int)',
+              background: 'rgba(96,165,250,0.06)',
+              boxShadow: '0 0 20px rgba(96,165,250,0.18)',
+            }}
+          >
+            <div
+              className="font-display font-bold text-base tracking-[0.2em] uppercase glow-text"
+              style={{ color: 'var(--color-stat-int)' }}
+            >
+              INT COMPLETE
+            </div>
+            <div className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted uppercase mt-1">
+              Protocol satisfied
+            </div>
+          </div>
+        )}
+
         <CustomTasksSection skill="INT" />
       </main>
 
@@ -992,6 +1238,113 @@ export default function IntPage() {
                 </div>
                 <span className="frame-bracket-bottom" aria-hidden />
               </div>
+          </div>
+        );
+      })()}
+
+      {/* Language Learning History modal */}
+      {showLangHistory && (() => {
+        const sorted = [...langCompletions].sort((a, b) => a.index - b.index);
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4 animate-fade-in"
+            style={{
+              background: 'rgba(2, 4, 10, 0.78)',
+              backdropFilter: 'blur(6px)',
+              paddingTop: 'max(1rem, env(safe-area-inset-top))',
+              paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+            }}
+            onClick={() => setShowLangHistory(false)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="frame-bracketed w-full max-w-sm flex flex-col"
+              style={{ maxHeight: '88%' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div
+                className="frame-cut flex flex-col"
+                style={{
+                  flex: '1 1 auto',
+                  minHeight: 0,
+                  border: '1px solid rgba(96,165,250,0.35)',
+                  borderLeft: '3px solid var(--color-stat-int)',
+                  boxShadow: 'inset 0 0 8px rgba(96,165,250,0.06), 0 0 18px rgba(96,165,250,0.18)',
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 pt-4 pb-3" style={{ borderBottom: '1px dashed var(--color-border)' }}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="font-mono-hud text-[10px] tracking-[0.18em] font-semibold uppercase"
+                      style={{ color: 'var(--color-stat-int)', textShadow: '0 0 6px rgba(96,165,250,0.4)' }}
+                    >
+                      LEARNED SENTENCES
+                    </span>
+                    <span className="font-mono-hud text-[9px] text-text-muted tracking-[0.12em]">
+                      {sorted.length}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowLangHistory(false)}
+                    className="text-text-muted hover:text-text font-mono-hud text-base leading-none px-1.5"
+                    aria-label="Close"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* List */}
+                <div className="overflow-y-auto px-4 py-3 space-y-3">
+                  {sorted.map((completion) => {
+                    const sentence = langSentences[completion.index];
+                    return (
+                      <div
+                        key={completion.index}
+                        className="space-y-1 pb-3"
+                        style={{ borderBottom: '1px dashed var(--color-border)' }}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted uppercase">
+                            #{completion.index + 1}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="font-mono-hud text-[8px] tracking-[0.10em] uppercase"
+                              style={{
+                                color: completion.status === 'known' ? 'rgba(96,165,250,0.6)' : 'rgba(34,197,94,0.6)',
+                              }}
+                            >
+                              {completion.status === 'known' ? '● known' : '● learned'}
+                            </span>
+                            <span className="font-mono-hud text-[9px] tracking-[0.10em] text-text-muted">
+                              {completion.date}
+                            </span>
+                          </div>
+                        </div>
+                        {sentence ? (
+                          <>
+                            <p className="font-display text-sm text-text leading-snug">
+                              {sentence.target}
+                            </p>
+                            <p
+                              className="font-display text-xs leading-snug"
+                              style={{ color: 'var(--color-stat-int)', opacity: 0.75 }}
+                            >
+                              {sentence.native}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-text-muted text-xs italic">Sentence removed from bank</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <span className="frame-bracket-bottom" aria-hidden />
+            </div>
           </div>
         );
       })()}
