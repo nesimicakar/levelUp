@@ -439,7 +439,7 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
     const bw = Math.max(maxX - minX, 1);
     const bh = Math.max(maxY - minY, 1);
     // Reserve space for top HUD and bottom domain rail
-    const padH = 220, padB = 88, padS = 40;
+    const padH = 175, padB = 88, padS = 40;
     const availW = Math.max(w - padS * 2, 100);
     const availH = Math.max(h - padH - padB, 100);
     const s = Math.max(0.15, Math.min(1.3, Math.min(availW / bw, availH / bh) * 0.88));
@@ -752,8 +752,8 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
   return (
     <>
       <style>{`
-        .kg-pulse { animation: kgRingPulse 1.7s ease-in-out infinite; }
-        @keyframes kgRingPulse { 0%,100%{ transform:scale(1); opacity:.9; } 50%{ transform:scale(1.18); opacity:.45; } }
+        .kg-pulse { animation: kgRingPulse 2.6s ease-in-out infinite; }
+        @keyframes kgRingPulse { 0%,100%{ opacity:.95; } 50%{ opacity:.55; } }
         @media (prefers-reduced-motion:reduce) { .kg-pulse { animation:none; } }
         .kg-domain-rail { scrollbar-width: none; -ms-overflow-style: none; }
         .kg-domain-rail::-webkit-scrollbar { display: none; }
@@ -797,6 +797,9 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
               <h1 style={{ fontFamily: 'var(--font-display, system-ui)', fontWeight: 700, fontSize: 21, letterSpacing: '0.06em', margin: '1px 0 0', lineHeight: 1, background: 'linear-gradient(180deg,#fff,#9db8e8 70%,#5b86d8)', WebkitBackgroundClip: 'text', backgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                 CONSTELLATION
               </h1>
+              <div style={{ fontSize: 8.5, letterSpacing: '0.16em', color: '#5b6885', marginTop: 4 }}>
+                {hudStats.total} CONCEPTS · {hudStats.domains} DOMAINS
+              </div>
             </div>
             <button
               onClick={() => setShowLegend(s => !s)}
@@ -816,41 +819,38 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
             </button>
           </div>
 
-          {/* Stats */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 9 }}>
-            {([
-              { n: hudStats.total,   k: 'CONCEPTS',  color: '#e9eef7' },
-              { n: hudStats.domains, k: 'DOMAINS',   color: '#e9eef7' },
-              { n: hudStats.due,     k: 'DUE TODAY', color: hudStats.due > 0 ? '#ef4444' : '#e9eef7' },
-            ] as const).map(s => (
-              <div key={s.k} style={{ flex: 1, border: '1px solid #1b2438', background: 'rgba(12,19,34,.55)', borderRadius: 6, padding: '6px 9px', backdropFilter: 'blur(4px)' }}>
-                <div style={{ fontFamily: 'var(--font-display, system-ui)', fontWeight: 700, fontSize: 18, lineHeight: 1, color: s.color, textShadow: s.color === '#ef4444' ? '0 0 10px rgba(239,68,68,.5)' : 'none' }}>{s.n}</div>
-                <div style={{ fontSize: 8.5, letterSpacing: '0.2em', color: '#9aa7c2', marginTop: 3 }}>{s.k}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Filters */}
+          {/* Filters — labeled stat-pills, one row replaces the old stats + filters */}
           <div style={{ display: 'flex', gap: 6 }}>
             {([
-              { key: 'all'      as RetFilter, n: hudStats.total,    c: '#60a5fa', label: 'ALL' },
-              { key: 'healthy'  as RetFilter, n: hudStats.healthy,  c: '#22c55e', label: '' },
-              { key: 'upcoming' as RetFilter, n: hudStats.upcoming, c: '#f59e0b', label: '' },
-              { key: 'due'      as RetFilter, n: hudStats.due,      c: '#ef4444', label: '' },
+              { key: 'all'      as RetFilter, n: hudStats.total,    c: '#60a5fa', label: 'ALL'     },
+              { key: 'healthy'  as RetFilter, n: hudStats.healthy,  c: '#22c55e', label: 'HEALTHY' },
+              { key: 'upcoming' as RetFilter, n: hudStats.upcoming, c: '#f59e0b', label: 'FADING'  },
+              { key: 'due'      as RetFilter, n: hudStats.due,      c: '#ef4444', label: 'DUE'     },
             ]).map(f => {
               const active = retFilter === f.key;
+              const hot = f.key === 'due' && f.n > 0;
               return (
                 <button key={f.key} onClick={() => handleFilter(f.key)} style={{
-                  flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                  fontSize: 9, letterSpacing: '0.12em', fontWeight: 600, color: f.c,
-                  background: active ? 'rgba(255,255,255,.06)' : 'rgba(12,19,34,.5)',
+                  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                  background: active ? hexA(f.c, 0.10) : 'rgba(12,19,34,.55)',
                   border: `1px solid ${active ? f.c : '#1b2438'}`,
-                  borderRadius: 999, padding: '6px 4px', cursor: 'pointer',
+                  borderRadius: 9, padding: '7px 4px 6px', cursor: 'pointer',
                   fontFamily: 'var(--font-mono, ui-monospace)',
+                  backdropFilter: 'blur(4px)',
+                  transition: 'background .18s, border-color .18s, box-shadow .18s',
+                  boxShadow: active ? `0 0 14px ${hexA(f.c, 0.22)}` : 'none',
                 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: f.c, boxShadow: `0 0 6px ${f.c}`, flexShrink: 0 }} />
-                  {f.label && <span>{f.label}</span>}
-                  <span style={{ fontFamily: 'var(--font-display, system-ui)', fontWeight: 700, fontSize: 11 }}>{f.n}</span>
+                  <span style={{
+                    fontFamily: 'var(--font-display, system-ui)', fontWeight: 700, fontSize: 17, lineHeight: 1,
+                    color: active || hot ? f.c : '#e9eef7',
+                    textShadow: hot ? `0 0 10px ${hexA(f.c, 0.5)}` : 'none',
+                  }}>
+                    {f.n}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 8, letterSpacing: '0.16em', fontWeight: 600, color: f.c }}>
+                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: f.c, boxShadow: `0 0 5px ${f.c}`, flexShrink: 0 }} />
+                    {f.label}
+                  </span>
                 </button>
               );
             })}
@@ -868,6 +868,21 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
                 fontFamily: 'var(--font-mono, ui-monospace)',
               }}
             >
+              <div style={{ fontSize: 9, letterSpacing: '0.22em', color: '#4a5a78', marginBottom: 10 }}>// NODE STATUS</div>
+              {([
+                { label: 'Healthy',        c: '#22c55e' },
+                { label: 'Fading memory',  c: '#f59e0b' },
+                { label: 'Due for review', c: '#ef4444' },
+              ] as const).map(e => (
+                <div key={e.label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span style={{ width: 40, display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ width: 11, height: 11, borderRadius: '50%', border: `2px solid ${e.c}`, boxShadow: `0 0 6px ${hexA(e.c, 0.8)}` }} />
+                  </span>
+                  <span style={{ fontSize: 11, color: '#8a9ab8', letterSpacing: '0.02em' }}>{e.label}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 10, color: '#5b6885', margin: '2px 0 12px', paddingLeft: 50 }}>size = review count</div>
+
               <div style={{ fontSize: 9, letterSpacing: '0.22em', color: '#4a5a78', marginBottom: 10 }}>// CONNECTIONS</div>
               {([
                 { label: 'Related Concept', color: '#7eb8f7', width: 2,    dash: ''      },
