@@ -287,6 +287,7 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
   const camAnimRef = useRef<number | null>(null);
   const rafRef     = useRef(0);
   const domMapRef  = useRef<Map<string, KnowledgeDomain>>(new Map());
+  const mobileRef  = useRef(false);
 
   // React state (HUD + sheet)
   const [retFilter, setRetFilter]         = useState<RetFilter>('all');
@@ -392,7 +393,11 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
       wrap.style.filter  = dim ? 'grayscale(0.7)' : isUnrelated ? 'saturate(0.25)' : '';
       wrap.style.zIndex  = isSelected ? '30' : '';
       orb.style.transform = isSelected ? 'scale(1.15)' : isRelated ? 'scale(1.06)' : '';
-      const showLbl = !dim && (isSelected || isRelated || labelAll || n.r >= 17 || cam.scale >= 1.0 || focD === n.domainId);
+      // Mobile: floating labels only when zoomed in — selection details live in the
+      // bottom sheet, so a zoomed-out selected label never lingers over the canvas.
+      const showLbl = !dim && (mobileRef.current
+        ? cam.scale >= 1.0
+        : (isSelected || isRelated || labelAll || n.r >= 17 || cam.scale >= 1.0 || focD === n.domainId));
       label.style.opacity = showLbl ? '1' : '0';
     }
   }, []);
@@ -468,6 +473,7 @@ function Constellation({ concepts, domains }: { concepts: KnowledgeConcept[]; do
     const w = window.innerWidth;
     const h = window.innerHeight;
     dimsRef.current = { w, h };
+    mobileRef.current = window.matchMedia('(pointer: coarse)').matches || w < 768;
     const svg = svgRef.current;
     if (svg) {
       svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
