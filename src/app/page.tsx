@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate, getActiveStrAllCompleted, getActiveStrWeekSessions } from '@/lib/db';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '@/lib/logic/levels';
@@ -67,10 +67,42 @@ export default function Dashboard() {
   const [discYesterdayLogs, setDiscYesterdayLogs] = useState<Record<string, DisciplineLogStatus>>({});
   // null | { streakId, date } so one confirm state covers both today & yesterday fails
   const [discFailConfirm, setDiscFailConfirm] = useState<{ streakId: string; date: string } | null>(null);
+  // Defaults to expanded (matches pre-existing always-expanded behavior) until the
+  // persisted preference loads from localStorage.
+  const [discExpanded, setDiscExpanded] = useState(true);
+  const discContentRef = useRef<HTMLDivElement>(null);
+  const [discContentHeight, setDiscContentHeight] = useState(0);
 
   useEffect(() => {
     setShowSystemHint(localStorage.getItem('systemHintSeen') !== 'true');
+    const storedDiscExpanded = localStorage.getItem('disciplineSectionExpanded');
+    if (storedDiscExpanded !== null) setDiscExpanded(storedDiscExpanded === 'true');
   }, []);
+
+  const toggleDiscExpanded = useCallback(() => {
+    setDiscExpanded(prev => {
+      const next = !prev;
+      localStorage.setItem('disciplineSectionExpanded', String(next));
+      return next;
+    });
+  }, []);
+
+  // Measures content height so the section can animate to a natural height
+  // instead of clipping — same technique as KeyIdeasAccordion.
+  useEffect(() => {
+    if (!discExpanded || !discContentRef.current) return;
+    const measure = () => {
+      if (discContentRef.current) setDiscContentHeight(discContentRef.current.scrollHeight);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && discContentRef.current) ro.observe(discContentRef.current);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [discExpanded, disciplines, discLogs, discYesterdayLogs, discFailConfirm]);
 
   const loadDisciplineData = useCallback(async () => {
     const today = getToday();
@@ -610,13 +642,25 @@ export default function Dashboard() {
 
         return (
           <div className="mt-5">
-            {/* Section header */}
-            <div className="flex items-center justify-between mb-2">
+            {/* Section header — entire row toggles expand/collapse */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={toggleDiscExpanded}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleDiscExpanded();
+                }
+              }}
+              className="flex items-center justify-between mb-2"
+              style={{ cursor: 'pointer', userSelect: 'none' }}
+            >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 10, color: 'var(--color-text-muted)', letterSpacing: '0.18em' }}>
                   // DISCIPLINE
                 </span>
-                {reviewCount > 0 && disciplines.length > 0 && (
+                {discExpanded && reviewCount > 0 && disciplines.length > 0 && (
                   <span style={{
                     fontSize: 9,
                     fontFamily: 'monospace',
@@ -631,97 +675,114 @@ export default function Dashboard() {
                   </span>
                 )}
               </div>
-              <Link
-                href="/discipline"
-                style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em', textDecoration: 'none' }}
-              >
-                {disciplines.length === 0 ? '+ ADD →' : 'MANAGE →'}
-              </Link>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {discExpanded && (
+                  <Link
+                    href="/discipline"
+                    onClick={e => e.stopPropagation()}
+                    style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em', textDecoration: 'none' }}
+                  >
+                    {disciplines.length === 0 ? '+ ADD →' : 'MANAGE →'}
+                  </Link>
+                )}
+                <span style={{ fontSize: 10, color: 'var(--color-text-dim)', transition: 'transform 0.2s' }}>
+                  {discExpanded ? '▲' : '▼'}
+                </span>
+              </div>
             </div>
 
-            {disciplines.length === 0 && (
-              <p style={{ fontSize: 10, color: 'var(--color-text-dim)', textAlign: 'center', padding: '6px 0' }}>
-                No active disciplines
-              </p>
-            )}
+            {/* Collapsible body — height animates to measured content height,
+                same technique as KeyIdeasAccordion. */}
+            <div
+              className="overflow-hidden transition-all duration-200"
+              style={{ maxHeight: discExpanded ? discContentHeight : 0, opacity: discExpanded ? 1 : 0 }}
+            >
+              <div ref={discContentRef}>
+                {disciplines.length === 0 && (
+                  <p style={{ fontSize: 10, color: 'var(--color-text-dim)', textAlign: 'center', padding: '6px 0' }}>
+                    No active disciplines
+                  </p>
+                )}
 
-            <div className="space-y-2">
-              {disciplines.map(streak => {
-                const id = streak.id;
-                const todayStatus = discLogs[id] ?? 'unset';
-                const yesterdayStatus = discYesterdayLogs[id] ?? 'unset';
-                const needsReview = yesterdayStatus === 'unset';
-                const isConfirmingToday = discFailConfirm?.streakId === id && discFailConfirm.date === today;
-                const isConfirmingYesterday = discFailConfirm?.streakId === id && discFailConfirm.date === yesterday;
+                <div className="space-y-2">
+                  {disciplines.map(streak => {
+                    const id = streak.id;
+                    const todayStatus = discLogs[id] ?? 'unset';
+                    const yesterdayStatus = discYesterdayLogs[id] ?? 'unset';
+                    const needsReview = yesterdayStatus === 'unset';
+                    const isConfirmingToday = discFailConfirm?.streakId === id && discFailConfirm.date === today;
+                    const isConfirmingYesterday = discFailConfirm?.streakId === id && discFailConfirm.date === yesterday;
 
-                return (
-                  <div key={id} className="frame-cut" style={{ padding: '10px 12px' }}>
-                    {/* Name + streak + today actions — top row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {streak.name}
-                        </div>
-                        <div style={{ fontSize: 10, color: streak.currentStreak > 0 ? '#f97316' : '#4b5563', marginTop: 1 }}>
-                          {streak.currentStreak > 0 ? `🔥 ${streak.currentStreak}d` : '— 0 days'}
-                        </div>
-                      </div>
-
-                      {/* Today: unset — CLEAR / FAIL */}
-                      {todayStatus === 'unset' && !isConfirmingToday && (
-                        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                          <button onClick={() => logDate(id, today, 'clear')} style={btnStyle('rgba(74,222,128,0.9)', 'rgba(74,222,128,0.1)')}>CLEAR</button>
-                          <button onClick={() => setDiscFailConfirm({ streakId: id, date: today })} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.08)')}>FAIL</button>
-                        </div>
-                      )}
-
-                      {/* Today: fail confirm */}
-                      {todayStatus === 'unset' && isConfirmingToday && (
-                        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                          <button onClick={() => logDate(id, today, 'failed')} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)')}>CONFIRM</button>
-                          <button onClick={() => setDiscFailConfirm(null)} style={btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)')}>✕</button>
-                        </div>
-                      )}
-
-                      {/* Today: already marked */}
-                      {todayStatus !== 'unset' && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                          <span style={{ fontSize: 11, fontFamily: 'monospace', color: todayStatus === 'clear' ? '#4ade80' : todayStatus === 'failed' ? '#ef4444' : '#6b7280' }}>
-                            {todayStatus === 'clear' ? '✓' : todayStatus === 'failed' ? '✗' : '—'}
-                          </span>
-                          <button onClick={() => logDate(id, today, 'unset')} style={{ padding: '3px 7px', background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 3, color: '#4b5563', fontSize: 9, letterSpacing: 0.8, cursor: 'pointer', fontFamily: 'monospace' }}>
-                            UNDO
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Yesterday review row — shown when yesterday is unset */}
-                    {needsReview && (
-                      <div style={{ marginTop: 8, paddingTop: 7, borderTop: '1px solid rgba(251,191,36,0.15)' }}>
-                        {!isConfirmingYesterday ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 9, color: '#fbbf24', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>⚠ YESTERDAY</span>
-                            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-                              <button onClick={() => logDate(id, yesterday, 'clear')} style={{ ...btnStyle('rgba(74,222,128,0.8)', 'rgba(74,222,128,0.08)'), padding: '3px 7px', fontSize: 9 }}>CLEAR</button>
-                              <button onClick={() => logDate(id, yesterday, 'skipped')} style={{ ...btnStyle('rgba(107,114,128,0.8)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>SKIP</button>
-                              <button onClick={() => setDiscFailConfirm({ streakId: id, date: yesterday })} style={{ ...btnStyle('rgba(239,68,68,0.8)', 'rgba(239,68,68,0.06)'), padding: '3px 7px', fontSize: 9 }}>FAIL</button>
+                    return (
+                      <div key={id} className="frame-cut" style={{ padding: '10px 12px' }}>
+                        {/* Name + streak + today actions — top row */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#f9fafb', letterSpacing: 0.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {streak.name}
+                            </div>
+                            <div style={{ fontSize: 10, color: streak.currentStreak > 0 ? '#f97316' : '#4b5563', marginTop: 1 }}>
+                              {streak.currentStreak > 0 ? `🔥 ${streak.currentStreak}d` : '— 0 days'}
                             </div>
                           </div>
-                        ) : (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 9, color: '#ef4444', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>CONFIRM FAIL YESTERDAY?</span>
-                            <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
-                              <button onClick={() => logDate(id, yesterday, 'failed')} style={{ ...btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)'), padding: '3px 7px', fontSize: 9 }}>YES</button>
-                              <button onClick={() => setDiscFailConfirm(null)} style={{ ...btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>✕</button>
+
+                          {/* Today: unset — CLEAR / FAIL */}
+                          {todayStatus === 'unset' && !isConfirmingToday && (
+                            <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                              <button onClick={() => logDate(id, today, 'clear')} style={btnStyle('rgba(74,222,128,0.9)', 'rgba(74,222,128,0.1)')}>CLEAR</button>
+                              <button onClick={() => setDiscFailConfirm({ streakId: id, date: today })} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.08)')}>FAIL</button>
                             </div>
+                          )}
+
+                          {/* Today: fail confirm */}
+                          {todayStatus === 'unset' && isConfirmingToday && (
+                            <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                              <button onClick={() => logDate(id, today, 'failed')} style={btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)')}>CONFIRM</button>
+                              <button onClick={() => setDiscFailConfirm(null)} style={btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)')}>✕</button>
+                            </div>
+                          )}
+
+                          {/* Today: already marked */}
+                          {todayStatus !== 'unset' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                              <span style={{ fontSize: 11, fontFamily: 'monospace', color: todayStatus === 'clear' ? '#4ade80' : todayStatus === 'failed' ? '#ef4444' : '#6b7280' }}>
+                                {todayStatus === 'clear' ? '✓' : todayStatus === 'failed' ? '✗' : '—'}
+                              </span>
+                              <button onClick={() => logDate(id, today, 'unset')} style={{ padding: '3px 7px', background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 3, color: '#4b5563', fontSize: 9, letterSpacing: 0.8, cursor: 'pointer', fontFamily: 'monospace' }}>
+                                UNDO
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Yesterday review row — shown when yesterday is unset */}
+                        {needsReview && (
+                          <div style={{ marginTop: 8, paddingTop: 7, borderTop: '1px solid rgba(251,191,36,0.15)' }}>
+                            {!isConfirmingYesterday ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 9, color: '#fbbf24', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>⚠ YESTERDAY</span>
+                                <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                                  <button onClick={() => logDate(id, yesterday, 'clear')} style={{ ...btnStyle('rgba(74,222,128,0.8)', 'rgba(74,222,128,0.08)'), padding: '3px 7px', fontSize: 9 }}>CLEAR</button>
+                                  <button onClick={() => logDate(id, yesterday, 'skipped')} style={{ ...btnStyle('rgba(107,114,128,0.8)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>SKIP</button>
+                                  <button onClick={() => setDiscFailConfirm({ streakId: id, date: yesterday })} style={{ ...btnStyle('rgba(239,68,68,0.8)', 'rgba(239,68,68,0.06)'), padding: '3px 7px', fontSize: 9 }}>FAIL</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 9, color: '#ef4444', letterSpacing: 0.8, fontFamily: 'monospace', flexShrink: 0 }}>CONFIRM FAIL YESTERDAY?</span>
+                                <div style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
+                                  <button onClick={() => logDate(id, yesterday, 'failed')} style={{ ...btnStyle('rgba(239,68,68,0.9)', 'rgba(239,68,68,0.15)'), padding: '3px 7px', fontSize: 9 }}>YES</button>
+                                  <button onClick={() => setDiscFailConfirm(null)} style={{ ...btnStyle('rgba(107,114,128,0.9)', 'rgba(255,255,255,0.04)'), padding: '3px 7px', fontSize: 9 }}>✕</button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         );
