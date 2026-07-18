@@ -56,8 +56,9 @@ export default function AtlasPage() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const [shellH, setShellH] = useState(640);
-  const [snap, setSnap] = useState<SheetSnap>('medium');
+  const [snap, setSnap] = useState<SheetSnap>('collapsed');
   const [dragPx, setDragPx] = useState<number | null>(null);
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   const dragRef = useRef<{ startY: number; startPx: number; moved: boolean } | null>(null);
   const dragRafRef = useRef(0);
@@ -65,10 +66,6 @@ export default function AtlasPage() {
   useEffect(() => () => { if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current); }, []);
 
   useEffect(() => { getAtlasCountryIds().then(setProfileIds).catch(() => {}); }, []);
-  useEffect(() => {
-    const t = setTimeout(() => setHintVisible(false), 5200);
-    return () => clearTimeout(t);
-  }, []);
 
   useIsoLayoutEffect(() => {
     const desk = window.matchMedia('(min-width: 1024px)');
@@ -118,13 +115,20 @@ export default function AtlasPage() {
   const selectAndFocus = (atlasId: string) => {
     setSelected(atlasId);
     setSnap('collapsed');
+    if (!hasInteracted) setHasInteracted(true);
     requestAnimationFrame(() => {
       mapRef.current?.focusEntity(atlasId, { top: 118, bottom: snapHeight('collapsed', shellH), x: 16 });
     });
   };
   const focusContinent = (name: string) => {
     setActiveContinent(name);
+    if (!hasInteracted) setHasInteracted(true);
     mapRef.current?.focusContinent(name);
+  };
+
+  const handleMapSelect = (atlasId: string) => {
+    setSelected(atlasId);
+    if (!hasInteracted) setHasInteracted(true);
   };
 
   const fitPadding = isDesktop ? FIT_DESKTOP : { top: 118, bottom: fitBottomForSnap(snap, shellH), x: 16 };
@@ -135,6 +139,7 @@ export default function AtlasPage() {
     e.currentTarget.setPointerCapture?.(e.pointerId);
     dragRef.current = { startY: e.clientY, startPx: snapHeight(snap, shellH), moved: false };
     setDragPx(snapHeight(snap, shellH));
+    if (!hasInteracted) setHasInteracted(true);
   };
   const onGrabMove = (e: ReactPointerEvent) => {
     const d = dragRef.current;
@@ -232,7 +237,7 @@ export default function AtlasPage() {
               topology={topo.data.topology}
               profileIds={profileIds}
               selectedAtlasId={selected}
-              onSelect={setSelected}
+              onSelect={handleMapSelect}
               scope={scope}
               fitPadding={fitPadding}
             />
@@ -268,7 +273,7 @@ export default function AtlasPage() {
               ))}
             </div>
 
-            {!isDesktop && (
+            {!isDesktop && snap !== 'collapsed' && (
               <div className="hud-r3">
                 <ReviewPlaceholder variant="pill" />
               </div>
@@ -284,10 +289,10 @@ export default function AtlasPage() {
           </div>
         </div>
 
-        {hintVisible && ready && !isDesktop && (
+        {hintVisible && ready && !hasInteracted && !isDesktop && (
           <div className="gesture-hint" role="status">Drag to pan · pinch to zoom · tap a country</div>
         )}
-        {hintVisible && ready && isDesktop && (
+        {hintVisible && ready && !hasInteracted && isDesktop && (
           <div className="gesture-hint gesture-hint--d" role="status">Drag to pan · scroll to zoom</div>
         )}
         {isDesktop && legend}
@@ -331,7 +336,13 @@ export default function AtlasPage() {
             <span className="sheet-grab" aria-hidden="true" />
           </button>
           {snap !== 'collapsed' && legend}
-          {selectedEntity ? card : (
+          {snap === 'collapsed' ? (
+            <div className="sheet-collapsed-action">
+              <button onClick={() => setSnap('medium')} className="collapsed-browse">
+                Search or browse {results.length} {results.length === 1 ? 'entity' : 'entities'}
+              </button>
+            </div>
+          ) : selectedEntity ? card : (
             <div className="dir-wrap">
               {scopeSeg}
               {searchField}
@@ -485,6 +496,7 @@ const CSS = `
 .atlas-immersive .ai-map-col{position:absolute;inset:0;z-index:1}
 .atlas-immersive.is-desktop .ai-map-col{position:relative;inset:auto;flex:1 1 auto;min-width:0}
 .atlas-immersive .ai-map{position:absolute;inset:0}
+.atlas-immersive .ai-map::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse 100% 92% at 50% 42%,transparent 52%,rgba(2,4,9,.5) 100%)}
 .atlas-immersive .ai-map-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:0 32px}
 .atlas-immersive .ai-loading{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:var(--ink-mute);animation:aipulse 1.4s ease-in-out infinite}
 @keyframes aipulse{0%,100%{opacity:.4}50%{opacity:.9}}
@@ -552,6 +564,10 @@ const CSS = `
 .atlas-immersive .sheet-grab-btn:active{cursor:grabbing}
 .atlas-immersive .sheet-grab-btn:focus-visible{outline:2px solid var(--amber);outline-offset:-4px;border-radius:10px}
 .atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);pointer-events:none}
+.atlas-immersive .sheet-collapsed-action{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+.atlas-immersive .collapsed-browse{flex:1;padding:12px 16px;border:1px solid var(--line-bright);background:rgba(10,15,26,.6);color:var(--ink-dim);border-radius:10px;font-family:var(--mono);font-size:13px;letter-spacing:.08em;cursor:pointer;backdrop-filter:blur(6px);text-align:center}
+.atlas-immersive .collapsed-browse:hover{color:var(--ink);border-color:var(--amber-br)}
+.atlas-immersive .collapsed-browse:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 
 /* ── desktop rail ── */
 .atlas-immersive .rail{position:relative;z-index:20;width:380px;flex:none;background:linear-gradient(180deg,#0c1223,#080c17);border-left:1px solid var(--line-bright);display:flex;flex-direction:column;padding:20px 20px calc(20px + env(safe-area-inset-bottom));gap:14px;overflow-y:auto}

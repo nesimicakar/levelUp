@@ -15,7 +15,7 @@ import {
   VIEW_SIZE, WORLD_TRANSFORM,
   applyWheel, panBy, beginPinch, updatePinch, shouldPinch, fitBox,
   zoomAtPoint, clampTranslate, tweenDuration, lerpTransform,
-  dragPan, exceedsTapThreshold, boundsToBox, pointBox, fitBoxInset,
+  dragPan, exceedsTapThreshold, boundsToBox, pointBox, fitBoxInset, heroTransform,
   type Transform, type Point, type Box, type PinchState, type ViewportSize, type ViewInset,
 } from '@/lib/logic/atlasViewport';
 
@@ -307,8 +307,16 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
 
   const focusContinent = useCallback((name: string) => {
     cancelAnim();
-    animateTo(name === 'World' ? WORLD_TRANSFORM : fitBox(continentBoxes[name], sizeRef.current));
+    animateTo(name === 'World' ? heroTransform(sizeRef.current) : fitBox(continentBoxes[name], sizeRef.current));
   }, [animateTo, continentBoxes]);
+
+  // Smooth first-load entrance into the hero framing (respects reduced motion).
+  const didHeroRef = useRef(false);
+  useEffect(() => {
+    if (!interactive || didHeroRef.current) return;
+    didHeroRef.current = true;
+    animateTo(heroTransform(sizeRef.current));
+  }, [interactive, animateTo]);
 
   const focusEntity = useCallback((atlasId: string, inset?: ViewInset) => {
     const box = entityBoxes[atlasId];
@@ -326,7 +334,7 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     commit(clampTranslate(zoomAtPoint(t, t.k * (dir === 1 ? 1.6 : 1 / 1.6), center), s));
   }, [commit, current]);
 
-  const recenter = useCallback(() => { cancelAnim(); animateTo(WORLD_TRANSFORM); }, [animateTo]);
+  const recenter = useCallback(() => { cancelAnim(); animateTo(heroTransform(sizeRef.current)); }, [animateTo]);
 
   useImperativeHandle(ref, (): WorldMapHandle => ({
     focusContinent,

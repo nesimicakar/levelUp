@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  VIEW_W, VIEW_H, VIEW_SIZE, MIN_K, MAX_K, WORLD_TRANSFORM,
+  VIEW_W, VIEW_H, VIEW_SIZE, MIN_K, MAX_K, WORLD_TRANSFORM, HERO_ZOOM,
   clampScale, clampTranslate, zoomAtPoint, applyWheel, panBy,
-  distance, midpoint, beginPinch, updatePinch, shouldPinch, fitBox,
+  distance, midpoint, beginPinch, updatePinch, shouldPinch, fitBox, heroTransform,
   tweenDuration, lerpTransform, dragPan, exceedsTapThreshold, TAP_MOVE_THRESHOLD,
   boundsToBox, pointBox, fitBoxInset,
   type Transform, type Point, type Box,
@@ -199,6 +199,34 @@ describe('boundsToBox / pointBox (fly-to geometry)', () => {
     const t = fitBox(pointBox({ x: 200, y: 200 }, 24));
     expect(t.k).toBeGreaterThanOrEqual(MIN_K);
     expect(t.k).toBeLessThanOrEqual(MAX_K);
+  });
+});
+
+describe('hero framing (first-open map view)', () => {
+  it('zooms in past the full-world view so land dominates', () => {
+    const t = heroTransform(VIEW_SIZE);
+    expect(t.k).toBeGreaterThan(MIN_K);
+    expect(t.k).toBeLessThan(MAX_K);
+    expect(t.k).toBe(HERO_ZOOM);
+  });
+  it('stays within pan bounds and trims left/right symmetrically', () => {
+    const size = VIEW_SIZE;
+    const t = heroTransform(size);
+    expect(t.x).toBeGreaterThanOrEqual(size.width * (1 - t.k));
+    expect(t.x).toBeLessThanOrEqual(0);
+    // Symmetric horizontal trim: content centre stays at viewport centre-x.
+    expect(t.k * (size.width / 2) + t.x).toBeCloseTo(size.width / 2, 3);
+  });
+  it('anchors above centre so Antarctica/empty south is trimmed more than the north', () => {
+    const size = VIEW_SIZE;
+    const t = heroTransform(size);
+    // The world centre projects below the viewport centre (more bottom trimmed).
+    expect(t.k * (size.height / 2) + t.y).toBeGreaterThan(size.height / 2);
+  });
+  it('is size-relative (works for a narrow phone viewport)', () => {
+    const t = heroTransform({ width: 360, height: 620 });
+    expect(t.k).toBe(HERO_ZOOM);
+    expect(t.x).toBeLessThanOrEqual(0);
   });
 });
 

@@ -17,6 +17,8 @@ export const VIEW_SIZE: ViewportSize = { width: VIEW_W, height: VIEW_H };
 export const MIN_K = 1;   // fully zoomed out = whole world; cannot zoom out further
 export const MAX_K = 8;
 
+export const HERO_ZOOM = 1.3;
+
 export interface Transform { k: number; x: number; y: number; }
 export interface Point { x: number; y: number; }
 export interface ViewportSize { width: number; height: number; }
@@ -151,6 +153,19 @@ export function fitBox(box: Box, size: ViewportSize = VIEW_SIZE, fill = 0.9): Tr
   const cx = box.x + box.w / 2;
   const cy = box.y + box.h / 2;
   return clampTranslate({ k, x: size.width / 2 - k * cx, y: size.height / 2 - k * cy }, size);
+}
+
+/**
+ * Hero framing: the default/reset world view, zoomed in from the full-world fit so
+ * land dominates and empty Pacific ocean on the left/right (and Antarctica at the
+ * bottom) falls outside the viewport. Anchored above center so the trim favours the
+ * empty south. Size-relative, so it works with the responsive projection. Proportions
+ * are preserved (single scale factor); all major continents stay visible.
+ */
+export function heroTransform(size: ViewportSize = VIEW_SIZE, zoom = HERO_ZOOM): Transform {
+  const k = clampScale(zoom);
+  const anchor: Point = { x: size.width / 2, y: size.height * 0.44 };
+  return clampTranslate(zoomAtPoint(WORLD_TRANSFORM, k, anchor), size);
 }
 
 export interface ViewInset { top: number; bottom: number; x: number; }
