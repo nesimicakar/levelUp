@@ -14,6 +14,7 @@ import {
   VIEW_W, VIEW_H, WORLD_TRANSFORM,
   applyWheel, panBy, beginPinch, updatePinch, shouldPinch, fitBox,
   zoomAtPoint, clampTranslate, tweenDuration, lerpTransform,
+  dragPan, exceedsTapThreshold,
   type Transform, type Point, type Box, type PinchState,
 } from '@/lib/logic/atlasViewport';
 
@@ -72,6 +73,14 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [transform, setTransform] = useState<Transform>(WORLD_TRANSFORM);
 
+  // True while the current touch has become a drag, so the click synthesized on
+  // touchend does not select a country. Reset when a fresh touch/mouse press begins.
+  const movedRef = useRef(false);
+  const handleSelect = useCallback((atlasId: string) => {
+    if (movedRef.current) { movedRef.current = false; return; }
+    onSelect?.(atlasId);
+  }, [onSelect]);
+
   // Geometry, markers, and continent boxes — computed ONCE per topology.
   const { shapes, inert, markers, continentBoxes } = useMemo(() => {
     const fc = feature(topology, topology.objects.countries) as unknown as {
@@ -112,12 +121,12 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
         key={`c-${piece.atlasId}-${i}`}
         d={piece.d}
         style={{ ...shapeStyle(hasProfile, isSelected), cursor: interactive ? 'pointer' : 'default' }}
-        onClick={interactive && onSelect ? () => onSelect(piece.atlasId) : undefined}
+        onClick={interactive && onSelect ? () => handleSelect(piece.atlasId) : undefined}
       >
         <title>{ENTITY_NAME.get(piece.atlasId) ?? piece.atlasId}</title>
       </path>
     );
-  }), [shapes, profileIds, selectedAtlasId, interactive, onSelect]);
+  }), [shapes, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
   // Only dot the entities worth locating: Core Atlas members, anything with a
   // profile, or the current selection. Tiny non-Core islands stay in search/list
@@ -137,12 +146,12 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
           opacity: hasProfile || isSelected ? 1 : 0.5,
           cursor: interactive ? 'pointer' : 'default',
         }}
-        onClick={interactive && onSelect ? () => onSelect(m.atlasId) : undefined}
+        onClick={interactive && onSelect ? () => handleSelect(m.atlasId) : undefined}
       >
         <title>{m.name}</title>
       </circle>
     );
-  }), [markers, profileIds, selectedAtlasId, interactive, onSelect]);
+  }), [markers, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
   // ── Gesture plumbing ────────────────────────────────────────────────────────
   const tRef = useRef(transform); tRef.current = transform;
@@ -151,6 +160,8 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
   const animRef = useRef(0);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const pinchRef = useRef<PinchState | null>(null);
+  const touchPanRef = useRef<Point | null>(null);   // one-finger pan anchor (viewBox units)
+  const tapStartRef = useRef<Point | null>(null);   // initial touch position (client px) for tap/drag
 
   const current = useCallback(() => pendingRef.current ?? tRef.current, []);
 
@@ -204,29 +215,70 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     const el = svgRef.current;
     if (!el || !interactive) return;
 
+    const vb = (t: Touch) => clientToVb(t.clientX, t.clientY);
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       cancelAnim();
       commit(applyWheel(current(), e.deltaY, clientToVb(e.clientX, e.clientY)));
     };
+
     const onTouchStart = (e: TouchEvent) => {
+      cancelAnim();
       if (shouldPinch(e.touches.length)) {
+        // Two fingers → pinch, anchored at the current transform so adding the
+        // second finger never jumps the map. A multi-touch gesture is not a tap.
         e.preventDefault();
-        cancelAnim();
-        const a = clientToVb(e.touches[0].clientX, e.touches[0].clientY);
-        const b = clientToVb(e.touches[1].clientX, e.touches[1].clientY);
-        pinchRef.current = beginPinch(a, b, current());
+        movedRef.current = true;
+        touchPanRef.current = null;
+        pinchRef.current = beginPinch(vb(e.touches[0]), vb(e.touches[1]), current());
+      } else if (e.touches.length === 1) {
+        // One finger → potential tap or pan. Do NOT preventDefault yet, so a tap
+        // still produces the click that selects a country.
+        const t0 = e.touches[0];
+        touchPanRef.current = vb(t0);
+        tapStartRef.current = { x: t0.clientX, y: t0.clientY };
+        movedRef.current = false;
       }
     };
+
     const onTouchMove = (e: TouchEvent) => {
       if (shouldPinch(e.touches.length) && pinchRef.current) {
         e.preventDefault();
-        const a = clientToVb(e.touches[0].clientX, e.touches[0].clientY);
-        const b = clientToVb(e.touches[1].clientX, e.touches[1].clientY);
-        commit(updatePinch(pinchRef.current, a, b));
+        commit(updatePinch(pinchRef.current, vb(e.touches[0]), vb(e.touches[1])));
+        return;
+      }
+      if (e.touches.length === 1 && touchPanRef.current) {
+        const t0 = e.touches[0];
+        if (!movedRef.current) {
+          // Still within tap slop → not yet a pan (protects taps from panning).
+          const start = tapStartRef.current;
+          if (!start || !exceedsTapThreshold(start, { x: t0.clientX, y: t0.clientY })) return;
+          movedRef.current = true;
+          touchPanRef.current = vb(t0); // re-anchor so the pan starts without a jump
+        }
+        e.preventDefault(); // active pan → own the gesture (page will not scroll)
+        const p = vb(t0);
+        commit(dragPan(current(), touchPanRef.current, p));
+        touchPanRef.current = p;
       }
     };
-    const onTouchEnd = (e: TouchEvent) => { if (!shouldPinch(e.touches.length)) pinchRef.current = null; };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 1) {
+        // A finger lifted after a pinch → keep panning with the finger that
+        // remains, re-anchored to it so movement does not jump.
+        pinchRef.current = null;
+        touchPanRef.current = vb(e.touches[0]);
+        movedRef.current = true;
+      } else if (e.touches.length === 0) {
+        pinchRef.current = null;
+        touchPanRef.current = null;
+        tapStartRef.current = null;
+        // movedRef persists so the synthesized click is suppressed after a drag;
+        // the next one-finger touchstart resets it for the next tap.
+      }
+    };
 
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('touchstart', onTouchStart, { passive: false });
@@ -277,10 +329,12 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
       aria-label="World map. Use the country search and list below for keyboard and screen-reader access."
       style={{
         display: 'block', background: '#0a0f1a', borderRadius: 10,
-        touchAction: interactive ? 'pan-y' : 'none',
+        // Map owns all touch gestures within its bounds (one-finger pan, two-finger
+        // pinch); page scroll/zoom outside the map is unaffected.
+        touchAction: 'none',
         cursor: interactive ? (dragRef.current ? 'grabbing' : 'grab') : 'default',
       }}
-      onMouseDown={interactive ? (e => { if (e.button === 0) { cancelAnim(); dragRef.current = { x: e.clientX, y: e.clientY }; } }) : undefined}
+      onMouseDown={interactive ? (e => { if (e.button === 0) { cancelAnim(); movedRef.current = false; dragRef.current = { x: e.clientX, y: e.clientY }; } }) : undefined}
     >
       <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
         <g aria-hidden="true">{inertEls}</g>
@@ -334,7 +388,7 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
 
       {/* Gesture hint + non-gesture alternative. */}
       <p className="text-[9px] text-text-muted mt-1.5 px-1">
-        Use two fingers to move &amp; zoom the map · one finger scrolls the page · or use search &amp; the list below.
+        Drag to move · pinch with two fingers to zoom · tap a country to open it · or use search &amp; the list below.
       </p>
     </div>
   );

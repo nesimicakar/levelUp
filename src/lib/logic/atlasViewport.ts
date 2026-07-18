@@ -71,6 +71,29 @@ export function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
+// ── One-finger drag pan + tap/drag discrimination ─────────────────────────────
+
+/**
+ * Movement (compared in client pixels by the component) beyond which a touch is
+ * treated as a drag rather than a tap. Keeps a tap from accidentally panning and
+ * lets a drag suppress selection.
+ */
+export const TAP_MOVE_THRESHOLD = 8;
+
+/** True once a touch has moved far enough from its start point to count as a drag. */
+export function exceedsTapThreshold(from: Point, to: Point, threshold = TAP_MOVE_THRESHOLD): boolean {
+  return distance(from, to) > threshold;
+}
+
+/**
+ * One-finger drag: pan by the movement from the previous anchor to the new point
+ * (both in viewBox units), clamped. Shares clamping with mouse-drag `panBy`, so
+ * touch and desktop panning behave identically.
+ */
+export function dragPan(t: Transform, from: Point, to: Point, size: ViewportSize = VIEW_SIZE): Transform {
+  return panBy(t, to.x - from.x, to.y - from.y, size);
+}
+
 // ── Two-finger pinch + pan ────────────────────────────────────────────────────
 
 export interface PinchState {

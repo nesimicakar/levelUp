@@ -3,7 +3,8 @@ import {
   VIEW_W, VIEW_H, VIEW_SIZE, MIN_K, MAX_K, WORLD_TRANSFORM,
   clampScale, clampTranslate, zoomAtPoint, applyWheel, panBy,
   distance, midpoint, beginPinch, updatePinch, shouldPinch, fitBox,
-  tweenDuration, lerpTransform, type Transform, type Point, type Box,
+  tweenDuration, lerpTransform, dragPan, exceedsTapThreshold, TAP_MOVE_THRESHOLD,
+  type Transform, type Point, type Box,
 } from '../atlasViewport';
 import { matchFeatureToAtlasId } from '../atlasGeo';
 import { MARKER_COORDS } from '../../data/atlasMarkers';
@@ -108,6 +109,89 @@ describe('pinch geometry', () => {
     expect(next.k).toBeCloseTo(2, 5);          // no zoom
     expect(next.x).toBeCloseTo(-90, 5);        // panned by +10
     expect(next.y).toBeCloseTo(-90, 5);
+  });
+});
+
+// ── One-finger drag pan ───────────────────────────────────────────────────────
+
+describe('dragPan (one-finger pan delta)', () => {
+  it('translates by the anchor→point delta', () => {
+    const t = dragPan({ k: 2, x: -100, y: -100 }, { x: 300, y: 200 }, { x: 320, y: 180 });
+    expect(t.x).toBe(-80);  // +20
+    expect(t.y).toBe(-120); // -20
+  });
+
+  it('no anchor movement → no jump (returns the same in-bounds transform)', () => {
+    const t = { k: 2, x: -100, y: -80 };
+    expect(dragPan(t, { x: 400, y: 200 }, { x: 400, y: 200 })).toEqual(t);
+  });
+
+  it('shares clamping with mouse-drag panBy (touch == desktop pan math)', () => {
+    const t = { k: 2, x: -100, y: -100 };
+    const from = { x: 300, y: 200 }, to = { x: 330, y: 260 };
+    expect(dragPan(t, from, to)).toEqual(panBy(t, to.x - from.x, to.y - from.y));
+  });
+
+  it('clamps so a pan cannot expose a gap past the edge', () => {
+    const t = dragPan({ k: 2, x: 0, y: 0 }, { x: 0, y: 0 }, { x: 9999, y: 9999 });
+    expect(t.x).toBe(0);              // cannot pan the world right past the left edge
+    expect(t.y).toBe(0);
+  });
+});
+
+// ── Tap vs drag discrimination ────────────────────────────────────────────────
+
+describe('exceedsTapThreshold (tap vs drag)', () => {
+  it('a tiny move stays a tap; a larger move becomes a drag', () => {
+    const start = { x: 100, y: 100 };
+    expect(exceedsTapThreshold(start, { x: 103, y: 101 })).toBe(false); // within slop
+    expect(exceedsTapThreshold(start, { x: 100 + TAP_MOVE_THRESHOLD + 1, y: 100 })).toBe(true);
+  });
+
+  it('is exactly the predicate that suppresses selection after dragging', () => {
+    // The component sets movedRef = exceedsTapThreshold(start, current) and skips
+    // selection while movedRef is true. Model that decision here.
+    const start = { x: 200, y: 200 };
+    const afterTap = { x: 202, y: 203 };
+    const afterDrag = { x: 240, y: 220 };
+    const selectionSuppressed = (p: Point) => exceedsTapThreshold(start, p);
+    expect(selectionSuppressed(afterTap)).toBe(false);  // tap → selects
+    expect(selectionSuppressed(afterDrag)).toBe(true);   // drag → suppressed
+  });
+});
+
+// ── Gesture transitions (no jump) ─────────────────────────────────────────────
+
+describe('one-finger pan ↔ two-finger pinch transitions', () => {
+  it('adding a second finger begins a pinch with no jump (start == current transform)', () => {
+    const t: Transform = { k: 2, x: -120, y: -60 };
+    const a = { x: 380, y: 210 }, b = { x: 520, y: 250 };
+    const pinch = beginPinch(a, b, t);
+    // At the instant of transition the fingers have not moved: transform is unchanged.
+    expect(updatePinch(pinch, a, b)).toEqual(clampTranslate(t));
+  });
+
+  it('dropping back to one finger re-anchors so the next move does not jump', () => {
+    // After a pinch, the component sets the pan anchor to the remaining finger.
+    // The very next move from that anchor to itself yields zero displacement.
+    const t: Transform = { k: 3, x: -200, y: -150 };
+    const remaining = { x: 450, y: 220 };
+    expect(dragPan(t, remaining, remaining)).toEqual(t); // re-anchored → no jump
+    // and a subsequent real move pans by exactly its delta
+    expect(dragPan(t, remaining, { x: 460, y: 210 })).toEqual(panBy(t, 10, -10));
+  });
+});
+
+describe('pinch zoom clamping', () => {
+  it('a huge spread cannot exceed MAX_K', () => {
+    const start = beginPinch({ x: 490, y: 240 }, { x: 500, y: 240 }, { k: 1, x: 0, y: 0 });
+    const next = updatePinch(start, { x: 100, y: 240 }, { x: 900, y: 240 }); // 10 → 800
+    expect(next.k).toBe(MAX_K);
+  });
+  it('a tiny pinch cannot go below MIN_K', () => {
+    const start = beginPinch({ x: 100, y: 240 }, { x: 900, y: 240 }, { k: 2, x: -100, y: -100 });
+    const next = updatePinch(start, { x: 495, y: 240 }, { x: 505, y: 240 }); // 800 → 10
+    expect(next.k).toBe(MIN_K);
   });
 });
 
