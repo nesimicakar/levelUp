@@ -21,13 +21,14 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /**
  * Visible sheet heights (px) for a shell of height `shellH`. Ordered & bounded.
- * Collapsed is kept minimal — just a 44px handle target, one compact browse row,
- * and safe-area spacing — so the map is the hero on first open.
+ * Collapsed reserves ~30% as a TRANSPARENT dock (the map shows through it), which
+ * also defines the bottom of the hero region so the world seats high, just under
+ * the continent pills, on first open.
  */
 export function sheetHeights(shellH: number): SheetHeights {
   const H = Math.max(MIN_SHELL, shellH);
   return {
-    collapsed: Math.round(Math.min(138, H * 0.2)),
+    collapsed: Math.round(H * 0.3),
     medium: Math.round(H * 0.55),
     expanded: Math.round(H * 0.9),
   };

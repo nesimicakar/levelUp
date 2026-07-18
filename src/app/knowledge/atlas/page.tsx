@@ -51,12 +51,13 @@ export default function AtlasPage() {
   const [scope, setScope] = useState<AtlasScope>('all');
   const [selected, setSelected] = useState<string | null>(null);
   const [activeContinent, setActiveContinent] = useState('World');
-  const [hintVisible, setHintVisible] = useState(true);
+  const [hintVisible, setHintVisible] = useState(false);
   const [profile, setProfile] = useState<AtlasCountry | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const [shellH, setShellH] = useState(640);
   const [shellW, setShellW] = useState(390);
+  const [hudBottom, setHudBottom] = useState(150);
   const [snap, setSnap] = useState<SheetSnap>('collapsed');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -64,14 +65,24 @@ export default function AtlasPage() {
   const dragRef = useRef<{ startY: number; startPx: number; moved: boolean } | null>(null);
   const dragRafRef = useRef(0);
   const pendingPxRef = useRef<number | null>(null);
+  const hudRef = useRef<HTMLDivElement>(null);
   useEffect(() => () => { if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current); }, []);
 
   useEffect(() => { getAtlasCountryIds().then(setProfileIds).catch(() => {}); }, []);
-  // Gesture hint auto-hides quickly (and permanently once the user interacts).
+  // Gesture hint: only for a genuinely new user; auto-hides, and its dismissal is
+  // persisted permanently once the user first interacts with the map.
   useEffect(() => {
+    let seen = true;
+    try { seen = !!localStorage.getItem('atlasHintSeen'); } catch { /* ignore */ }
+    if (!seen) setHintVisible(true);
     const t = setTimeout(() => setHintVisible(false), 3800);
     return () => clearTimeout(t);
   }, []);
+  useEffect(() => {
+    if (!hasInteracted) return;
+    setHintVisible(false);
+    try { localStorage.setItem('atlasHintSeen', '1'); } catch { /* ignore */ }
+  }, [hasInteracted]);
 
   useIsoLayoutEffect(() => {
     const desk = window.matchMedia('(min-width: 1024px)');
@@ -94,10 +105,17 @@ export default function AtlasPage() {
       const w = Math.round(r.width);
       setShellH(prev => (h > 0 && h !== prev ? h : prev));
       setShellW(prev => (w > 0 && w !== prev ? w : prev));
+      // Measured bottom of the HUD (header + continent pills) → top of the hero region.
+      const hud = hudRef.current;
+      if (hud) {
+        const hb = Math.round(hud.getBoundingClientRect().height);
+        setHudBottom(prev => (hb > 0 && hb !== prev ? hb : prev));
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
+    if (hudRef.current) ro.observe(hudRef.current);
     return () => ro.disconnect();
   }, []);
 
@@ -140,11 +158,12 @@ export default function AtlasPage() {
     if (!hasInteracted) setHasInteracted(true);
   };
 
-  // Mobile: top clears the header + continent pills; x leaves ~7.5% side margin so
-  // the 1.15× hero zoom trims ocean without clipping the Americas / Oceania.
+  // Mobile: top = measured HUD (header + pills) bottom, so the hero region starts
+  // directly under the continent pills; bottom = the sheet band; x leaves ~7.5%
+  // side margin so the hero zoom trims ocean without clipping the Americas/Oceania.
   const fitPadding = isDesktop
     ? FIT_DESKTOP
-    : { top: 150, bottom: fitBottomForSnap(snap, shellH), x: Math.round(shellW * 0.075) };
+    : { top: hudBottom, bottom: fitBottomForSnap(snap, shellH), x: Math.round(shellW * 0.075) };
   const sheetPx = dragPx ?? snapHeight(snap, shellH);
 
   // ── sheet drag (pointer) ──────────────────────────────────────────────────
@@ -261,7 +280,7 @@ export default function AtlasPage() {
 
         {/* Flex overlay: HUD at top, tools reserved BELOW it (no absolute collision) */}
         <div className="ai-hud-overlay">
-          <div className="hud-top">
+          <div className="hud-top" ref={hudRef}>
             {!isDesktop && (
               <div className="hud-r1">
                 <Link href="/knowledge" className="icn-btn" aria-label="Back to Vault">‹</Link>
@@ -350,11 +369,21 @@ export default function AtlasPage() {
           </button>
           {snap !== 'collapsed' && legend}
           {snap === 'collapsed' ? (
-            <div className="sheet-collapsed-action">
-              <button onClick={() => setSnap('medium')} className="collapsed-browse">
-                Search or browse {results.length} {results.length === 1 ? 'entity' : 'entities'}
-              </button>
-            </div>
+            selectedEntity ? (
+              <CollapsedSummary
+                entity={selectedEntity}
+                hasProfile={profileIds.has(selectedEntity.atlasId)}
+                onRaise={() => setSnap('medium')}
+                onOpen={() => router.push(`/knowledge/atlas/${selectedEntity.atlasId}`)}
+                onDismiss={() => setSelected(null)}
+              />
+            ) : (
+              <div className="sheet-collapsed-action">
+                <button onClick={() => setSnap('medium')} className="collapsed-browse">
+                  Search or browse {results.length} {results.length === 1 ? 'entity' : 'entities'}
+                </button>
+              </div>
+            )
           ) : selectedEntity ? card : (
             <div className="dir-wrap">
               {scopeSeg}
@@ -369,6 +398,30 @@ export default function AtlasPage() {
 }
 
 // ── shared pieces ───────────────────────────────────────────────────────────────
+// Compact selected-entity summary shown in the collapsed dock (registry data only —
+// no fabricated profile facts). Tap the body to raise the sheet; Open navigates.
+function CollapsedSummary({
+  entity, hasProfile, onRaise, onOpen, onDismiss,
+}: {
+  entity: AtlasEntity; hasProfile: boolean; onRaise: () => void; onOpen: () => void; onDismiss: () => void;
+}) {
+  const tier = tierOf(entity.atlasId, hasProfile);
+  const status = tier === 'core' ? 'Core' : tier === 'profiled' ? 'Profiled' : 'No profile';
+  return (
+    <div className="dock-summary">
+      <button className="dock-summary__main" onClick={onRaise} aria-label={`${entity.name} — open details`}>
+        <span className={`dock-summary__dot dock-summary__dot--${tier === 'core' ? 'core' : tier === 'profiled' ? 'prof' : 'none'}`} aria-hidden="true" />
+        <span className="dock-summary__txt">
+          <span className="dock-summary__name">{entity.name}</span>
+          <span className="dock-summary__sub">{entity.region} · {status}</span>
+        </span>
+      </button>
+      <button className="dock-summary__open" onClick={onOpen}>Open →</button>
+      <button className="dock-summary__x" onClick={onDismiss} aria-label="Dismiss selection">✕</button>
+    </div>
+  );
+}
+
 function ScopeSeg({ scope, onScope }: { scope: AtlasScope; onScope: (s: AtlasScope) => void }) {
   return (
     <div className="seg" role="group" aria-label="Scope">
@@ -571,16 +624,34 @@ const CSS = `
 @keyframes ghint{from{opacity:0}to{opacity:.9}}
 
 /* ── mobile bottom sheet (draggable) ── */
-.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:0 16px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;transition:height .28s cubic-bezier(.4,0,.2,1);overflow:hidden}
+.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:0 16px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;transition:height .28s cubic-bezier(.4,0,.2,1),background .2s;overflow:hidden}
 .atlas-immersive .sheet.is-dragging{transition:none}
-/* Never clip the handle + browse row on large safe-area devices. */
-.atlas-immersive .sheet[data-snap="collapsed"]{min-height:calc(112px + env(safe-area-inset-bottom))}
+/* Collapsed = a transparent DOCK: the map/ocean continues behind it; only the
+   handle + one compact row float, with a soft scrim toward the BottomNav. */
+.atlas-immersive .sheet[data-snap="collapsed"]{background:transparent;border-top:none;box-shadow:none;overflow:visible}
+.atlas-immersive .sheet[data-snap="collapsed"]::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(180deg,transparent 0%,rgba(6,10,18,.35) 45%,rgba(6,10,18,.72) 100%)}
 .atlas-immersive .sheet-grab-btn{flex:none;width:100%;height:44px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;padding:0}
 .atlas-immersive .sheet-grab-btn:active{cursor:grabbing}
 .atlas-immersive .sheet-grab-btn:focus-visible{outline:2px solid var(--amber);outline-offset:-4px;border-radius:10px}
 .atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);pointer-events:none}
 .atlas-immersive .sheet-collapsed-action{flex:none;display:flex}
-.atlas-immersive .collapsed-browse{flex:1;min-height:46px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:1px solid var(--line-bright);background:rgba(10,15,26,.6);color:var(--ink-dim);border-radius:10px;font-family:var(--mono);font-size:13px;letter-spacing:.06em;cursor:pointer;backdrop-filter:blur(6px);text-align:center}
+.atlas-immersive .collapsed-browse{flex:1;min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:1px solid var(--line-bright);background:rgba(12,18,30,.82);color:var(--ink-dim);border-radius:12px;font-family:var(--mono);font-size:13px;letter-spacing:.06em;cursor:pointer;backdrop-filter:blur(8px);text-align:center;box-shadow:0 8px 24px -12px rgba(0,0,0,.8)}
+.atlas-immersive .collapsed-browse:hover{color:var(--ink);border-color:var(--amber-br)}
+.atlas-immersive .dock-summary{flex:none;display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line-bright);background:rgba(12,18,30,.86);border-radius:12px;backdrop-filter:blur(8px);box-shadow:0 8px 24px -12px rgba(0,0,0,.8)}
+.atlas-immersive .dock-summary__main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;min-height:44px;padding:0 6px;background:none;border:none;cursor:pointer;text-align:left;font-family:var(--mono)}
+.atlas-immersive .dock-summary__main:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:8px}
+.atlas-immersive .dock-summary__dot{width:9px;height:9px;border-radius:999px;flex:none;border:1px solid}
+.atlas-immersive .dock-summary__dot--core{background:var(--amber);border-color:var(--amber);box-shadow:0 0 6px var(--amber-glow)}
+.atlas-immersive .dock-summary__dot--prof{background:rgba(96,165,250,.9);border-color:var(--blue-bright)}
+.atlas-immersive .dock-summary__dot--none{background:transparent;border-color:var(--ink-faint)}
+.atlas-immersive .dock-summary__txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.atlas-immersive .dock-summary__name{font-family:var(--display);font-weight:600;font-size:16px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.atlas-immersive .dock-summary__sub{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-mute)}
+.atlas-immersive .dock-summary__open{flex:none;min-height:44px;padding:0 14px;border-radius:9px;border:1px solid var(--amber);background:var(--amber);color:#0b0a05;font-family:var(--mono);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.atlas-immersive .dock-summary__open:focus-visible{outline:2px solid var(--amber-br);outline-offset:2px}
+.atlas-immersive .dock-summary__x{flex:none;width:44px;height:44px;display:grid;place-items:center;border-radius:9px;border:1px solid var(--line-bright);background:rgba(15,22,38,.7);color:var(--ink-mute);font-size:13px;cursor:pointer}
+.atlas-immersive .dock-summary__x:hover{color:var(--ink);border-color:var(--amber)}
+.atlas-immersive .dock-summary__x:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .collapsed-browse:hover{color:var(--ink);border-color:var(--amber-br)}
 .atlas-immersive .collapsed-browse:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 

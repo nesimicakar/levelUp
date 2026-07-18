@@ -231,6 +231,16 @@ describe('hero framing (first-open map view)', () => {
     expect(t.k).toBe(HERO_ZOOM);
     expect(t.x).toBeLessThanOrEqual(0);
   });
+  it('a taller dock (larger bottom) seats the world higher', () => {
+    const shortDock = heroTransform(size, { top: 150, bottom: 130 });
+    const tallDock = heroTransform(size, { top: 150, bottom: 260 });
+    const shortCentre = (150 + (size.height - 130)) / 2;
+    const tallCentre = (150 + (size.height - 260)) / 2;
+    // Each keeps its own band centre fixed; the taller dock's centre is higher.
+    expect(tallCentre).toBeLessThan(shortCentre);
+    expect(tallDock.k * tallCentre + tallDock.y).toBeCloseTo(tallCentre, 3);
+    expect(shortDock.k * shortCentre + shortDock.y).toBeCloseTo(shortCentre, 3);
+  });
 });
 
 describe('fitBoxInset (fly-to above the sheet)', () => {

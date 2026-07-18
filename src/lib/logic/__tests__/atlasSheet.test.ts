@@ -12,8 +12,8 @@ describe('sheetHeights', () => {
     expect(g.collapsed).toBeLessThan(g.medium);
     expect(g.medium).toBeLessThan(g.expanded);
   });
-  it('caps the collapsed height so it stays compact on tall screens', () => {
-    expect(sheetHeights(2000).collapsed).toBe(138);
+  it('collapsed is a ~30% transparent dock (defines a short hero region)', () => {
+    expect(sheetHeights(800).collapsed).toBe(240);
   });
   it('guards against tiny shells (never below the 320 floor math)', () => {
     const g = sheetHeights(100);
