@@ -51,7 +51,6 @@ export default function AtlasPage() {
   const [scope, setScope] = useState<AtlasScope>('all');
   const [selected, setSelected] = useState<string | null>(null);
   const [activeContinent, setActiveContinent] = useState('World');
-  const [browseAll, setBrowseAll] = useState(false);
   const [hintVisible, setHintVisible] = useState(true);
   const [profile, setProfile] = useState<AtlasCountry | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -106,11 +105,6 @@ export default function AtlasPage() {
     return () => { cancelled = true; };
   }, [selected, profileIds]);
 
-  // Selecting a country should reveal its card — lift a collapsed sheet to medium.
-  useEffect(() => {
-    if (selected) setSnap(s => (s === 'collapsed' ? 'medium' : s));
-  }, [selected]);
-
   const results = useMemo(
     () => filterEntities(query, filterByScope(scope, profileIds)),
     [query, scope, profileIds],
@@ -119,9 +113,14 @@ export default function AtlasPage() {
   const activeProfile = profile && selectedEntity && profile.atlasId === selectedEntity.atlasId ? profile : null;
   const ready = topo.status === 'ready';
 
+  // From search/list: select, collapse the sheet, then focus the entity into the
+  // band above the collapsed sheet (after the collapsed re-projection commits).
   const selectAndFocus = (atlasId: string) => {
     setSelected(atlasId);
-    mapRef.current?.focusEntity(atlasId);
+    setSnap('collapsed');
+    requestAnimationFrame(() => {
+      mapRef.current?.focusEntity(atlasId, { top: 118, bottom: snapHeight('collapsed', shellH), x: 16 });
+    });
   };
   const focusContinent = (name: string) => {
     setActiveContinent(name);
@@ -166,8 +165,6 @@ export default function AtlasPage() {
     else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSnap(s => toggleSnap(s)); }
   };
 
-  const showAllRows = browseAll || query.trim().length > 0;
-
   const card = selectedEntity ? (
     <SelectedCard
       entity={selectedEntity}
@@ -193,12 +190,10 @@ export default function AtlasPage() {
   );
 
   const directoryList = (
-    <DirectoryList
-      results={results} query={query} browseAll={browseAll}
-      onBrowseAll={() => setBrowseAll(v => !v)} onSelectRow={selectAndFocus}
-      profileIds={profileIds} full={isDesktop} showAll={showAllRows}
-    />
+    <DirectoryList results={results} onSelectRow={selectAndFocus} profileIds={profileIds} />
   );
+
+  const scopeSeg = <ScopeSeg scope={scope} onScope={setScope} />;
 
   const legend = (
     <div className="map-legend" aria-hidden="true">
@@ -275,7 +270,6 @@ export default function AtlasPage() {
 
             {!isDesktop && (
               <div className="hud-r3">
-                <ScopeSeg scope={scope} onScope={setScope} />
                 <ReviewPlaceholder variant="pill" />
               </div>
             )}
@@ -310,7 +304,7 @@ export default function AtlasPage() {
           </div>
           <ReviewPlaceholder variant="banner" />
           <div className="rail-scope">
-            <ScopeSeg scope={scope} onScope={setScope} />
+            {scopeSeg}
             {searchField}
           </div>
           {card}
@@ -339,6 +333,7 @@ export default function AtlasPage() {
           {snap !== 'collapsed' && legend}
           {selectedEntity ? card : (
             <div className="dir-wrap">
+              {scopeSeg}
               {searchField}
               {directoryList}
             </div>
@@ -380,27 +375,20 @@ function ReviewPlaceholder({ variant }: { variant: 'pill' | 'banner' }) {
 }
 
 function DirectoryList({
-  results, query, browseAll, onBrowseAll, onSelectRow, profileIds, full, showAll,
+  results, onSelectRow, profileIds,
 }: {
-  results: AtlasEntity[]; query: string; browseAll: boolean; onBrowseAll: () => void;
-  onSelectRow: (atlasId: string) => void; profileIds: Set<string>; full: boolean; showAll: boolean;
+  results: AtlasEntity[]; onSelectRow: (atlasId: string) => void; profileIds: Set<string>;
 }) {
-  const visible = (full || showAll) ? results : results.slice(0, 4);
   return (
     <>
       <div className="dir-head">
         <span className="dir-count" role="status" aria-live="polite">{results.length} {results.length === 1 ? 'ENTITY' : 'ENTITIES'}</span>
-        {!full && query.trim() === '' && results.length > 4 && (
-          <button className="browse-toggle" onClick={onBrowseAll}>
-            {browseAll ? 'Show less' : `Browse all ${results.length}…`}
-          </button>
-        )}
       </div>
       {results.length === 0 ? (
         <p className="dir-empty">No matching countries or territories.</p>
       ) : (
         <div className="dir-list">
-          {visible.map(e => {
+          {results.map(e => {
             const tier = tierOf(e.atlasId, profileIds.has(e.atlasId));
             return (
               <button key={e.atlasId} className="dir-row" onClick={() => onSelectRow(e.atlasId)}>
@@ -534,7 +522,7 @@ const CSS = `
 .atlas-immersive .pill:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .pill.is-active{color:#0b0a05;background:var(--amber);border-color:var(--amber);font-weight:600;box-shadow:0 0 14px var(--amber-glow)}
 
-.atlas-immersive .hud-r3{display:flex;align-items:center;gap:10px;overflow-x:auto;scrollbar-width:none}
+.atlas-immersive .hud-r3{display:flex;align-items:center;justify-content:flex-end;gap:10px;overflow-x:auto;scrollbar-width:none}
 .atlas-immersive .hud-r3::-webkit-scrollbar{display:none}
 .atlas-immersive .hud-r3 > *{flex:none}
 .atlas-immersive .seg{display:flex;flex:none;border:1px solid var(--line-bright);border-radius:9px;overflow:hidden;background:rgba(10,15,26,.7);backdrop-filter:blur(6px)}
@@ -594,6 +582,8 @@ const CSS = `
 .atlas-immersive .lg-sw--mk{border-radius:999px;background:var(--amber-br);border-color:var(--amber);width:9px;height:9px}
 
 .atlas-immersive .dir-wrap{display:flex;flex-direction:column;gap:9px;flex:1 1 auto;min-height:0}
+.atlas-immersive .dir-wrap .seg{width:100%;flex:none}
+.atlas-immersive .dir-wrap .seg button{flex:1}
 .atlas-immersive .atlas-search{display:flex;align-items:center;gap:9px;min-height:44px;padding:0 13px;border:1px solid var(--line-bright);border-radius:10px;background:var(--bg-2);flex:none}
 .atlas-immersive .atlas-search svg{width:16px;height:16px;color:var(--ink-mute);flex:none}
 .atlas-immersive .atlas-search input{flex:1;background:none;border:none;outline:none;color:var(--ink);font-family:var(--mono);font-size:14px;min-width:0}
@@ -601,8 +591,6 @@ const CSS = `
 .atlas-immersive .atlas-search:focus-within{border-color:var(--amber)}
 .atlas-immersive .dir-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none}
 .atlas-immersive .dir-count{font-size:10px;letter-spacing:.16em;color:var(--ink-mute);text-transform:uppercase}
-.atlas-immersive .browse-toggle{background:none;border:none;color:var(--amber-br);font-family:var(--mono);font-size:11px;letter-spacing:.06em;cursor:pointer;min-height:32px}
-.atlas-immersive .browse-toggle:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px}
 .atlas-immersive .dir-empty{font-size:11px;color:var(--ink-mute);padding:12px 2px}
 .atlas-immersive .dir-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;scrollbar-width:thin;flex:1 1 auto;min-height:0;padding-bottom:4px}
 .atlas-immersive .dir-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer;text-align:left;font-family:var(--mono);transition:border-color .15s,background .15s}
@@ -657,7 +645,6 @@ const CSS = `
   .atlas-immersive .seg button{min-height:44px}
   .atlas-immersive .icn-btn:not(.hud-manage){width:44px;height:44px}
   .atlas-immersive .hud-manage{height:44px}
-  .atlas-immersive .browse-toggle{min-height:44px}
   .atlas-immersive .review-pill,.atlas-immersive .review-banner{min-height:44px}
 }
 `;

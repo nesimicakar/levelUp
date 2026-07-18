@@ -4,7 +4,7 @@ import {
   clampScale, clampTranslate, zoomAtPoint, applyWheel, panBy,
   distance, midpoint, beginPinch, updatePinch, shouldPinch, fitBox,
   tweenDuration, lerpTransform, dragPan, exceedsTapThreshold, TAP_MOVE_THRESHOLD,
-  boundsToBox, pointBox,
+  boundsToBox, pointBox, fitBoxInset,
   type Transform, type Point, type Box,
 } from '../atlasViewport';
 import { matchFeatureToAtlasId } from '../atlasGeo';
@@ -199,6 +199,33 @@ describe('boundsToBox / pointBox (fly-to geometry)', () => {
     const t = fitBox(pointBox({ x: 200, y: 200 }, 24));
     expect(t.k).toBeGreaterThanOrEqual(MIN_K);
     expect(t.k).toBeLessThanOrEqual(MAX_K);
+  });
+});
+
+describe('fitBoxInset (fly-to above the sheet)', () => {
+  it('centers the box within the inset region, not the full viewport', () => {
+    const size = { width: 400, height: 800 };
+    const inset = { top: 100, bottom: 300, x: 20 }; // visible band centre: (200, 300)
+    const box: Box = { x: 180, y: 380, w: 40, h: 40 };
+    const t = fitBoxInset(box, size, inset, 0.8);
+    expect(t.k * 200 + t.x).toBeCloseTo(200, 3);
+    expect(t.k * 400 + t.y).toBeCloseTo(300, 3);
+  });
+  it('stays within zoom + translate bounds for a corner marker box', () => {
+    const size = { width: 400, height: 800 };
+    const t = fitBoxInset({ x: 0, y: 0, w: 20, h: 20 }, size, { top: 100, bottom: 300, x: 16 }, 0.7);
+    expect(t.k).toBeGreaterThanOrEqual(MIN_K);
+    expect(t.k).toBeLessThanOrEqual(MAX_K);
+    expect(t.x).toBeLessThanOrEqual(0);
+    expect(t.y).toBeLessThanOrEqual(0);
+  });
+  it('a smaller bottom inset (collapsed sheet) frames lower than a larger one', () => {
+    const size = { width: 400, height: 800 };
+    const box: Box = { x: 190, y: 390, w: 20, h: 20 };
+    const collapsed = fitBoxInset(box, size, { top: 118, bottom: 180, x: 16 });
+    const medium = fitBoxInset(box, size, { top: 118, bottom: 440, x: 16 });
+    // Same entity centre lands lower on screen when the sheet is collapsed.
+    expect(collapsed.k * 400 + collapsed.y).toBeGreaterThan(medium.k * 400 + medium.y);
   });
 });
 

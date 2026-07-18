@@ -153,6 +153,25 @@ export function fitBox(box: Box, size: ViewportSize = VIEW_SIZE, fill = 0.9): Tr
   return clampTranslate({ k, x: size.width / 2 - k * cx, y: size.height / 2 - k * cy }, size);
 }
 
+export interface ViewInset { top: number; bottom: number; x: number; }
+
+/**
+ * Fit a box into the VISIBLE sub-region of the viewport — excluding the floating
+ * HUD (`top`) and the bottom sheet (`bottom`), with an `x` side inset — centered
+ * there. Used to fly-to a selected entity so it lands above the sheet rather than
+ * behind it. Proportions are preserved (single scale factor).
+ */
+export function fitBoxInset(box: Box, size: ViewportSize, inset: ViewInset, fill = 0.72): Transform {
+  const rw = Math.max(1, size.width - inset.x * 2);
+  const rh = Math.max(1, size.height - inset.top - inset.bottom);
+  const k = clampScale(Math.min(rw / box.w, rh / box.h) * fill);
+  const rcx = inset.x + rw / 2;
+  const rcy = inset.top + rh / 2;
+  const bcx = box.x + box.w / 2;
+  const bcy = box.y + box.h / 2;
+  return clampTranslate({ k, x: rcx - k * bcx, y: rcy - k * bcy }, size);
+}
+
 // ── Transitions (reduced-motion aware) ────────────────────────────────────────
 
 export function tweenDuration(reducedMotion: boolean, normalMs = 320): number {

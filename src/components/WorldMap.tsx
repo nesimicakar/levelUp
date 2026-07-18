@@ -15,8 +15,8 @@ import {
   VIEW_SIZE, WORLD_TRANSFORM,
   applyWheel, panBy, beginPinch, updatePinch, shouldPinch, fitBox,
   zoomAtPoint, clampTranslate, tweenDuration, lerpTransform,
-  dragPan, exceedsTapThreshold, boundsToBox, pointBox,
-  type Transform, type Point, type Box, type PinchState, type ViewportSize,
+  dragPan, exceedsTapThreshold, boundsToBox, pointBox, fitBoxInset,
+  type Transform, type Point, type Box, type PinchState, type ViewportSize, type ViewInset,
 } from '@/lib/logic/atlasViewport';
 
 const ENTITY_NAME = new Map(ATLAS_ENTITIES.map(e => [e.atlasId, e.name]));
@@ -111,7 +111,8 @@ interface WorldMapProps {
 /** Imperative controls exposed to a parent HUD/rail (Stage 3+). */
 export interface WorldMapHandle {
   focusContinent: (name: string) => void;
-  focusEntity: (atlasId: string) => void;
+  /** Fly to an entity. With `inset`, it is centered in the band above the sheet. */
+  focusEntity: (atlasId: string, inset?: ViewInset) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   recenter: () => void;
@@ -309,11 +310,13 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     animateTo(name === 'World' ? WORLD_TRANSFORM : fitBox(continentBoxes[name], sizeRef.current));
   }, [animateTo, continentBoxes]);
 
-  const focusEntity = useCallback((atlasId: string) => {
+  const focusEntity = useCallback((atlasId: string, inset?: ViewInset) => {
     const box = entityBoxes[atlasId];
     if (!box) return;
     cancelAnim();
-    animateTo(fitBox(box, sizeRef.current, 0.55)); // fill ~55% so the country keeps context
+    // With an inset, center the entity in the visible band above the sheet;
+    // otherwise center it in the whole viewport. Both preserve proportions.
+    animateTo(inset ? fitBoxInset(box, sizeRef.current, inset) : fitBox(box, sizeRef.current, 0.55));
   }, [animateTo, entityBoxes]);
 
   const zoomButton = useCallback((dir: 1 | -1) => {
