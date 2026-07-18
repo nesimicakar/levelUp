@@ -19,6 +19,7 @@ import type {
   KnowledgeConcept,
   KnowledgeReview,
   CaliSession,
+  AtlasCountry,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
@@ -40,6 +41,7 @@ export class LevelUpDB extends Dexie {
   knowledgeConcepts!: Table<KnowledgeConcept, string>;
   knowledgeReviews!: Table<KnowledgeReview, number>;
   nafileLogs!: Table<NafileLog, number>;
+  atlasCountries!: Table<AtlasCountry, string>;
 
   constructor() {
     super('LevelUpDB');
@@ -151,6 +153,30 @@ export class LevelUpDB extends Dexie {
       knowledgeReviews: '++id, conceptId, date, createdAt',
       caliSessions: '++id, date, completed, createdAt',
       nafileLogs: '++id, date, createdAt',
+    });
+    this.version(9).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
+      caliSessions: '++id, date, completed, createdAt',
+      nafileLogs: '++id, date, createdAt',
+      // World Atlas: user-owned country profiles keyed by internal atlasId.
+      // iso3 is optional/non-unique here (entities without an official code
+      // store nothing in it), so it is a plain secondary index, not unique.
+      atlasCountries: '&atlasId, iso3, name, updatedAt',
     });
   }
 }
@@ -343,6 +369,41 @@ export async function getReviewsForConcept(conceptId: string): Promise<Knowledge
 
 export async function addReview(review: KnowledgeReview): Promise<void> {
   await db.knowledgeReviews.add(review);
+}
+
+// ===== World Atlas Helpers ===== //
+//
+// Country PROFILES only. Geometry and the entity registry are static app data
+// (src/lib/data/atlasEntities.ts) and are never persisted here.
+
+export async function getAllAtlasCountries(): Promise<AtlasCountry[]> {
+  return db.atlasCountries.orderBy('name').toArray();
+}
+
+export async function getAtlasCountry(atlasId: string): Promise<AtlasCountry | undefined> {
+  return db.atlasCountries.get(atlasId);
+}
+
+/** Set of atlasIds that currently have a profile — for map "has profile" styling. */
+export async function getAtlasCountryIds(): Promise<Set<string>> {
+  const keys = await db.atlasCountries.toCollection().keys();
+  return new Set(keys as string[]);
+}
+
+/** Insert or fully replace a profile (caller supplies the complete record). */
+export async function putAtlasCountry(country: AtlasCountry): Promise<void> {
+  await db.atlasCountries.put(country);
+}
+
+export async function updateAtlasCountry(
+  atlasId: string,
+  partial: Partial<AtlasCountry>,
+): Promise<void> {
+  await db.atlasCountries.update(atlasId, { ...partial, updatedAt: Date.now() });
+}
+
+export async function deleteAtlasCountry(atlasId: string): Promise<void> {
+  await db.atlasCountries.delete(atlasId);
 }
 
 // ===== Calisthenics Helpers ===== //

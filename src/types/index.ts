@@ -181,8 +181,43 @@ export interface ExpressionItem {
   meaning: string;
 }
 
-export interface ExpressionCompletion {
+/** The eight authorable top-level Daily Idea categories. "Other" is a runtime
+ *  fallback only (for legacy/invalid data) and is intentionally NOT listed here. */
+export type DailyIdeaCategory =
+  | 'History' | 'Literature' | 'Psychology' | 'Business'
+  | 'Language' | 'Philosophy' | 'Science' | 'Culture';
+
+/** Normalized Daily Idea — the single internal shape both the structured JSON
+ *  bank and the legacy pipe-delimited bank are parsed into. Field derivation:
+ *  structured entries keep their explicit values; legacy entries map
+ *  idea→title, source→topic/source, and infer category from source. */
+export interface DailyIdea {
+  /** Position in the parsed bank. Drives index-based completion lookup (kept for
+   *  backward compatibility with existing ExpressionCompletion records). */
   index: number;
+  /** Explicit id (structured) or generated fallback (legacy: `legacy-<index>`). */
+  id: string;
+  /** Structured `title`, or the legacy `idea` field. */
+  title: string;
+  /** Resolved category KEY (lowercase, e.g. 'history') or 'other' fallback.
+   *  Not the raw label — display label/icon are looked up from the key. */
+  category: string;
+  meaning: string;
+  topic?: string;
+  context?: string;
+  example?: string;
+  takeaway?: string;
+  /** Legacy source attribution, retained internally for display + category fallback. */
+  source?: string;
+}
+
+export interface ExpressionCompletion {
+  /** Legacy positional key. Still written for back-compat, but attribution now
+   *  resolves by `ideaId`. Legacy records may predate `ideaId`. */
+  index: number;
+  /** Stable id of the completed Daily Idea. Present on all new completions;
+   *  absent on legacy records (which the user resets manually). */
+  ideaId?: string;
   date: string;
   completedAt: number;
   status?: 'read' | 'known';
@@ -412,6 +447,168 @@ export interface KnowledgeReview {
   newIntervalDays: number;
   date: string;         // YYYY-MM-DD
   createdAt: number;
+}
+
+// ── World Atlas ──────────────────────────────────────────────────────────────
+//
+// Design split (Stage 1):
+//   • GEOMETRY is a built-in app asset (Natural Earth / world-atlas TopoJSON).
+//     It is never stored in the database and never included in backups.
+//   • The ENTITY REGISTRY (src/lib/data/atlasEntities.ts) is a static, canonical
+//     list of geographic entities the map can render. It is app data, not user
+//     data — also never stored in the database.
+//   • A COUNTRY PROFILE (AtlasCountry) is the only user-owned, imported/edited
+//     record. It decorates a registry entity by `atlasId`. Absence of a profile
+//     is normal: the map still renders the entity from geometry + registry.
+
+/**
+ * Political/geographic classification. Lets partially recognized states,
+ * territories, and disputed areas appear on the map without forcing a
+ * misleading "sovereign or nothing" binary.
+ */
+export type AtlasEntityStatus =
+  | 'sovereign'       // widely recognized sovereign state
+  | 'partial'         // partially recognized state (e.g. Kosovo, Taiwan)
+  | 'territory'       // dependency / territory of another state
+  | 'disputed';       // disputed area without settled control
+
+/**
+ * One row of the canonical geographic entity registry. Static app data —
+ * the stable bridge between map geometry and (optional) user profiles.
+ */
+export interface AtlasEntity {
+  /** Internal stable primary key. Never changes, even if ISO codes do. */
+  atlasId: string;
+  /** ISO 3166-1 alpha-3. Optional: some entities have no official code. */
+  iso3?: string;
+  /** ISO 3166-1 numeric, as strings match world-atlas feature ids. Optional. */
+  isoNumeric?: string;
+  /** Display name. */
+  name: string;
+  /** Political/geographic classification. */
+  status: AtlasEntityStatus;
+  /** Continent / region grouping, for list navigation and future map layers. */
+  region: string;
+}
+
+/** A quantitative, time-stamped, sourced numeric fact (population, GDP, area…). */
+export interface AtlasMetric {
+  /** Numeric value — enables future comparison, sorting, and map layers. */
+  value: number;
+  /** Unit, e.g. 'people', 'USD', 'km2', 'USD/capita'. */
+  unit: string;
+  /** The year/date the figure describes, e.g. '2024' or '2023-Q4'. */
+  asOf: string;
+  /** Where the figure came from, e.g. 'UN WPP 2024', 'IMF WEO Oct 2023'. */
+  source?: string;
+  /** Optional pre-formatted display string, e.g. '≈85 million'. */
+  display?: string;
+}
+
+/** Free-form section outside the standard structured fields. */
+export interface AtlasExtraSection {
+  title: string;
+  body: string;
+}
+
+/**
+ * Structured "at a glance" snapshot. Quantitative facts are AtlasMetric
+ * (numeric + asOf + source); descriptive facts are plain strings.
+ */
+export interface AtlasSnapshot {
+  capital?: string;
+  largestCity?: string;
+  majorCities?: string[];
+  officialLanguages?: string[];
+  currency?: string;
+  government?: string;
+  population?: AtlasMetric;
+  area?: AtlasMetric;
+  gdpNominal?: AtlasMetric;
+  gdpPerCapita?: AtlasMetric;
+}
+
+/** Geography: physical setting. Neighbors here are AUTHORED maritime/strategic. */
+export interface AtlasGeography {
+  overview?: string;
+  terrain?: string;
+  climate?: string;
+  // Standard structured geography (promoted from extraSections in Stage 4.1).
+  majorRegions?: string[];
+  mountains?: string[];
+  rivers?: string[];
+  lakes?: string[];
+  seasAndOceans?: string[];
+  /** Canonically a geography field as of Stage 4.1 (economy.naturalResources kept for back-compat). */
+  naturalResources?: string[];
+  /**
+   * Maritime neighbors (across water) — authored, since they cannot be derived
+   * from shared land borders. Values are `atlasId`s. Land neighbors are derived
+   * from map topology at render time and are NOT stored here.
+   */
+  maritimeNeighborIds?: string[];
+}
+
+/** Economy: how the country makes its living. */
+export interface AtlasEconomy {
+  overview?: string;
+  // Legacy fields (Stage 1) — retained for backward compatibility.
+  keyIndustries?: string[];
+  naturalResources?: string[];
+  exports?: string[];
+  // Standard structured economy (promoted from extraSections in Stage 4.1).
+  majorIndustries?: string[];
+  majorExports?: string[];
+  majorImports?: string[];
+  strengths?: string[];
+  challenges?: string[];
+}
+
+/** Relationships: strategic posture. Authored, not derived. */
+export interface AtlasRelationships {
+  overview?: string;
+  alliances?: string[];       // e.g. 'NATO', 'EU', 'BRICS'
+  /** Strategic partners/rivals as `atlasId`s, authored (not land adjacency). */
+  keyPartnerIds?: string[];
+  keyRivalIds?: string[];
+}
+
+/**
+ * A user-owned country profile. Decorates a registry entity by `atlasId`.
+ * Primary key is `atlasId` (internal, stable) — NOT iso3, which is optional.
+ *
+ * Ownership boundary for re-import (Stage 2 contract):
+ *   • `personalNotes` and `createdAt` are user-owned — preserved across re-import.
+ *   • Everything else is reference content — refreshed from the pack.
+ *   • `relatedConceptIds` is NOT blindly preserved. It is import-derived: the
+ *     pack carries `relatedConceptTitles`, which are re-resolved against the
+ *     CURRENT Vault concepts on every import, and the result REPLACES this
+ *     field. (There is no separate user-curated relationship field; if one is
+ *     added later, only that field would be preserved.)
+ */
+export interface AtlasCountry {
+  atlasId: string;              // primary key — matches AtlasEntity.atlasId
+  iso3?: string;                // denormalized for convenience; optional
+  name: string;                 // snapshot of display name at import time
+
+  summary: string;              // one-paragraph orientation
+
+  snapshot: AtlasSnapshot;
+  geography: AtlasGeography;
+  economy: AtlasEconomy;
+  relationships: AtlasRelationships;
+  history: string;              // narrative: origins → turning points → legacy
+  whyItMatters: string;         // narrative: significance in the world
+  rememberThese: string[];      // durable takeaways / conversation hooks
+
+  extraSections?: AtlasExtraSection[];  // only for info outside the standard shape
+
+  // ── User-owned (preserved across re-import) ──
+  personalNotes?: string;
+  relatedConceptIds: string[];  // bridges into the Knowledge Vault graph
+
+  createdAt: number;
+  updatedAt: number;
 }
 
 export const STAT_LABELS: Record<StatType, string> = {

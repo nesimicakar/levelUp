@@ -15,6 +15,8 @@ import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
 import Link from 'next/link';
 import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
 import { setDisciplineLog, getYesterday } from '@/lib/logic/discipline';
+import { selectExpressionState } from '@/lib/logic/expressions';
+import type { DailyIdea } from '@/types';
 
 const HUNTER_TITLES: Record<string, string> = {
   E: 'Weak Hunter',
@@ -37,6 +39,9 @@ interface DashboardState {
   overcharge: boolean;
   requiredComplete: boolean;
   showCharacterVisuals: boolean;
+  /** Today's Daily Idea preview for the Home discovery card.
+   *  null when the feature is disabled or the bank is empty. */
+  exprPreview: DailyIdea | null;
   loaded: boolean;
 }
 
@@ -55,6 +60,7 @@ export default function Dashboard() {
     overcharge: false,
     requiredComplete: false,
     showCharacterVisuals: true,
+    exprPreview: null,
     loaded: false,
   });
   const [showDailyComplete, setShowDailyComplete] = useState(false);
@@ -278,6 +284,9 @@ export default function Dashboard() {
       rank: latestRank?.rank ?? 'E',
       promotionWeeks: Math.min(promotionWeeks, 4),
       showCharacterVisuals: settings.showCharacterVisuals ?? true,
+      // Daily Expressions — optional discovery card, no protocol effect. Preview the
+      // next unread expression (or null when disabled / bank empty / all read).
+      exprPreview: selectExpressionState(settings, today).currentExpression ?? null,
       dailyPct,
       overcharge,
       requiredComplete: basePctRaw >= 100,
@@ -787,6 +796,36 @@ export default function Dashboard() {
           </div>
         );
       })()}
+
+      {/* ── Daily Expressions — optional discovery card ─────────────────
+          Purely optional enrichment: no protocol progress, no daily %. Only
+          shown when enabled with an unread expression available. */}
+      {state.exprPreview && (
+        <Link
+          href="/expressions"
+          className="block mt-5 frame-cut transition-colors"
+          style={{
+            padding: '12px 14px',
+            borderColor: 'rgba(96,165,250,0.20)',
+            background: 'rgba(96,165,250,0.02)',
+          }}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span style={{ fontSize: 10, color: 'var(--color-stat-int)', letterSpacing: '0.18em' }}>
+              💡 TODAY&apos;S IDEA
+            </span>
+            <span style={{ fontSize: 10, color: 'var(--color-text-dim)', letterSpacing: '0.1em' }}>
+              LEARN →
+            </span>
+          </div>
+          <div className="font-display font-semibold text-sm text-text leading-snug">
+            {state.exprPreview.title}
+          </div>
+          <div className="text-text-muted text-xs italic mt-1 leading-relaxed">
+            “{state.exprPreview.meaning}”
+          </div>
+        </Link>
+      )}
 
     </main>
     </>

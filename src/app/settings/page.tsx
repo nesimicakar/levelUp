@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getSettings, getToday, updateSettings, deleteCustomTask } from '@/lib/db';
+import { validateIdeaBank } from '@/lib/logic/expressions';
 import type { UserSettings, CustomTask, StatType } from '@/types';
 
 const SKILL_OPTIONS: StatType[] = ['STR', 'AGI', 'VIT', 'INT', 'PER'];
@@ -54,6 +55,7 @@ export default function SettingsPage() {
   const [importFileKey, setImportFileKey] = useState(0);
   const [sentenceBankDraft, setSentenceBankDraft] = useState('');
   const [expressionBankDraft, setExpressionBankDraft] = useState('');
+  const [confirmResetIdeas, setConfirmResetIdeas] = useState(false);
 
   const loadSettings = useCallback(async () => {
     const s = await getSettings();
@@ -106,12 +108,19 @@ export default function SettingsPage() {
     setTimeout(() => setSaved(false), 1500);
   };
 
+  // Reset ONLY Daily Ideas completions (the Knowledge Collection). Leaves the
+  // Idea Bank and every other setting/table untouched. Never runs automatically.
+  const resetIdeaCompletions = async () => {
+    await update({ expressionCompletions: [] });
+    setConfirmResetIdeas(false);
+  };
+
   const exportBackup = async () => {
     const [strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries,
       courseProgress, rankHistory, achievements, settingsArr, customTaskLogs,
       disciplineStreaks, disciplineLogs,
       knowledgeDomains, knowledgeConcepts, knowledgeReviews,
-      caliSessions] = await Promise.all([
+      caliSessions, nafileLogs, atlasCountries] = await Promise.all([
       db.strSessions.toArray(),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
@@ -129,11 +138,13 @@ export default function SettingsPage() {
       db.knowledgeConcepts.toArray(),
       db.knowledgeReviews.toArray(),
       db.caliSessions.toArray(),
+      db.nafileLogs.toArray(),
+      db.atlasCountries.toArray(),
     ]);
     const data = {
       appVersion: 'dev',
       exportedAt: new Date().toISOString(),
-      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews, caliSessions },
+      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews, caliSessions, nafileLogs, atlasCountries },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -172,7 +183,7 @@ export default function SettingsPage() {
         db.achievements, db.settings, db.customTaskLogs,
         db.disciplineStreaks, db.disciplineLogs,
         db.knowledgeDomains, db.knowledgeConcepts, db.knowledgeReviews,
-        db.caliSessions],
+        db.caliSessions, db.nafileLogs, db.atlasCountries],
         async () => {
           await db.strSessions.clear();        await db.strSessions.bulkPut(arr('strSessions') as never[]);
           await db.agiLogs.clear();            await db.agiLogs.bulkPut(arr('agiLogs') as never[]);
@@ -191,6 +202,8 @@ export default function SettingsPage() {
           await db.knowledgeConcepts.clear();  await db.knowledgeConcepts.bulkPut(arr('knowledgeConcepts') as never[]);
           await db.knowledgeReviews.clear();   await db.knowledgeReviews.bulkPut(arr('knowledgeReviews') as never[]);
           await db.caliSessions.clear();       await db.caliSessions.bulkPut(arr('caliSessions') as never[]);
+          await db.nafileLogs.clear();         await db.nafileLogs.bulkPut(arr('nafileLogs') as never[]);
+          await db.atlasCountries.clear();     await db.atlasCountries.bulkPut(arr('atlasCountries') as never[]);
         }
       );
       window.location.reload();
@@ -211,6 +224,12 @@ export default function SettingsPage() {
   }, {} as Record<StatType, CustomTask[]>);
 
   const spiritualityEnabled = settings.enableSpirituality ?? false;
+  // Live validation of the Idea Bank draft (recomputed each render as the user types).
+  const ideaValidation = validateIdeaBank(expressionBankDraft);
+  const ideaFormatLabel =
+    ideaValidation.format === 'structured' ? 'Structured JSON'
+    : ideaValidation.format === 'legacy' ? 'Legacy (pipe-delimited)'
+    : 'Empty';
 
   return (
     <div>
@@ -372,10 +391,10 @@ export default function SettingsPage() {
         )}
 
         {/* DAILY EXPRESSIONS */}
-        <SectionHeader label="Daily Expressions" />
+        <SectionHeader label="Daily Ideas" />
         <CompactToggleRow
           stat="INT"
-          label="Enable Daily Expressions"
+          label="Enable Daily Ideas"
           on={settings.enableDailyExpressions ?? false}
           onChange={v => update({ enableDailyExpressions: v })}
           last={!(settings.enableDailyExpressions ?? false)}
@@ -384,21 +403,112 @@ export default function SettingsPage() {
           <div className="space-y-3 pt-2 pb-3">
             <div>
               <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">
-                Expression Bank
-                <span className="normal-case tracking-normal text-text-muted/60 ml-1">(expression | source | meaning, one per line)</span>
+                Idea Bank
+                <span className="normal-case tracking-normal text-text-muted/60 ml-1">
+                  (structured JSON preferred; legacy <span className="font-mono">idea | source | meaning</span> also supported)
+                </span>
               </p>
               <textarea
                 value={expressionBankDraft}
                 onChange={e => setExpressionBankDraft(e.target.value)}
                 onBlur={() => update({ expressionBank: expressionBankDraft })}
-                placeholder={'I can resist everything except temptation. | Oscar Wilde | A witty line about desire.\nAlea iacta est. | Julius Caesar / Latin | The die is cast.'}
-                rows={8}
+                placeholder={'{\n  "type": "levelup-daily-ideas-bank",\n  "version": 1,\n  "ideas": [\n    { "id": "pyrrhic-victory", "title": "Pyrrhic Victory", "category": "History", "meaning": "A victory so costly it is almost a defeat." }\n  ]\n}\n\n— or legacy —\nPyrrhic Victory | Ancient Greece | A victory so costly it is almost a defeat.'}
+                rows={10}
                 className="w-full bg-transparent border border-border text-text text-xs px-3 py-2 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors resize-none leading-relaxed font-mono"
                 style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
               />
-              <p className="font-mono-hud text-[9px] text-text-muted mt-1">
-                {parseExpressionCount(expressionBankDraft)} expressions loaded
-              </p>
+
+              {/* Detected format + valid count */}
+              <div className="flex items-center justify-between mt-1.5">
+                <span className="font-mono-hud text-[9px] text-text-muted">
+                  Format: <span style={{ color: 'var(--color-stat-int)' }}>{ideaFormatLabel}</span>
+                </span>
+                <span className="font-mono-hud text-[9px] text-text-muted">
+                  {ideaValidation.count} valid idea{ideaValidation.count === 1 ? '' : 's'} loaded
+                </span>
+              </div>
+
+              {/* Validation errors — shown without altering the user's input */}
+              {ideaValidation.errors.length > 0 && (
+                <div
+                  className="mt-2 px-3 py-2 space-y-0.5"
+                  style={{ border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.06)' }}
+                >
+                  <p className="font-mono-hud text-[9px] tracking-[0.12em] uppercase" style={{ color: 'rgba(239,68,68,0.9)' }}>
+                    {ideaValidation.errors.length} issue{ideaValidation.errors.length === 1 ? '' : 's'} — not saved as valid
+                  </p>
+                  {ideaValidation.errors.slice(0, 12).map((err, i) => (
+                    <p key={i} className="font-mono text-[10px] text-text-muted leading-snug">• {err}</p>
+                  ))}
+                  {ideaValidation.errors.length > 12 && (
+                    <p className="font-mono text-[10px] text-text-muted/70">…and {ideaValidation.errors.length - 12} more</p>
+                  )}
+                </div>
+              )}
+
+              {/* Schema hint */}
+              <details className="mt-2">
+                <summary className="font-mono-hud text-[9px] tracking-[0.12em] uppercase text-text-muted cursor-pointer select-none">
+                  Structured JSON schema (preferred)
+                </summary>
+                <pre className="mt-1.5 px-3 py-2 text-[10px] leading-relaxed text-text-muted overflow-x-auto font-mono" style={{ border: '1px solid var(--color-border)', background: 'rgba(255,255,255,0.02)' }}>
+{`{
+  "type": "levelup-daily-ideas-bank",
+  "version": 1,
+  "ideas": [
+    {
+      "id": "pyrrhic-victory",      // required, unique
+      "title": "Pyrrhic Victory",   // required
+      "category": "History",        // required — one of:
+                                    //   History, Literature, Psychology,
+                                    //   Business, Language, Philosophy,
+                                    //   Science, Culture
+      "meaning": "A victory so costly it is almost a defeat.", // required
+      "topic": "Ancient Greece",    // optional
+      "context": "From King Pyrrhus…", // optional
+      "example": "Winning the suit was a Pyrrhic victory.", // optional
+      "takeaway": "Winning ≠ succeeding." // optional
+    }
+  ]
+}`}
+                </pre>
+              </details>
+            </div>
+
+            {/* Reset Knowledge Collection — clears ONLY Daily Ideas completions */}
+            <div className="pt-1">
+              {!confirmResetIdeas ? (
+                <button
+                  onClick={() => setConfirmResetIdeas(true)}
+                  disabled={(settings.expressionCompletions?.length ?? 0) === 0}
+                  className="font-mono-hud text-[10px] tracking-[0.14em] uppercase px-3 py-2 transition-colors disabled:opacity-40"
+                  style={{ border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.05)', color: 'rgba(239,68,68,0.9)' }}
+                >
+                  Reset Knowledge Collection
+                </button>
+              ) : (
+                <div className="px-3 py-2 space-y-2" style={{ border: '1px solid rgba(239,68,68,0.4)', background: 'rgba(239,68,68,0.06)' }}>
+                  <p className="text-text-muted text-[11px] leading-snug">
+                    Clear all {settings.expressionCompletions?.length ?? 0} Daily Ideas completion{(settings.expressionCompletions?.length ?? 0) === 1 ? '' : 's'}? Your Idea Bank and all other data are kept.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={resetIdeaCompletions}
+                      className="font-mono-hud text-[10px] tracking-[0.14em] uppercase px-3 py-1.5"
+                      style={{ border: '1px solid rgba(239,68,68,0.6)', background: 'rgba(239,68,68,0.15)', color: 'rgba(239,68,68,0.95)' }}
+                    >
+                      Confirm Reset
+                    </button>
+                    <button
+                      onClick={() => setConfirmResetIdeas(false)}
+                      className="font-mono-hud text-[10px] tracking-[0.14em] uppercase px-3 py-1.5"
+                      style={{ border: '1px solid var(--color-border)', color: 'var(--color-text-muted)' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -686,10 +796,6 @@ function CompactStepperRow({ stat, label, value, unit, step = 1, min = 0, max = 
 
 function parseSentenceCount(bank: string): number {
   return bank.split('\n').filter(l => l.includes('|') && l.trim().length > 2).length;
-}
-
-function parseExpressionCount(bank: string): number {
-  return bank.split('\n').filter(l => (l.match(/\|/g) ?? []).length >= 2 && l.trim().length > 4).length;
 }
 
 interface CompactToggleRowProps {

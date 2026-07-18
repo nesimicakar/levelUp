@@ -600,6 +600,41 @@ export default function KnowledgePage() {
         )}
       </button>
 
+      {/* ── World Atlas entry ───────────────────────────────────────────── */}
+      <Link
+        href="/knowledge/atlas"
+        className="w-full mb-5 active:scale-[0.98] transition-transform block"
+        style={{
+          background: '#0f1623',
+          border: '1px solid #1e2333',
+          borderLeft: '3px solid #38bdf8',
+          borderRadius: 10,
+          padding: '14px 16px',
+        }}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div
+              className="flex items-center justify-center flex-shrink-0"
+              style={{ width: 36, height: 36, background: '#38bdf822', borderRadius: 8, border: '1px solid #38bdf844' }}
+            >
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </div>
+            <div className="text-left">
+              <p className="font-display text-sm font-bold tracking-wider text-text leading-none mb-1">WORLD ATLAS</p>
+              <p className="text-[10px] text-text-muted leading-none">Explore every country · connect geography to knowledge</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-center flex-shrink-0" style={{ width: 28, height: 28, background: '#38bdf822', borderRadius: 6 }}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+          </div>
+        </div>
+      </Link>
+
       {/* Import result card */}
       {packState && packState.status !== 'importing' && packState.status !== 'exporting' && (
         <div

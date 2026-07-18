@@ -3,8 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { getAllDomains, getAllConcepts, getReviewsForConcept, updateConcept, deleteConcept, db } from '@/lib/db';
+import { getAllDomains, getAllConcepts, getReviewsForConcept, updateConcept, deleteConcept, getAllAtlasCountries, db } from '@/lib/db';
+import { atlasEntitiesForConcept } from '@/lib/logic/atlasLinks';
 import type { KnowledgeDomain, KnowledgeConcept, KnowledgeReview, KeyIdea } from '@/types';
+import type { EntityLink } from '@/lib/logic/atlasProfile';
 import { KeyIdeasEditor } from '@/components/KeyIdeasEditor';
 import { KeyIdeasAccordion } from '@/components/KeyIdeasAccordion';
 import {
@@ -172,16 +174,18 @@ export default function ConceptPage() {
   const [concept, setConcept] = useState<KnowledgeConcept | null>(null);
   const [domain, setDomain] = useState<KnowledgeDomain | null>(null);
   const [relatedConcepts, setRelatedConcepts] = useState<KnowledgeConcept[]>([]);
+  const [atlasLinks, setAtlasLinks] = useState<EntityLink[]>([]);
   const [reviews, setReviews] = useState<KnowledgeReview[]>([]);
   const [allDomains, setAllDomains] = useState<KnowledgeDomain[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [doms, concs, revs] = await Promise.all([
+    const [doms, concs, revs, atlasProfiles] = await Promise.all([
       getAllDomains(),
       getAllConcepts(),
       getReviewsForConcept(conceptId),
+      getAllAtlasCountries(),
     ]);
     const c = concs.find(x => x.id === conceptId);
     if (!c) { router.replace('/knowledge'); return; }
@@ -190,6 +194,8 @@ export default function ConceptPage() {
     setConcept(c);
     setDomain(d);
     setRelatedConcepts(related);
+    // Reverse links derived at read time from Atlas profiles — no stored copy.
+    setAtlasLinks(atlasEntitiesForConcept(conceptId, atlasProfiles));
     setReviews(revs.reverse()); // most recent first
     setAllDomains(doms);
     setLoaded(true);
@@ -398,6 +404,29 @@ export default function ConceptPage() {
               );
             })
           )}
+        </div>
+      )}
+
+      {/* On the Atlas — reverse links, derived from Atlas profiles at read time.
+          Hidden entirely when no entity links this concept. */}
+      {atlasLinks.length > 0 && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] text-text-muted uppercase tracking-widest">// ON THE ATLAS</p>
+            <span className="text-[10px] text-text-muted">{atlasLinks.length} {atlasLinks.length === 1 ? 'PLACE' : 'PLACES'} →</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {atlasLinks.map(e => (
+              <Link
+                key={e.atlasId}
+                href={`/knowledge/atlas/${e.atlasId}`}
+                className="text-[11px] px-2.5 py-1.5 rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                style={{ background: '#13233a', color: '#7dd3fc', border: '1px solid #1e3a52' }}
+              >
+                {e.name}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
 

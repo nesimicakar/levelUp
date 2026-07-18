@@ -1,4 +1,4 @@
-const CACHE_NAME = 'levelup-v1';
+const CACHE_NAME = 'levelup-v2';
 const PRECACHE_URLS = [
   '/',
   '/manifest.json',
@@ -23,14 +23,33 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for navigation, cache-first for assets
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match('/'))
-    );
-  } else {
-    event.respondWith(
-      caches.match(event.request).then((cached) => cached || fetch(event.request))
-    );
+  const req = event.request;
+
+  // Network-first for navigation.
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req).catch(() => caches.match('/')));
+    return;
   }
+
+  // Runtime-cache large same-origin data assets (e.g. the 739 KB Atlas TopoJSON)
+  // on first fetch, so the map keeps working offline once it has been loaded.
+  const url = new URL(req.url);
+  if (req.method === 'GET' && url.origin === self.location.origin && url.pathname.startsWith('/data/')) {
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          }
+          return res;
+        });
+      })
+    );
+    return;
+  }
+
+  // Cache-first for everything else.
+  event.respondWith(caches.match(req).then((cached) => cached || fetch(req)));
 });

@@ -32,8 +32,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Page zoom stays enabled (accessibility): the Atlas map keeps its own gesture
+  // model by scoping preventDefault to active two-finger interaction on the SVG.
   themeColor: '#0a0e17',
 };
 
