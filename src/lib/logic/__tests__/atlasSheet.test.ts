@@ -13,7 +13,7 @@ describe('sheetHeights', () => {
     expect(g.medium).toBeLessThan(g.expanded);
   });
   it('caps the collapsed height so it stays compact on tall screens', () => {
-    expect(sheetHeights(2000).collapsed).toBe(180);
+    expect(sheetHeights(2000).collapsed).toBe(138);
   });
   it('guards against tiny shells (never below the 320 floor math)', () => {
     const g = sheetHeights(100);

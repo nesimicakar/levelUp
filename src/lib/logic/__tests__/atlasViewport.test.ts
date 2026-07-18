@@ -203,28 +203,31 @@ describe('boundsToBox / pointBox (fly-to geometry)', () => {
 });
 
 describe('hero framing (first-open map view)', () => {
-  it('zooms in past the full-world view so land dominates', () => {
-    const t = heroTransform(VIEW_SIZE);
+  const size = VIEW_SIZE;
+  const band = { top: 150, bottom: 140 };
+  it('uses a safe modest zoom in range', () => {
+    const t = heroTransform(size, band);
     expect(t.k).toBeGreaterThan(MIN_K);
     expect(t.k).toBeLessThan(MAX_K);
     expect(t.k).toBe(HERO_ZOOM);
+    expect(HERO_ZOOM).toBeGreaterThanOrEqual(1.12);
+    expect(HERO_ZOOM).toBeLessThanOrEqual(1.18);
   });
-  it('stays within pan bounds and trims left/right symmetrically', () => {
-    const size = VIEW_SIZE;
-    const t = heroTransform(size);
+  it('trims left/right symmetrically (content centre stays at viewport centre-x)', () => {
+    const t = heroTransform(size, band);
+    expect(t.k * (size.width / 2) + t.x).toBeCloseTo(size.width / 2, 3);
     expect(t.x).toBeGreaterThanOrEqual(size.width * (1 - t.k));
     expect(t.x).toBeLessThanOrEqual(0);
-    // Symmetric horizontal trim: content centre stays at viewport centre-x.
-    expect(t.k * (size.width / 2) + t.x).toBeCloseTo(size.width / 2, 3);
   });
-  it('anchors above centre so Antarctica/empty south is trimmed more than the north', () => {
-    const size = VIEW_SIZE;
-    const t = heroTransform(size);
-    // The world centre projects below the viewport centre (more bottom trimmed).
-    expect(t.k * (size.height / 2) + t.y).toBeGreaterThan(size.height / 2);
+  it('keeps the visible-band centre fixed under the zoom (centred in the band, not the shell)', () => {
+    const t = heroTransform(size, band);
+    const bandCentre = (band.top + (size.height - band.bottom)) / 2;
+    expect(t.k * bandCentre + t.y).toBeCloseTo(bandCentre, 3);
+    // Band centre differs from shell centre, so this is NOT a full-shell centring.
+    expect(bandCentre).not.toBeCloseTo(size.height / 2, 0);
   });
   it('is size-relative (works for a narrow phone viewport)', () => {
-    const t = heroTransform({ width: 360, height: 620 });
+    const t = heroTransform({ width: 360, height: 620 }, { top: 150, bottom: 130 });
     expect(t.k).toBe(HERO_ZOOM);
     expect(t.x).toBeLessThanOrEqual(0);
   });

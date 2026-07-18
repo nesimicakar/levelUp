@@ -123,6 +123,9 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
   ref,
 ) {
   const fp = fitPadding ?? { top: 6, bottom: 6, x: 6 };
+  // Latest band (HUD top → collapsed-sheet bottom) for the imperative hero framing.
+  const bandRef = useRef({ top: fp.top, bottom: fp.bottom });
+  bandRef.current = { top: fp.top, bottom: fp.bottom };
   const svgRef = useRef<SVGSVGElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [transform, setTransform] = useState<Transform>(WORLD_TRANSFORM);
@@ -307,7 +310,7 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
 
   const focusContinent = useCallback((name: string) => {
     cancelAnim();
-    animateTo(name === 'World' ? heroTransform(sizeRef.current) : fitBox(continentBoxes[name], sizeRef.current));
+    animateTo(name === 'World' ? heroTransform(sizeRef.current, bandRef.current) : fitBox(continentBoxes[name], sizeRef.current));
   }, [animateTo, continentBoxes]);
 
   // Smooth first-load entrance into the hero framing (respects reduced motion).
@@ -315,7 +318,7 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
   useEffect(() => {
     if (!interactive || didHeroRef.current) return;
     didHeroRef.current = true;
-    animateTo(heroTransform(sizeRef.current));
+    animateTo(heroTransform(sizeRef.current, bandRef.current));
   }, [interactive, animateTo]);
 
   const focusEntity = useCallback((atlasId: string, inset?: ViewInset) => {
@@ -334,7 +337,7 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     commit(clampTranslate(zoomAtPoint(t, t.k * (dir === 1 ? 1.6 : 1 / 1.6), center), s));
   }, [commit, current]);
 
-  const recenter = useCallback(() => { cancelAnim(); animateTo(heroTransform(sizeRef.current)); }, [animateTo]);
+  const recenter = useCallback(() => { cancelAnim(); animateTo(heroTransform(sizeRef.current, bandRef.current)); }, [animateTo]);
 
   useImperativeHandle(ref, (): WorldMapHandle => ({
     focusContinent,

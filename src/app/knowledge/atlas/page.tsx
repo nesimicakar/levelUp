@@ -56,6 +56,7 @@ export default function AtlasPage() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const [shellH, setShellH] = useState(640);
+  const [shellW, setShellW] = useState(390);
   const [snap, setSnap] = useState<SheetSnap>('collapsed');
   const [dragPx, setDragPx] = useState<number | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
@@ -66,6 +67,11 @@ export default function AtlasPage() {
   useEffect(() => () => { if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current); }, []);
 
   useEffect(() => { getAtlasCountryIds().then(setProfileIds).catch(() => {}); }, []);
+  // Gesture hint auto-hides quickly (and permanently once the user interacts).
+  useEffect(() => {
+    const t = setTimeout(() => setHintVisible(false), 3800);
+    return () => clearTimeout(t);
+  }, []);
 
   useIsoLayoutEffect(() => {
     const desk = window.matchMedia('(min-width: 1024px)');
@@ -82,10 +88,13 @@ export default function AtlasPage() {
   useIsoLayoutEffect(() => {
     const el = mainRef.current;
     if (!el) return;
-    const measure = () => setShellH(prev => {
-      const h = Math.round(el.getBoundingClientRect().height);
-      return h > 0 && h !== prev ? h : prev;
-    });
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const h = Math.round(r.height);
+      const w = Math.round(r.width);
+      setShellH(prev => (h > 0 && h !== prev ? h : prev));
+      setShellW(prev => (w > 0 && w !== prev ? w : prev));
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -131,7 +140,11 @@ export default function AtlasPage() {
     if (!hasInteracted) setHasInteracted(true);
   };
 
-  const fitPadding = isDesktop ? FIT_DESKTOP : { top: 118, bottom: fitBottomForSnap(snap, shellH), x: 16 };
+  // Mobile: top clears the header + continent pills; x leaves ~7.5% side margin so
+  // the 1.15× hero zoom trims ocean without clipping the Americas / Oceania.
+  const fitPadding = isDesktop
+    ? FIT_DESKTOP
+    : { top: 150, bottom: fitBottomForSnap(snap, shellH), x: Math.round(shellW * 0.075) };
   const sheetPx = dragPx ?? snapHeight(snap, shellH);
 
   // ── sheet drag (pointer) ──────────────────────────────────────────────────
@@ -290,7 +303,7 @@ export default function AtlasPage() {
         </div>
 
         {hintVisible && ready && !hasInteracted && !isDesktop && (
-          <div className="gesture-hint" role="status">Drag to pan · pinch to zoom · tap a country</div>
+          <div className="gesture-hint" role="status" style={{ bottom: sheetPx + 14 }}>Drag · pinch · tap</div>
         )}
         {hintVisible && ready && !hasInteracted && isDesktop && (
           <div className="gesture-hint gesture-hint--d" role="status">Drag to pan · scroll to zoom</div>
@@ -553,19 +566,21 @@ const CSS = `
 .atlas-immersive .map-tools button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .map-tools button:disabled{opacity:.4;cursor:default}
 
-.atlas-immersive .gesture-hint{position:absolute;left:50%;bottom:57%;transform:translateX(-50%);z-index:11;font-size:10px;letter-spacing:.14em;color:var(--ink-mute);background:rgba(6,10,18,.7);border:1px solid var(--line);padding:6px 13px;border-radius:999px;backdrop-filter:blur(4px);white-space:nowrap;pointer-events:none;animation:ghint .5s ease}
+.atlas-immersive .gesture-hint{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:11;font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-mute);background:rgba(6,10,18,.66);border:1px solid var(--line);padding:5px 11px;border-radius:999px;backdrop-filter:blur(4px);white-space:nowrap;pointer-events:none;animation:ghint .5s ease}
 .atlas-immersive .gesture-hint--d{bottom:18px}
 @keyframes ghint{from{opacity:0}to{opacity:.9}}
 
 /* ── mobile bottom sheet (draggable) ── */
-.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:0 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;transition:height .28s cubic-bezier(.4,0,.2,1);overflow:hidden}
+.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:0 16px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;transition:height .28s cubic-bezier(.4,0,.2,1);overflow:hidden}
 .atlas-immersive .sheet.is-dragging{transition:none}
+/* Never clip the handle + browse row on large safe-area devices. */
+.atlas-immersive .sheet[data-snap="collapsed"]{min-height:calc(112px + env(safe-area-inset-bottom))}
 .atlas-immersive .sheet-grab-btn{flex:none;width:100%;height:44px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;padding:0}
 .atlas-immersive .sheet-grab-btn:active{cursor:grabbing}
 .atlas-immersive .sheet-grab-btn:focus-visible{outline:2px solid var(--amber);outline-offset:-4px;border-radius:10px}
 .atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);pointer-events:none}
-.atlas-immersive .sheet-collapsed-action{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
-.atlas-immersive .collapsed-browse{flex:1;padding:12px 16px;border:1px solid var(--line-bright);background:rgba(10,15,26,.6);color:var(--ink-dim);border-radius:10px;font-family:var(--mono);font-size:13px;letter-spacing:.08em;cursor:pointer;backdrop-filter:blur(6px);text-align:center}
+.atlas-immersive .sheet-collapsed-action{flex:none;display:flex}
+.atlas-immersive .collapsed-browse{flex:1;min-height:46px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:1px solid var(--line-bright);background:rgba(10,15,26,.6);color:var(--ink-dim);border-radius:10px;font-family:var(--mono);font-size:13px;letter-spacing:.06em;cursor:pointer;backdrop-filter:blur(6px);text-align:center}
 .atlas-immersive .collapsed-browse:hover{color:var(--ink);border-color:var(--amber-br)}
 .atlas-immersive .collapsed-browse:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 

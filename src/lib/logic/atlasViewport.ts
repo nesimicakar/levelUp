@@ -17,7 +17,7 @@ export const VIEW_SIZE: ViewportSize = { width: VIEW_W, height: VIEW_H };
 export const MIN_K = 1;   // fully zoomed out = whole world; cannot zoom out further
 export const MAX_K = 8;
 
-export const HERO_ZOOM = 1.3;
+export const HERO_ZOOM = 1.15;
 
 export interface Transform { k: number; x: number; y: number; }
 export interface Point { x: number; y: number; }
@@ -155,16 +155,19 @@ export function fitBox(box: Box, size: ViewportSize = VIEW_SIZE, fill = 0.9): Tr
   return clampTranslate({ k, x: size.width / 2 - k * cx, y: size.height / 2 - k * cy }, size);
 }
 
+export interface HeroBand { top: number; bottom: number; }
+
 /**
- * Hero framing: the default/reset world view, zoomed in from the full-world fit so
- * land dominates and empty Pacific ocean on the left/right (and Antarctica at the
- * bottom) falls outside the viewport. Anchored above center so the trim favours the
- * empty south. Size-relative, so it works with the responsive projection. Proportions
- * are preserved (single scale factor); all major continents stay visible.
+ * Hero framing: the default/reset world view. The projection already centres the
+ * world within the fit padding band at k = 1; this applies a modest zoom anchored at
+ * the CENTRE of the visible band (between the HUD/pills `top` and the collapsed sheet
+ * `bottom`) so the world stays centred in the actually-visible map area — not the full
+ * shell — and grows without shifting. Size-relative (works with the responsive
+ * projection); proportions preserved; all major landmasses stay visible.
  */
-export function heroTransform(size: ViewportSize = VIEW_SIZE, zoom = HERO_ZOOM): Transform {
+export function heroTransform(size: ViewportSize, band: HeroBand, zoom = HERO_ZOOM): Transform {
   const k = clampScale(zoom);
-  const anchor: Point = { x: size.width / 2, y: size.height * 0.44 };
+  const anchor: Point = { x: size.width / 2, y: (band.top + (size.height - band.bottom)) / 2 };
   return clampTranslate(zoomAtPoint(WORLD_TRANSFORM, k, anchor), size);
 }
 

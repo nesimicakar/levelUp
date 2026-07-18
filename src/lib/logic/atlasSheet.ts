@@ -19,11 +19,15 @@ function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
-/** Visible sheet heights (px) for a shell of height `shellH`. Ordered & bounded. */
+/**
+ * Visible sheet heights (px) for a shell of height `shellH`. Ordered & bounded.
+ * Collapsed is kept minimal — just a 44px handle target, one compact browse row,
+ * and safe-area spacing — so the map is the hero on first open.
+ */
 export function sheetHeights(shellH: number): SheetHeights {
   const H = Math.max(MIN_SHELL, shellH);
   return {
-    collapsed: Math.round(Math.min(180, H * 0.26)),
+    collapsed: Math.round(Math.min(138, H * 0.2)),
     medium: Math.round(H * 0.55),
     expanded: Math.round(H * 0.9),
   };
