@@ -14,6 +14,8 @@ export interface SheetHeights { collapsed: number; medium: number; expanded: num
 
 const MIN_SHELL = 320;
 const HUD_TOP = 118;          // floating HUD band the world must clear (viewBox px)
+/** Fallback collapsed dock height before it has been measured from its content. */
+export const COLLAPSED_FALLBACK = 120;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -21,32 +23,33 @@ function clamp(v: number, lo: number, hi: number): number {
 
 /**
  * Visible sheet heights (px) for a shell of height `shellH`. Ordered & bounded.
- * Collapsed reserves ~30% as a TRANSPARENT dock (the map shows through it), which
- * also defines the bottom of the hero region so the world seats high, just under
- * the continent pills, on first open.
+ * Collapsed is a compact dock sized from its own content (44px handle + one row +
+ * padding + safe-area) — pass the MEASURED height as `collapsedPx`; the fallback
+ * is used only before the first measurement. Medium/expanded are shell fractions.
  */
-export function sheetHeights(shellH: number): SheetHeights {
+export function sheetHeights(shellH: number, collapsedPx?: number): SheetHeights {
   const H = Math.max(MIN_SHELL, shellH);
+  const collapsed = collapsedPx && collapsedPx > 0 ? Math.round(collapsedPx) : COLLAPSED_FALLBACK;
   return {
-    collapsed: Math.round(H * 0.3),
+    collapsed,
     medium: Math.round(H * 0.55),
     expanded: Math.round(H * 0.9),
   };
 }
 
-export function snapHeight(snap: SheetSnap, shellH: number): number {
-  return sheetHeights(shellH)[snap];
+export function snapHeight(snap: SheetSnap, shellH: number, collapsedPx?: number): number {
+  return sheetHeights(shellH, collapsedPx)[snap];
 }
 
 /** Clamp a dragged height to the collapsed…expanded range. */
-export function clampSheetHeight(px: number, shellH: number): number {
-  const h = sheetHeights(shellH);
+export function clampSheetHeight(px: number, shellH: number, collapsedPx?: number): number {
+  const h = sheetHeights(shellH, collapsedPx);
   return Math.round(clamp(px, h.collapsed, h.expanded));
 }
 
 /** The snap whose height is closest to a (dragged) height — used on release. */
-export function nearestSnap(px: number, shellH: number): SheetSnap {
-  const h = sheetHeights(shellH);
+export function nearestSnap(px: number, shellH: number, collapsedPx?: number): SheetSnap {
+  const h = sheetHeights(shellH, collapsedPx);
   let best: SheetSnap = 'collapsed';
   let bestD = Infinity;
   for (const s of SHEET_ORDER) {
@@ -72,9 +75,9 @@ export function stepSnap(snap: SheetSnap, dir: 1 | -1): SheetSnap {
  * The expanded sheet covers the map, so it is framed like medium; the value is
  * capped to keep a minimum visible band (the world never shrinks to nothing).
  */
-export function fitBottomForSnap(snap: SheetSnap, shellH: number): number {
+export function fitBottomForSnap(snap: SheetSnap, shellH: number, collapsedPx?: number): number {
   const H = Math.max(MIN_SHELL, shellH);
-  const h = sheetHeights(H);
+  const h = sheetHeights(H, collapsedPx);
   const raw = snap === 'expanded' ? h.medium : h[snap];
   const minBand = Math.round(H * 0.3);
   const maxBottom = Math.max(60, H - HUD_TOP - minBand);

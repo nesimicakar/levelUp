@@ -12,8 +12,14 @@ describe('sheetHeights', () => {
     expect(g.collapsed).toBeLessThan(g.medium);
     expect(g.medium).toBeLessThan(g.expanded);
   });
-  it('collapsed is a ~30% transparent dock (defines a short hero region)', () => {
-    expect(sheetHeights(800).collapsed).toBe(240);
+  it('collapsed uses the measured content height when provided', () => {
+    expect(sheetHeights(800, 138).collapsed).toBe(138);
+    expect(snapHeight('collapsed', 800, 138)).toBe(138);
+    expect(fitBottomForSnap('collapsed', 800, 138)).toBe(138);
+  });
+  it('collapsed falls back to a compact content height before measurement', () => {
+    expect(sheetHeights(800).collapsed).toBe(120);
+    expect(sheetHeights(800).collapsed).toBeLessThan(sheetHeights(800).medium);
   });
   it('guards against tiny shells (never below the 320 floor math)', () => {
     const g = sheetHeights(100);

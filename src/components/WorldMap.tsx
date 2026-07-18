@@ -271,9 +271,15 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
   const touchPanRef = useRef<Point | null>(null);   // one-finger pan anchor (viewBox units)
   const tapStartRef = useRef<Point | null>(null);   // initial touch position (client px) for tap/drag
 
+  // Once the user pans/zooms/pinches or drives a focus action, the auto hero
+  // framing stops re-applying so their position is never reset from under them.
+  const interactedRef = useRef(false);
+  const markInteracted = useCallback(() => { interactedRef.current = true; }, []);
+
   const current = useCallback(() => pendingRef.current ?? tRef.current, []);
 
   const commit = useCallback((next: Transform) => {
+    interactedRef.current = true;
     pendingRef.current = next;
     if (!rafRef.current) {
       rafRef.current = requestAnimationFrame(() => {
@@ -309,26 +315,33 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
   }, [current]);
 
   const focusContinent = useCallback((name: string) => {
+    markInteracted();
     cancelAnim();
     animateTo(name === 'World' ? heroTransform(sizeRef.current, bandRef.current) : fitBox(continentBoxes[name], sizeRef.current));
-  }, [animateTo, continentBoxes]);
+  }, [animateTo, continentBoxes, markInteracted]);
 
-  // Smooth first-load entrance into the hero framing (respects reduced motion).
-  const didHeroRef = useRef(false);
-  useEffect(() => {
-    if (!interactive || didHeroRef.current) return;
-    didHeroRef.current = true;
-    animateTo(heroTransform(sizeRef.current, bandRef.current));
-  }, [interactive, animateTo]);
+  // First-open hero framing. Applied ONLY once the responsive size and measured
+  // HUD/sheet band are valid, and re-applied if those measurements change — until
+  // the user first interacts. It sets the transform directly (same size/band calc
+  // as recenter) rather than animating from a possibly-stale transform; the map
+  // fades in via opacity so there is no visible jump from a wrong position.
+  const [entered, setEntered] = useState(false);
+  useLayoutEffect(() => {
+    if (!interactive || interactedRef.current) return;
+    cancelAnim();
+    setTransform(heroTransform(sizeRef.current, bandRef.current));
+    setEntered(true);
+  }, [interactive, size.width, size.height, fp.top, fp.bottom]);
 
   const focusEntity = useCallback((atlasId: string, inset?: ViewInset) => {
     const box = entityBoxes[atlasId];
     if (!box) return;
+    markInteracted();
     cancelAnim();
     // With an inset, center the entity in the visible band above the sheet;
     // otherwise center it in the whole viewport. Both preserve proportions.
     animateTo(inset ? fitBoxInset(box, sizeRef.current, inset) : fitBox(box, sizeRef.current, 0.55));
-  }, [animateTo, entityBoxes]);
+  }, [animateTo, entityBoxes, markInteracted]);
 
   const zoomButton = useCallback((dir: 1 | -1) => {
     const s = sizeRef.current;
@@ -337,7 +350,9 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     commit(clampTranslate(zoomAtPoint(t, t.k * (dir === 1 ? 1.6 : 1 / 1.6), center), s));
   }, [commit, current]);
 
-  const recenter = useCallback(() => { cancelAnim(); animateTo(heroTransform(sizeRef.current, bandRef.current)); }, [animateTo]);
+  // recenter reuses the exact same size/band calc as the first-open hero, so the
+  // two produce identical framing; it marks interacted so later resizes don't reset.
+  const recenter = useCallback(() => { markInteracted(); cancelAnim(); animateTo(heroTransform(sizeRef.current, bandRef.current)); }, [animateTo, markInteracted]);
 
   useImperativeHandle(ref, (): WorldMapHandle => ({
     focusContinent,
@@ -494,5 +509,14 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
 
   // Interactive: a headless surface that fills its positioned parent; the page
   // HUD/rail drives continent focus, zoom, and recenter via the imperative handle.
-  return <div ref={wrapperRef} style={{ position: 'absolute', inset: 0 }}>{svg}</div>;
+  // Fades in once the hero framing is applied, so the entrance never shows a stale
+  // (pre-measurement) transform.
+  return (
+    <div
+      ref={wrapperRef}
+      style={{ position: 'absolute', inset: 0, opacity: entered ? 1 : 0, transition: 'opacity .4s ease' }}
+    >
+      {svg}
+    </div>
+  );
 });
