@@ -1,12 +1,16 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getAtlasCountryIds, getAtlasCountry } from '@/lib/db';
 import { filterEntities, filterByScope, type AtlasScope } from '@/lib/logic/atlasGeo';
 import { getEntityByAtlasId } from '@/lib/data/atlasEntities';
 import { isCoreAtlas } from '@/lib/data/coreAtlas';
+import {
+  snapHeight, clampSheetHeight, nearestSnap, toggleSnap, stepSnap, fitBottomForSnap, manageIconOnly,
+  type SheetSnap,
+} from '@/lib/logic/atlasSheet';
 import { WorldMap, type WorldMapHandle } from '@/components/WorldMap';
 import { useAtlasTopology } from '@/lib/logic/atlasTopology';
 import type { AtlasCountry, AtlasEntity, AtlasEntityStatus } from '@/types';
@@ -19,10 +23,6 @@ const STATUS_LABEL: Record<AtlasEntityStatus, string> = {
 };
 
 const CONTINENTS = ['World', 'Africa', 'Americas', 'Asia', 'Europe', 'Oceania'];
-
-// World fit inset (viewBox px). Mobile leaves room for the HUD + bottom sheet;
-// desktop only clears the top pills (directory/card live in the side rail).
-const FIT_MOBILE = { top: 128, bottom: 176, x: 16 };
 const FIT_DESKTOP = { top: 96, bottom: 40, x: 30 };
 
 type CardTier = 'core' | 'profiled' | 'none';
@@ -33,7 +33,6 @@ function tierOf(atlasId: string, hasProfile: boolean): CardTier {
 // SSR-safe: run before paint on the client (no flash), skip on the server (no warning).
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
-// ── icons ─────────────────────────────────────────────────────────────────────
 const Search = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
 );
@@ -45,6 +44,7 @@ export default function AtlasPage() {
   const router = useRouter();
   const topo = useAtlasTopology();
   const mapRef = useRef<WorldMapHandle>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   const [profileIds, setProfileIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState('');
@@ -55,6 +55,15 @@ export default function AtlasPage() {
   const [hintVisible, setHintVisible] = useState(true);
   const [profile, setProfile] = useState<AtlasCountry | null>(null);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [narrow, setNarrow] = useState(false);
+  const [shellH, setShellH] = useState(640);
+  const [snap, setSnap] = useState<SheetSnap>('medium');
+  const [dragPx, setDragPx] = useState<number | null>(null);
+
+  const dragRef = useRef<{ startY: number; startPx: number; moved: boolean } | null>(null);
+  const dragRafRef = useRef(0);
+  const pendingPxRef = useRef<number | null>(null);
+  useEffect(() => () => { if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current); }, []);
 
   useEffect(() => { getAtlasCountryIds().then(setProfileIds).catch(() => {}); }, []);
   useEffect(() => {
@@ -62,13 +71,29 @@ export default function AtlasPage() {
     return () => clearTimeout(t);
   }, []);
 
-  // Rail at ≥1024px; bottom sheet below (tablet portrait 640–1023 uses the sheet).
   useIsoLayoutEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const on = () => setIsDesktop(mq.matches);
-    on();
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
+    const desk = window.matchMedia('(min-width: 1024px)');
+    const narr = window.matchMedia('(max-width: 360px)');
+    const onDesk = () => setIsDesktop(desk.matches);
+    const onNarr = () => setNarrow(narr.matches);
+    onDesk(); onNarr();
+    desk.addEventListener('change', onDesk);
+    narr.addEventListener('change', onNarr);
+    return () => { desk.removeEventListener('change', onDesk); narr.removeEventListener('change', onNarr); };
+  }, []);
+
+  // Measure the shell so sheet snap heights and map framing track viewport/orientation.
+  useIsoLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const measure = () => setShellH(prev => {
+      const h = Math.round(el.getBoundingClientRect().height);
+      return h > 0 && h !== prev ? h : prev;
+    });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // Lazy-load the imported profile only when the selected entity has one.
@@ -81,6 +106,11 @@ export default function AtlasPage() {
     return () => { cancelled = true; };
   }, [selected, profileIds]);
 
+  // Selecting a country should reveal its card — lift a collapsed sheet to medium.
+  useEffect(() => {
+    if (selected) setSnap(s => (s === 'collapsed' ? 'medium' : s));
+  }, [selected]);
+
   const results = useMemo(
     () => filterEntities(query, filterByScope(scope, profileIds)),
     [query, scope, profileIds],
@@ -89,7 +119,6 @@ export default function AtlasPage() {
   const activeProfile = profile && selectedEntity && profile.atlasId === selectedEntity.atlasId ? profile : null;
   const ready = topo.status === 'ready';
 
-  // Directory/search selection selects AND flies the map; direct map taps don't refocus.
   const selectAndFocus = (atlasId: string) => {
     setSelected(atlasId);
     mapRef.current?.focusEntity(atlasId);
@@ -98,6 +127,46 @@ export default function AtlasPage() {
     setActiveContinent(name);
     mapRef.current?.focusContinent(name);
   };
+
+  const fitPadding = isDesktop ? FIT_DESKTOP : { top: 118, bottom: fitBottomForSnap(snap, shellH), x: 16 };
+  const sheetPx = dragPx ?? snapHeight(snap, shellH);
+
+  // ── sheet drag (pointer) ──────────────────────────────────────────────────
+  const onGrabDown = (e: ReactPointerEvent) => {
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    dragRef.current = { startY: e.clientY, startPx: snapHeight(snap, shellH), moved: false };
+    setDragPx(snapHeight(snap, shellH));
+  };
+  const onGrabMove = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dy = d.startY - e.clientY; // drag up → taller
+    if (Math.abs(dy) > 6) d.moved = true;
+    pendingPxRef.current = clampSheetHeight(d.startPx + dy, shellH);
+    if (!dragRafRef.current) {
+      dragRafRef.current = requestAnimationFrame(() => {
+        dragRafRef.current = 0;
+        if (pendingPxRef.current != null) setDragPx(pendingPxRef.current);
+      });
+    }
+  };
+  const onGrabUp = () => {
+    const d = dragRef.current;
+    if (!d) return;
+    if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = 0; }
+    const finalPx = pendingPxRef.current ?? dragPx ?? d.startPx;
+    dragRef.current = null;
+    pendingPxRef.current = null;
+    setSnap(d.moved ? nearestSnap(finalPx, shellH) : toggleSnap(snap));
+    setDragPx(null);
+  };
+  const onGrabKey = (e: ReactKeyboardEvent) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSnap(s => stepSnap(s, 1)); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setSnap(s => stepSnap(s, -1)); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSnap(s => toggleSnap(s)); }
+  };
+
+  const showAllRows = browseAll || query.trim().length > 0;
 
   const card = selectedEntity ? (
     <SelectedCard
@@ -125,13 +194,9 @@ export default function AtlasPage() {
 
   const directoryList = (
     <DirectoryList
-      results={results}
-      query={query}
-      browseAll={browseAll}
-      onBrowseAll={() => setBrowseAll(v => !v)}
-      onSelectRow={selectAndFocus}
-      profileIds={profileIds}
-      full={isDesktop}
+      results={results} query={query} browseAll={browseAll}
+      onBrowseAll={() => setBrowseAll(v => !v)} onSelectRow={selectAndFocus}
+      profileIds={profileIds} full={isDesktop} showAll={showAllRows}
     />
   );
 
@@ -144,12 +209,17 @@ export default function AtlasPage() {
     </div>
   );
 
+  const manage = (
+    <Link href="/knowledge/atlas/manage" className={`icn-btn hud-manage${narrow ? ' is-icononly' : ''}`} aria-label="Manage Atlas access">
+      <ManageIcon />{!narrow && <span>Manage</span>}
+    </Link>
+  );
+
   return (
-    <main className={`atlas-immersive${isDesktop ? ' is-desktop' : ''}`}>
+    <main ref={mainRef} className={`atlas-immersive${isDesktop ? ' is-desktop' : ''}`}>
       <style>{CSS}</style>
 
       <div className="ai-map-col">
-        {/* Map surface (atmospheric full-bleed background) */}
         <div className="ai-map">
           {topo.status === 'loading' && (
             <div className="ai-map-state" role="status" aria-live="polite"><p className="ai-loading">Loading map…</p></div>
@@ -169,64 +239,66 @@ export default function AtlasPage() {
               selectedAtlasId={selected}
               onSelect={setSelected}
               scope={scope}
-              fitPadding={isDesktop ? FIT_DESKTOP : FIT_MOBILE}
+              fitPadding={fitPadding}
             />
           )}
         </div>
 
         <div className="map-scrim" />
 
-        {/* Over-map HUD: pills always; header + scope/review only on mobile (rail owns them on desktop) */}
-        <div className="hud-top">
-          {!isDesktop && (
-            <div className="hud-r1">
-              <Link href="/knowledge" className="icn-btn" aria-label="Back to Vault">‹</Link>
-              <div className="hud-title">
-                <span className="eb">// VAULT · ATLAS</span>
-                <span className="tt">World Atlas</span>
+        {/* Flex overlay: HUD at top, tools reserved BELOW it (no absolute collision) */}
+        <div className="ai-hud-overlay">
+          <div className="hud-top">
+            {!isDesktop && (
+              <div className="hud-r1">
+                <Link href="/knowledge" className="icn-btn" aria-label="Back to Vault">‹</Link>
+                <div className="hud-title">
+                  <span className="eb">// VAULT · ATLAS</span>
+                  <span className="tt">World Atlas</span>
+                </div>
+                {manage}
               </div>
-              <Link href="/knowledge/atlas/manage" className="icn-btn hud-manage" aria-label="Manage Atlas access">
-                <ManageIcon /><span>Manage</span>
-              </Link>
-            </div>
-          )}
+            )}
 
-          <div className="pill-row" role="group" aria-label="Focus a continent">
-            {CONTINENTS.map(name => (
-              <button
-                key={name}
-                className={`pill${activeContinent === name ? ' is-active' : ''}`}
-                aria-pressed={activeContinent === name}
-                onClick={() => focusContinent(name)}
-              >
-                {name}
-              </button>
-            ))}
+            <div className="pill-row" role="group" aria-label="Focus a continent">
+              {CONTINENTS.map(name => (
+                <button
+                  key={name}
+                  className={`pill${activeContinent === name ? ' is-active' : ''}`}
+                  aria-pressed={activeContinent === name}
+                  onClick={() => focusContinent(name)}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+
+            {!isDesktop && (
+              <div className="hud-r3">
+                <ScopeSeg scope={scope} onScope={setScope} />
+                <ReviewPlaceholder variant="pill" />
+              </div>
+            )}
           </div>
 
-          {!isDesktop && (
-            <div className="hud-r3">
-              <ScopeSeg scope={scope} onScope={setScope} />
-              <ReviewPlaceholder variant="pill" />
+          <div className="ai-hud-mid">
+            <div className="map-tools">
+              <button aria-label="Zoom in" disabled={!ready} onClick={() => mapRef.current?.zoomIn()}>+</button>
+              <button aria-label="Zoom out" disabled={!ready} onClick={() => mapRef.current?.zoomOut()}>−</button>
+              <button aria-label="Recenter" disabled={!ready} onClick={() => { setActiveContinent('World'); mapRef.current?.recenter(); }}>⟳</button>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Map tools */}
-        <div className="map-tools">
-          <button aria-label="Zoom in" disabled={!ready} onClick={() => mapRef.current?.zoomIn()}>+</button>
-          <button aria-label="Zoom out" disabled={!ready} onClick={() => mapRef.current?.zoomOut()}>−</button>
-          <button aria-label="Recenter" disabled={!ready} onClick={() => { setActiveContinent('World'); mapRef.current?.recenter(); }}>⟳</button>
-        </div>
-
-        {hintVisible && ready && (
+        {hintVisible && ready && !isDesktop && (
           <div className="gesture-hint" role="status">Drag to pan · pinch to zoom · tap a country</div>
         )}
-
+        {hintVisible && ready && isDesktop && (
+          <div className="gesture-hint gesture-hint--d" role="status">Drag to pan · scroll to zoom</div>
+        )}
         {isDesktop && legend}
       </div>
 
-      {/* ── Desktop rail ── */}
       {isDesktop ? (
         <aside className="rail" aria-label="Atlas directory">
           <div className="rail-hd">
@@ -234,27 +306,37 @@ export default function AtlasPage() {
               <span className="rh-e">// VAULT · ATLAS</span>
               <span className="rh-t">World Atlas</span>
             </div>
-            <Link href="/knowledge/atlas/manage" className="icn-btn hud-manage" aria-label="Manage Atlas access">
-              <ManageIcon /><span>Manage</span>
-            </Link>
+            {manage}
           </div>
-
           <ReviewPlaceholder variant="banner" />
-
           <div className="rail-scope">
             <ScopeSeg scope={scope} onScope={setScope} />
             {searchField}
           </div>
-
           {card}
           <div className="divider" />
           {directoryList}
         </aside>
       ) : (
-        /* ── Mobile bottom sheet ── */
-        <section className={`sheet${selectedEntity ? ' is-open' : ''}`} aria-label="Atlas directory">
-          <div className="sheet-grab" aria-hidden="true" />
-          {legend}
+        <section
+          className={`sheet${dragPx !== null ? ' is-dragging' : ''}`}
+          style={{ height: sheetPx }}
+          data-snap={snap}
+          aria-label="Atlas directory"
+        >
+          <button
+            className="sheet-grab-btn"
+            aria-label={`Directory panel — ${snap}. Drag, tap, or use arrow keys to resize.`}
+            aria-expanded={snap !== 'collapsed'}
+            onPointerDown={onGrabDown}
+            onPointerMove={onGrabMove}
+            onPointerUp={onGrabUp}
+            onPointerCancel={onGrabUp}
+            onKeyDown={onGrabKey}
+          >
+            <span className="sheet-grab" aria-hidden="true" />
+          </button>
+          {snap !== 'collapsed' && legend}
           {selectedEntity ? card : (
             <div className="dir-wrap">
               {searchField}
@@ -280,7 +362,6 @@ function ScopeSeg({ scope, onScope }: { scope: AtlasScope; onScope: (s: AtlasSco
   );
 }
 
-// Non-functional Review entry point — no fake count, no navigation, clearly "Soon".
 function ReviewPlaceholder({ variant }: { variant: 'pill' | 'banner' }) {
   if (variant === 'banner') {
     return (
@@ -299,13 +380,12 @@ function ReviewPlaceholder({ variant }: { variant: 'pill' | 'banner' }) {
 }
 
 function DirectoryList({
-  results, query, browseAll, onBrowseAll, onSelectRow, profileIds, full,
+  results, query, browseAll, onBrowseAll, onSelectRow, profileIds, full, showAll,
 }: {
   results: AtlasEntity[]; query: string; browseAll: boolean; onBrowseAll: () => void;
-  onSelectRow: (atlasId: string) => void; profileIds: Set<string>; full: boolean;
+  onSelectRow: (atlasId: string) => void; profileIds: Set<string>; full: boolean; showAll: boolean;
 }) {
-  const showAll = full || browseAll || query.trim().length > 0;
-  const visible = showAll ? results : results.slice(0, 4);
+  const visible = (full || showAll) ? results : results.slice(0, 4);
   return (
     <>
       <div className="dir-head">
@@ -343,9 +423,6 @@ function DirectoryList({
   );
 }
 
-// ── Selected-country card. Registry data renders instantly; Capital + a clamped
-// why-it-matters preview fill in from the imported profile when one exists.
-// Nothing is fabricated for profileless entities. Open works for every entity. ──
 function SelectedCard({
   entity, hasProfile, profile, showClose, onOpen, onImport, onClose,
 }: {
@@ -415,6 +492,7 @@ const CSS = `
   font-family:var(--mono);color:var(--ink);
   background:radial-gradient(ellipse 120% 90% at 50% 30%,#0a1120 0%,#060a12 60%,#04060c 100%);
 }
+.atlas-immersive *{box-sizing:border-box}
 .atlas-immersive.is-desktop{display:flex}
 .atlas-immersive .ai-map-col{position:absolute;inset:0;z-index:1}
 .atlas-immersive.is-desktop .ai-map-col{position:relative;inset:auto;flex:1 1 auto;min-width:0}
@@ -424,22 +502,30 @@ const CSS = `
 @keyframes aipulse{0%,100%{opacity:.4}50%{opacity:.9}}
 .atlas-immersive .ai-err{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:#ef4444;font-weight:700}
 .atlas-immersive .ai-err-sub{font-size:10px;color:var(--ink-mute)}
-.atlas-immersive .ai-retry{min-height:40px;padding:0 16px;border-radius:9px;border:1px solid var(--amber);background:var(--amber-soft);color:var(--amber-br);font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
+.atlas-immersive .ai-retry{min-height:44px;padding:0 16px;border-radius:9px;border:1px solid var(--amber);background:var(--amber-soft);color:var(--amber-br);font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;cursor:pointer}
 
 .atlas-immersive .map-scrim{position:absolute;left:0;right:0;top:0;height:200px;z-index:8;pointer-events:none;background:linear-gradient(180deg,rgba(4,7,14,.92) 0%,rgba(4,7,14,.66) 46%,transparent 100%)}
 .atlas-immersive.is-desktop .map-scrim{height:140px}
 
-.atlas-immersive .hud-top{position:absolute;left:0;right:0;top:0;z-index:12;padding:14px 14px 0;display:flex;flex-direction:column;gap:10px;padding-top:calc(14px + env(safe-area-inset-top))}
+/* overlay: HUD stacked above a mid area that holds the tools (no absolute collision) */
+.atlas-immersive .ai-hud-overlay{position:absolute;inset:0;z-index:12;display:flex;flex-direction:column;pointer-events:none}
+.atlas-immersive .ai-hud-overlay .pill-row,
+.atlas-immersive .ai-hud-overlay .seg,
+.atlas-immersive .ai-hud-overlay .review-pill,
+.atlas-immersive .ai-hud-overlay .icn-btn,
+.atlas-immersive .ai-hud-overlay .map-tools{pointer-events:auto}
+.atlas-immersive .hud-top{display:flex;flex-direction:column;gap:10px;padding:calc(14px + env(safe-area-inset-top)) 14px 0;pointer-events:none}
 .atlas-immersive.is-desktop .hud-top{padding:16px 18px 0}
 .atlas-immersive .hud-r1{display:flex;align-items:center;gap:10px}
-.atlas-immersive .icn-btn{width:36px;height:36px;flex:none;display:inline-grid;place-items:center;border:1px solid var(--line-bright);background:rgba(15,22,38,.7);color:var(--ink-dim);border-radius:9px;font-size:18px;cursor:pointer;backdrop-filter:blur(6px);text-decoration:none}
+.atlas-immersive .icn-btn{width:36px;height:36px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-bright);background:rgba(15,22,38,.7);color:var(--ink-dim);border-radius:9px;font-size:18px;cursor:pointer;backdrop-filter:blur(6px);text-decoration:none}
 .atlas-immersive .icn-btn:hover{color:var(--ink);border-color:var(--amber)}
 .atlas-immersive .icn-btn:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .hud-title{flex:1;line-height:1.1;min-width:0}
 .atlas-immersive .hud-title .eb{display:block;font-size:9px;letter-spacing:.24em;color:var(--ink-mute)}
 .atlas-immersive .hud-title .tt{font-family:var(--display);font-weight:700;letter-spacing:.05em;font-size:20px;color:var(--ink)}
-.atlas-immersive .hud-manage{width:auto;padding:0 12px;gap:6px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute)}
-.atlas-immersive .hud-manage svg{width:14px;height:14px}
+.atlas-immersive .hud-manage{flex:none;width:auto;padding:0 12px;gap:6px;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute)}
+.atlas-immersive .hud-manage svg{width:14px;height:14px;flex:none}
+.atlas-immersive .hud-manage.is-icononly{width:44px;padding:0}
 
 .atlas-immersive .pill-row{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;-webkit-overflow-scrolling:touch}
 .atlas-immersive .pill-row::-webkit-scrollbar{display:none}
@@ -456,25 +542,28 @@ const CSS = `
 .atlas-immersive .seg button+button{border-left:1px solid var(--line)}
 .atlas-immersive .seg button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
 .atlas-immersive .seg button.is-active{background:var(--amber-soft);color:var(--amber-br)}
-.atlas-immersive .review-pill{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--line-bright);background:rgba(15,22,38,.6);color:var(--ink-mute);font-size:11px;letter-spacing:.1em;cursor:default;backdrop-filter:blur(6px)}
+.atlas-immersive .review-pill{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--line-bright);background:rgba(15,22,38,.6);color:var(--ink-mute);font-size:11px;letter-spacing:.1em;cursor:default;backdrop-filter:blur(6px);white-space:nowrap}
 .atlas-immersive .review-pill .rp-play{font-size:8px;color:var(--amber-br)}
 .atlas-immersive .review-pill .rp-soon{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);border:1px solid var(--line-bright);border-radius:999px;padding:2px 6px}
 
-.atlas-immersive .map-tools{position:absolute;right:12px;top:164px;z-index:11;display:flex;flex-direction:column;gap:6px}
-.atlas-immersive.is-desktop .map-tools{top:96px}
+.atlas-immersive .ai-hud-mid{flex:1 1 auto;min-height:0;display:flex;justify-content:flex-end;align-items:flex-start;padding:12px;pointer-events:none}
+.atlas-immersive .map-tools{display:flex;flex-direction:column;gap:6px}
 .atlas-immersive .map-tools button{width:44px;height:44px;display:grid;place-items:center;border:1px solid var(--line-bright);background:rgba(15,22,38,.75);color:var(--ink-dim);border-radius:10px;font-size:18px;cursor:pointer;backdrop-filter:blur(6px)}
 .atlas-immersive .map-tools button:hover{color:var(--ink);border-color:var(--amber)}
 .atlas-immersive .map-tools button:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .map-tools button:disabled{opacity:.4;cursor:default}
 
-.atlas-immersive .gesture-hint{position:absolute;left:50%;bottom:calc(46% + 16px);transform:translateX(-50%);z-index:11;font-size:10px;letter-spacing:.14em;color:var(--ink-mute);background:rgba(6,10,18,.7);border:1px solid var(--line);padding:6px 13px;border-radius:999px;backdrop-filter:blur(4px);white-space:nowrap;pointer-events:none;animation:ghint .5s ease}
-.atlas-immersive.is-desktop .gesture-hint{bottom:18px}
+.atlas-immersive .gesture-hint{position:absolute;left:50%;bottom:57%;transform:translateX(-50%);z-index:11;font-size:10px;letter-spacing:.14em;color:var(--ink-mute);background:rgba(6,10,18,.7);border:1px solid var(--line);padding:6px 13px;border-radius:999px;backdrop-filter:blur(4px);white-space:nowrap;pointer-events:none;animation:ghint .5s ease}
+.atlas-immersive .gesture-hint--d{bottom:18px}
 @keyframes ghint{from{opacity:0}to{opacity:.9}}
 
-/* ── mobile bottom sheet ── */
-.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:8px 16px 16px;display:flex;flex-direction:column;gap:9px;max-height:46%}
-.atlas-immersive .sheet.is-open{max-height:70%}
-.atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);margin:2px auto 4px;flex:none}
+/* ── mobile bottom sheet (draggable) ── */
+.atlas-immersive .sheet{position:absolute;left:0;right:0;bottom:0;z-index:20;background:linear-gradient(180deg,rgba(13,19,33,.98),rgba(9,13,23,.99));border-top:1px solid var(--line-bright);border-radius:16px 16px 0 0;box-shadow:0 -18px 50px -20px rgba(0,0,0,.85);padding:0 16px calc(12px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:9px;transition:height .28s cubic-bezier(.4,0,.2,1);overflow:hidden}
+.atlas-immersive .sheet.is-dragging{transition:none}
+.atlas-immersive .sheet-grab-btn{flex:none;width:100%;height:44px;display:flex;align-items:center;justify-content:center;background:none;border:none;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;padding:0}
+.atlas-immersive .sheet-grab-btn:active{cursor:grabbing}
+.atlas-immersive .sheet-grab-btn:focus-visible{outline:2px solid var(--amber);outline-offset:-4px;border-radius:10px}
+.atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);pointer-events:none}
 
 /* ── desktop rail ── */
 .atlas-immersive .rail{position:relative;z-index:20;width:380px;flex:none;background:linear-gradient(180deg,#0c1223,#080c17);border-left:1px solid var(--line-bright);display:flex;flex-direction:column;padding:20px 20px calc(20px + env(safe-area-inset-bottom));gap:14px;overflow-y:auto}
@@ -491,10 +580,11 @@ const CSS = `
 .atlas-immersive .rail .seg{width:100%}
 .atlas-immersive .rail .seg button{flex:1}
 .atlas-immersive .divider{height:1px;background:var(--line);margin:2px 0;flex:none}
-.atlas-immersive .rail .dir-list{max-height:none}
+.atlas-immersive .rail .dir-list{max-height:none;overflow:visible}
 .atlas-immersive .rail .sheet-body{padding:0}
+.atlas-immersive .rail .dir-wrap,.atlas-immersive .rail .sheet-body{flex:initial}
 
-.atlas-immersive .map-legend{display:flex;flex-wrap:wrap;gap:5px 12px;font-size:9.5px;letter-spacing:.1em;color:var(--ink-mute);text-transform:uppercase;padding:0 2px 2px}
+.atlas-immersive .map-legend{display:flex;flex-wrap:wrap;gap:5px 12px;font-size:9.5px;letter-spacing:.1em;color:var(--ink-mute);text-transform:uppercase;padding:0 2px 2px;flex:none}
 .atlas-immersive.is-desktop .map-legend{position:absolute;left:16px;bottom:16px;z-index:11;padding:6px 10px;background:rgba(6,10,18,.62);border:1px solid var(--line);border-radius:8px;backdrop-filter:blur(4px)}
 .atlas-immersive .map-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:400}
 .atlas-immersive .lg-sw{width:11px;height:11px;border-radius:3px;border:1px solid}
@@ -503,7 +593,7 @@ const CSS = `
 .atlas-immersive .lg-sw--none{background:#0f1930;border-color:#33425f}
 .atlas-immersive .lg-sw--mk{border-radius:999px;background:var(--amber-br);border-color:var(--amber);width:9px;height:9px}
 
-.atlas-immersive .dir-wrap{display:flex;flex-direction:column;gap:9px;min-height:0}
+.atlas-immersive .dir-wrap{display:flex;flex-direction:column;gap:9px;flex:1 1 auto;min-height:0}
 .atlas-immersive .atlas-search{display:flex;align-items:center;gap:9px;min-height:44px;padding:0 13px;border:1px solid var(--line-bright);border-radius:10px;background:var(--bg-2);flex:none}
 .atlas-immersive .atlas-search svg{width:16px;height:16px;color:var(--ink-mute);flex:none}
 .atlas-immersive .atlas-search input{flex:1;background:none;border:none;outline:none;color:var(--ink);font-family:var(--mono);font-size:14px;min-width:0}
@@ -514,7 +604,7 @@ const CSS = `
 .atlas-immersive .browse-toggle{background:none;border:none;color:var(--amber-br);font-family:var(--mono);font-size:11px;letter-spacing:.06em;cursor:pointer;min-height:32px}
 .atlas-immersive .browse-toggle:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:6px}
 .atlas-immersive .dir-empty{font-size:11px;color:var(--ink-mute);padding:12px 2px}
-.atlas-immersive .dir-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;scrollbar-width:thin;min-height:0}
+.atlas-immersive .dir-list{display:flex;flex-direction:column;gap:6px;overflow-y:auto;scrollbar-width:thin;flex:1 1 auto;min-height:0;padding-bottom:4px}
 .atlas-immersive .dir-row{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer;text-align:left;font-family:var(--mono);transition:border-color .15s,background .15s}
 .atlas-immersive .dir-row:hover{border-color:var(--line-bright);background:var(--surface-2)}
 .atlas-immersive .dir-row:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
@@ -530,10 +620,10 @@ const CSS = `
 .atlas-immersive .dir-row__tag--prof{color:var(--blue-bright);border-color:rgba(96,165,250,.45);background:var(--blue-soft)}
 .atlas-immersive .dir-row__arr{color:var(--ink-faint);font-size:16px;flex:none}
 
-.atlas-immersive .sheet-body{display:flex;flex-direction:column;gap:12px;overflow-y:auto;position:relative;min-height:0}
-.atlas-immersive .sheet-close{position:absolute;top:-2px;right:0;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-bright);background:var(--surface);color:var(--ink-dim);border-radius:8px;font-size:16px;cursor:pointer;z-index:2}
+.atlas-immersive .sheet-body{display:flex;flex-direction:column;gap:12px;overflow-y:auto;position:relative;flex:1 1 auto;min-height:0;padding-bottom:4px}
+.atlas-immersive .sheet-close{position:absolute;top:-2px;right:0;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-bright);background:var(--surface);color:var(--ink-dim);border-radius:8px;font-size:16px;cursor:pointer;z-index:2}
 .atlas-immersive .sheet-close:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-.atlas-immersive .sheet__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-right:38px}
+.atlas-immersive .sheet__head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-right:44px}
 .atlas-immersive .rail .sheet__head{padding-right:0}
 .atlas-immersive .sheet__region{font-size:10px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase}
 .atlas-immersive .sheet__name{font-family:var(--display);font-weight:700;letter-spacing:.02em;font-size:26px;margin:3px 0 0;color:var(--ink)}
@@ -549,7 +639,7 @@ const CSS = `
 .atlas-immersive .sheet__why-k{display:block;font-size:9px;letter-spacing:.16em;color:var(--amber);text-transform:uppercase;margin-bottom:4px}
 .atlas-immersive .sheet__why{margin:0;font-size:12.5px;line-height:1.55;color:var(--ink-dim);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
 .atlas-immersive .sheet__note{margin:0;font-size:12px;line-height:1.6;color:var(--ink-mute)}
-.atlas-immersive .sheet__actions{display:flex;gap:10px}
+.atlas-immersive .sheet__actions{display:flex;gap:10px;flex:none}
 .atlas-immersive .btn-amber{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;border-radius:10px;border:1px solid var(--amber);background:var(--amber);color:#0b0a05;font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
 .atlas-immersive .btn-amber:hover{background:var(--amber-br)}
 .atlas-immersive .btn-amber:focus-visible{outline:2px solid var(--amber-br);outline-offset:2px}
@@ -558,16 +648,16 @@ const CSS = `
 
 @media (prefers-reduced-motion:reduce){
   .atlas-immersive .ai-loading,.atlas-immersive .gesture-hint{animation:none}
+  .atlas-immersive .sheet{transition:none}
 }
 
-/* On touch devices, guarantee ≥44px hit areas even where the visual chip is
-   compact (the design's 32–36px controls stay compact on pointer devices). */
+/* Touch devices: guarantee ≥44px hit areas where the visual chip is compact. */
 @media (pointer:coarse){
   .atlas-immersive .pill{min-height:44px}
   .atlas-immersive .seg button{min-height:44px}
-  .atlas-immersive .icn-btn{width:44px;height:44px}
+  .atlas-immersive .icn-btn:not(.hud-manage){width:44px;height:44px}
+  .atlas-immersive .hud-manage{height:44px}
   .atlas-immersive .browse-toggle{min-height:44px}
-  .atlas-immersive .sheet-close{width:44px;height:44px}
   .atlas-immersive .review-pill,.atlas-immersive .review-banner{min-height:44px}
 }
 `;
