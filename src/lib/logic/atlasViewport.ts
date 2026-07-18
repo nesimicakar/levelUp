@@ -126,6 +126,19 @@ export function updatePinch(state: PinchState, p0: Point, p1: Point, size: Viewp
   );
 }
 
+// ── Boxes from geometry (fly-to a country / marker) ───────────────────────────
+
+/** Convert a d3 geoPath.bounds() pair [[x0,y0],[x1,y1]] to a Box (never 0-sized). */
+export function boundsToBox(b: [[number, number], [number, number]]): Box {
+  const [[x0, y0], [x1, y1]] = b;
+  return { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
+}
+
+/** A square Box of side 2·half centered on p — used to fly-to a point marker. */
+export function pointBox(p: Point, half = 24): Box {
+  return { x: p.x - half, y: p.y - half, w: half * 2, h: half * 2 };
+}
+
 // ── Fit a box (continent focus) ───────────────────────────────────────────────
 
 /**

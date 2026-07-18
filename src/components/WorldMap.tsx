@@ -1,21 +1,22 @@
 'use client';
 
-import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { geoEqualEarth, geoPath, type GeoProjection } from 'd3-geo';
+import {
+  useMemo, useRef, useState, useEffect, useLayoutEffect, useCallback, useImperativeHandle, forwardRef,
+} from 'react';
+import { geoEqualEarth, geoPath, geoGraticule10, type GeoProjection } from 'd3-geo';
 import { feature } from 'topojson-client';
 import type { Topology } from 'topojson-specification';
 import type { Feature, Geometry } from 'geojson';
-import { matchFeatureToAtlasId } from '@/lib/logic/atlasGeo';
+import { matchFeatureToAtlasId, type AtlasScope } from '@/lib/logic/atlasGeo';
 import { MARKER_COORDS } from '@/lib/data/atlasMarkers';
 import { ATLAS_ENTITIES } from '@/lib/data/atlasEntities';
 import { isCoreAtlas } from '@/lib/data/coreAtlas';
-import { TOUCH_MIN } from '@/lib/logic/atlasTouch';
 import {
-  VIEW_W, VIEW_H, WORLD_TRANSFORM,
+  VIEW_SIZE, WORLD_TRANSFORM,
   applyWheel, panBy, beginPinch, updatePinch, shouldPinch, fitBox,
   zoomAtPoint, clampTranslate, tweenDuration, lerpTransform,
-  dragPan, exceedsTapThreshold,
-  type Transform, type Point, type Box, type PinchState,
+  dragPan, exceedsTapThreshold, boundsToBox, pointBox,
+  type Transform, type Point, type Box, type PinchState, type ViewportSize,
 } from '@/lib/logic/atlasViewport';
 
 const ENTITY_NAME = new Map(ATLAS_ENTITIES.map(e => [e.atlasId, e.name]));
@@ -28,15 +29,48 @@ const CONTINENT_LONLAT: Record<string, [number, number, number, number]> = {
   Europe: [-25, 34, 45, 71],
   Oceania: [110, -50, 179, 10],
 };
-const CONTINENTS = ['World', ...Object.keys(CONTINENT_LONLAT)];
-
 interface ShapePiece { atlasId: string; d: string; }
 interface MarkerPiece { atlasId: string; name: string; x: number; y: number; }
 
-function shapeStyle(hasProfile: boolean, isSelected: boolean): React.CSSProperties {
-  if (isSelected) return { fill: hasProfile ? '#fbbf24' : '#3b4d6b', stroke: '#fef3c7', strokeWidth: 1.4 };
-  return { fill: hasProfile ? 'rgba(245,158,11,0.62)' : '#26324a', stroke: '#0b1120', strokeWidth: 0.4 };
+/**
+ * Land state class. Visual priority (per approved design): selected > Core >
+ * Profiled-non-Core > unprofiled. A Core country stays amber even when it also
+ * has a profile — the card, not the map, surfaces that the profile exists.
+ */
+function landClass(atlasId: string, hasProfile: boolean, isSelected: boolean): string {
+  const state = isCoreAtlas(atlasId) ? 'cty--core' : hasProfile ? 'cty--profiled' : 'cty--unprofiled';
+  return `cty ${state}${isSelected ? ' is-selected' : ''}`;
 }
+
+// Deep-space ocean wash behind the projected world (from the Claude Design).
+const MAP_RADIAL = 'radial-gradient(ellipse 120% 90% at 50% 30%,#0a1120 0%,#060a12 60%,#04060c 100%)';
+
+// Map state styling ported from the Claude Design (amber Core / blue Profiled /
+// navy unprofiled, hover brighten, selected glow+raise, pulsing markers). Scoped
+// under `.atlas-layer` so nothing leaks into the rest of the app. Scope dimming
+// lowers opacity of non-matching entities — it never removes geometry.
+const MAP_CSS = `
+.atlas-sphere{fill:rgba(24,40,70,.22);stroke:rgba(90,130,200,.18);stroke-width:1px;vector-effect:non-scaling-stroke}
+.atlas-grat{fill:none;stroke:rgba(120,160,220,.06);stroke-width:.5px;vector-effect:non-scaling-stroke}
+.atlas-layer .cty{fill:#0f1930;stroke:#26334e;stroke-width:.8px;vector-effect:non-scaling-stroke;transition:fill .18s,stroke .18s,opacity .25s}
+.atlas-layer .cty--profiled{fill:rgba(59,130,246,.16);stroke:rgba(96,165,250,.5)}
+.atlas-layer .cty--core{fill:rgba(245,166,35,.15);stroke:rgba(245,166,35,.58)}
+.atlas-layer:not(.is-static) .cty{cursor:pointer}
+.atlas-layer:not(.is-static) .cty:hover{fill:rgba(150,180,230,.28);stroke:rgba(180,205,255,.85)}
+.atlas-layer:not(.is-static) .cty--core:hover{fill:rgba(245,166,35,.3);stroke:#ffc24d}
+.atlas-layer.is-static .cty{pointer-events:none}
+.atlas-layer .cty.is-selected{fill:rgba(245,166,35,.4)!important;stroke:#ffc24d!important;stroke-width:1.8px!important;opacity:1!important;filter:drop-shadow(0 0 5px rgba(245,166,35,.5))}
+.atlas-layer.scope--core .cty--profiled,.atlas-layer.scope--core .cty--unprofiled{opacity:.28}
+.atlas-layer.scope--core .atlas-mk{opacity:.35}
+.atlas-layer.scope--profiled .cty--unprofiled{opacity:.4}
+.atlas-layer .atlas-mk__halo{fill:none;stroke:#f5a623;opacity:.5}
+.atlas-layer .atlas-mk__dot{fill:#ffc24d;stroke:#2a1a00;stroke-width:.6px;vector-effect:non-scaling-stroke}
+.atlas-layer:not(.is-static) .atlas-mk{cursor:pointer}
+.atlas-layer .atlas-mk.is-selected .atlas-mk__dot{stroke:#fef3c7;stroke-width:1.4px}
+.atlas-layer .atlas-mk.is-selected .atlas-mk__halo{opacity:.85}
+@media (prefers-reduced-motion:no-preference){.atlas-layer .atlas-mk__halo{animation:atlasmkp 2.6s ease-in-out infinite}}
+@keyframes atlasmkp{0%,100%{opacity:.12}50%{opacity:.6}}
+`;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -67,11 +101,52 @@ interface WorldMapProps {
   onSelect?: (atlasId: string) => void;
   /** When false, the map is a static locator: no controls, gestures, or cursor. */
   interactive?: boolean;
+  /** Dims non-matching entities (never hides geometry). 'all' = no dimming. */
+  scope?: AtlasScope;
+  /** Inset (viewBox px) the world is fit into, so it stays centered/dominant in
+   *  the band left by the floating HUD and bottom sheet. Proportions are preserved. */
+  fitPadding?: { top: number; bottom: number; x: number };
 }
 
-export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, interactive = true }: WorldMapProps) {
+/** Imperative controls exposed to a parent HUD/rail (Stage 3+). */
+export interface WorldMapHandle {
+  focusContinent: (name: string) => void;
+  focusEntity: (atlasId: string) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  recenter: () => void;
+}
+
+export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function WorldMap(
+  { topology, profileIds, selectedAtlasId, onSelect, interactive = true, scope = 'all', fitPadding },
+  ref,
+) {
+  const fp = fitPadding ?? { top: 6, bottom: 6, x: 6 };
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [transform, setTransform] = useState<Transform>(WORLD_TRANSFORM);
+
+  // Responsive size: the interactive map fills its container and re-projects on
+  // resize (never during pan/zoom). The static locator keeps a fixed 2:1 viewBox.
+  const [size, setSize] = useState<ViewportSize>(VIEW_SIZE);
+  const projSize = interactive ? size : VIEW_SIZE;
+  const sizeRef = useRef(projSize); sizeRef.current = projSize;
+
+  useLayoutEffect(() => {
+    if (!interactive) return;
+    const el = wrapperRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const w = Math.max(1, Math.round(r.width));
+      const h = Math.max(1, Math.round(r.height));
+      setSize(prev => (prev.width === w && prev.height === h ? prev : { width: w, height: h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [interactive]);
 
   // True while the current touch has become a drag, so the click synthesized on
   // touchend does not select a country. Reset when a fresh touch/mouse press begins.
@@ -81,31 +156,48 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     onSelect?.(atlasId);
   }, [onSelect]);
 
-  // Geometry, markers, and continent boxes — computed ONCE per topology.
-  const { shapes, inert, markers, continentBoxes } = useMemo(() => {
+  // Geometry, markers, continent + entity boxes — recomputed only when the
+  // topology or the container size changes (never during pan/zoom).
+  const { shapes, inert, markers, continentBoxes, entityBoxes, spherePath, gratPath } = useMemo(() => {
     const fc = feature(topology, topology.objects.countries) as unknown as {
       features: (Feature<Geometry> & { id?: string | number; properties?: { name?: string } })[];
     };
-    const projection = geoEqualEarth().fitExtent([[6, 6], [VIEW_W - 6, VIEW_H - 6]], fc as never);
+    const projection = geoEqualEarth().fitExtent(
+      [[fp.x, fp.top], [projSize.width - fp.x, projSize.height - fp.bottom]],
+      fc as never,
+    );
     const path = geoPath(projection);
     const interactivePieces: ShapePiece[] = [];
     const inertPieces: string[] = [];
+    const boxesById: Record<string, Box> = {};
     for (const f of fc.features) {
       const atlasId = matchFeatureToAtlasId({ id: f.id, name: f.properties?.name });
       const d = path(f as never);
       if (!d) continue;
-      if (atlasId) interactivePieces.push({ atlasId, d });
-      else inertPieces.push(d);
+      if (atlasId) {
+        interactivePieces.push({ atlasId, d });
+        boxesById[atlasId] = boundsToBox(path.bounds(f as never) as [[number, number], [number, number]]);
+      } else {
+        inertPieces.push(d);
+      }
     }
     const markerPieces: MarkerPiece[] = [];
     for (const [atlasId, coord] of Object.entries(MARKER_COORDS)) {
       const p = projection(coord as [number, number]);
-      if (p) markerPieces.push({ atlasId, name: ENTITY_NAME.get(atlasId) ?? atlasId, x: p[0], y: p[1] });
+      if (p) {
+        markerPieces.push({ atlasId, name: ENTITY_NAME.get(atlasId) ?? atlasId, x: p[0], y: p[1] });
+        if (!boxesById[atlasId]) boxesById[atlasId] = pointBox({ x: p[0], y: p[1] }); // polygonless → fly to a point
+      }
     }
     const boxes: Record<string, Box> = {};
     for (const [name, ll] of Object.entries(CONTINENT_LONLAT)) boxes[name] = projectedBox(projection, ll);
-    return { shapes: interactivePieces, inert: inertPieces, markers: markerPieces, continentBoxes: boxes };
-  }, [topology]);
+    return {
+      shapes: interactivePieces, inert: inertPieces, markers: markerPieces,
+      continentBoxes: boxes, entityBoxes: boxesById,
+      spherePath: path({ type: 'Sphere' } as never) ?? '',
+      gratPath: path(geoGraticule10() as never) ?? '',
+    };
+  }, [topology, projSize.width, projSize.height, fp.top, fp.bottom, fp.x]);
 
   // Rendered children memoized so pan/zoom never re-renders 240+ paths — only
   // the <g> transform attribute changes per frame.
@@ -113,45 +205,57 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     <path key={`i-${i}`} d={d} fill="#121826" stroke="#0b1120" strokeWidth={0.3} />
   )), [inert]);
 
-  const shapeEls = useMemo(() => shapes.map((piece, i) => {
-    const hasProfile = profileIds.has(piece.atlasId);
-    const isSelected = selectedAtlasId === piece.atlasId;
-    return (
-      <path
-        key={`c-${piece.atlasId}-${i}`}
-        d={piece.d}
-        style={{ ...shapeStyle(hasProfile, isSelected), cursor: interactive ? 'pointer' : 'default' }}
-        onClick={interactive && onSelect ? () => handleSelect(piece.atlasId) : undefined}
-      >
-        <title>{ENTITY_NAME.get(piece.atlasId) ?? piece.atlasId}</title>
-      </path>
-    );
-  }), [shapes, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
+  // The selected shape is painted LAST so its glow raises above its neighbors.
+  const shapeEls = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    let selectedEl: React.ReactNode = null;
+    shapes.forEach((piece, i) => {
+      const hasProfile = profileIds.has(piece.atlasId);
+      const isSelected = selectedAtlasId === piece.atlasId;
+      const el = (
+        <path
+          key={`c-${piece.atlasId}-${i}`}
+          className={landClass(piece.atlasId, hasProfile, isSelected)}
+          d={piece.d}
+          onClick={interactive && onSelect ? () => handleSelect(piece.atlasId) : undefined}
+        >
+          <title>{ENTITY_NAME.get(piece.atlasId) ?? piece.atlasId}</title>
+        </path>
+      );
+      if (isSelected) selectedEl = el; else out.push(el);
+    });
+    if (selectedEl) out.push(selectedEl);
+    return out;
+  }, [shapes, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
   // Only dot the entities worth locating: Core Atlas members, anything with a
   // profile, or the current selection. Tiny non-Core islands stay in search/list
-  // rather than speckling the map. Unselected/unprofiled dots render faint.
-  const markerEls = useMemo(() => markers.map(m => {
-    const hasProfile = profileIds.has(m.atlasId);
-    const isSelected = selectedAtlasId === m.atlasId;
-    if (!hasProfile && !isSelected && !isCoreAtlas(m.atlasId)) return null;
-    const r = isSelected ? 5 : hasProfile ? 3.4 : 2;
-    return (
-      <circle
-        key={`m-${m.atlasId}`} cx={m.x} cy={m.y} r={r}
-        style={{
-          fill: hasProfile ? '#fbbf24' : '#0a0f1a',
-          stroke: isSelected ? '#fef3c7' : hasProfile ? '#fbbf24' : '#7c93b8',
-          strokeWidth: isSelected ? 1.6 : hasProfile ? 1.2 : 0.7,
-          opacity: hasProfile || isSelected ? 1 : 0.5,
-          cursor: interactive ? 'pointer' : 'default',
-        }}
-        onClick={interactive && onSelect ? () => handleSelect(m.atlasId) : undefined}
-      >
-        <title>{m.name}</title>
-      </circle>
-    );
-  }), [markers, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
+  // rather than speckling the map. Each marker is an amber dot + pulsing halo.
+  const markerEls = useMemo(() => {
+    const out: React.ReactNode[] = [];
+    let selectedEl: React.ReactNode = null;
+    markers.forEach(m => {
+      const hasProfile = profileIds.has(m.atlasId);
+      const isSelected = selectedAtlasId === m.atlasId;
+      if (!hasProfile && !isSelected && !isCoreAtlas(m.atlasId)) return;
+      const dot = isSelected ? 3.6 : 2.6;
+      const halo = isSelected ? 7 : 5.5;
+      const el = (
+        <g
+          key={`m-${m.atlasId}`}
+          className={`atlas-mk${isSelected ? ' is-selected' : ''}`}
+          onClick={interactive && onSelect ? () => handleSelect(m.atlasId) : undefined}
+        >
+          <circle className="atlas-mk__halo" cx={m.x} cy={m.y} r={halo} />
+          <circle className="atlas-mk__dot" cx={m.x} cy={m.y} r={dot} />
+          <title>{m.name}</title>
+        </g>
+      );
+      if (isSelected) selectedEl = el; else out.push(el);
+    });
+    if (selectedEl) out.push(selectedEl);
+    return out;
+  }, [markers, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
   // ── Gesture plumbing ────────────────────────────────────────────────────────
   const tRef = useRef(transform); tRef.current = transform;
@@ -179,7 +283,8 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     const el = svgRef.current;
     if (!el) return { x: 0, y: 0 };
     const r = el.getBoundingClientRect();
-    return { x: ((clientX - r.left) / r.width) * VIEW_W, y: ((clientY - r.top) / r.height) * VIEW_H };
+    const s = sizeRef.current;
+    return { x: ((clientX - r.left) / r.width) * s.width, y: ((clientY - r.top) / r.height) * s.height };
   }, []);
 
   const cancelAnim = () => { if (animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = 0; } };
@@ -199,16 +304,34 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     animRef.current = requestAnimationFrame(step);
   }, [current]);
 
-  const focusContinent = (name: string) => {
+  const focusContinent = useCallback((name: string) => {
     cancelAnim();
-    animateTo(name === 'World' ? WORLD_TRANSFORM : fitBox(continentBoxes[name]));
-  };
+    animateTo(name === 'World' ? WORLD_TRANSFORM : fitBox(continentBoxes[name], sizeRef.current));
+  }, [animateTo, continentBoxes]);
 
-  const zoomButton = (dir: 1 | -1) => {
-    const center: Point = { x: VIEW_W / 2, y: VIEW_H / 2 };
+  const focusEntity = useCallback((atlasId: string) => {
+    const box = entityBoxes[atlasId];
+    if (!box) return;
+    cancelAnim();
+    animateTo(fitBox(box, sizeRef.current, 0.55)); // fill ~55% so the country keeps context
+  }, [animateTo, entityBoxes]);
+
+  const zoomButton = useCallback((dir: 1 | -1) => {
+    const s = sizeRef.current;
+    const center: Point = { x: s.width / 2, y: s.height / 2 };
     const t = current();
-    commit(clampTranslate(zoomAtPoint(t, t.k * (dir === 1 ? 1.6 : 1 / 1.6), center)));
-  };
+    commit(clampTranslate(zoomAtPoint(t, t.k * (dir === 1 ? 1.6 : 1 / 1.6), center), s));
+  }, [commit, current]);
+
+  const recenter = useCallback(() => { cancelAnim(); animateTo(WORLD_TRANSFORM); }, [animateTo]);
+
+  useImperativeHandle(ref, (): WorldMapHandle => ({
+    focusContinent,
+    focusEntity,
+    zoomIn: () => zoomButton(1),
+    zoomOut: () => zoomButton(-1),
+    recenter,
+  }), [focusContinent, focusEntity, zoomButton, recenter]);
 
   // Native wheel + touch listeners (passive:false so we can preventDefault).
   useEffect(() => {
@@ -220,7 +343,7 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       cancelAnim();
-      commit(applyWheel(current(), e.deltaY, clientToVb(e.clientX, e.clientY)));
+      commit(applyWheel(current(), e.deltaY, clientToVb(e.clientX, e.clientY), sizeRef.current));
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -245,7 +368,7 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
     const onTouchMove = (e: TouchEvent) => {
       if (shouldPinch(e.touches.length) && pinchRef.current) {
         e.preventDefault();
-        commit(updatePinch(pinchRef.current, vb(e.touches[0]), vb(e.touches[1])));
+        commit(updatePinch(pinchRef.current, vb(e.touches[0]), vb(e.touches[1]), sizeRef.current));
         return;
       }
       if (e.touches.length === 1 && touchPanRef.current) {
@@ -259,7 +382,7 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
         }
         e.preventDefault(); // active pan → own the gesture (page will not scroll)
         const p = vb(t0);
-        commit(dragPan(current(), touchPanRef.current, p));
+        commit(dragPan(current(), touchPanRef.current, p, sizeRef.current));
         touchPanRef.current = p;
       }
     };
@@ -303,10 +426,11 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
       const el = svgRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const dx = ((e.clientX - d.x) / r.width) * VIEW_W;
-      const dy = ((e.clientY - d.y) / r.height) * VIEW_H;
+      const s = sizeRef.current;
+      const dx = ((e.clientX - d.x) / r.width) * s.width;
+      const dy = ((e.clientY - d.y) / r.height) * s.height;
       dragRef.current = { x: e.clientX, y: e.clientY };
-      commit(panBy(current(), dx, dy));
+      commit(panBy(current(), dx, dy, s));
     };
     const onUp = () => { dragRef.current = null; };
     window.addEventListener('mousemove', onMove);
@@ -323,73 +447,38 @@ export function WorldMap({ topology, profileIds, selectedAtlasId, onSelect, inte
   const svg = (
     <svg
       ref={svgRef}
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-      width="100%"
+      viewBox={`0 0 ${projSize.width} ${projSize.height}`}
+      preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="World map. Use the country search and list below for keyboard and screen-reader access."
+      aria-label="World map. Use the country search and list for keyboard and screen-reader access."
       style={{
-        display: 'block', background: '#0a0f1a', borderRadius: 10,
+        display: 'block', background: MAP_RADIAL,
         // Map owns all touch gestures within its bounds (one-finger pan, two-finger
         // pinch); page scroll/zoom outside the map is unaffected.
         touchAction: 'none',
-        cursor: interactive ? (dragRef.current ? 'grabbing' : 'grab') : 'default',
+        ...(interactive
+          ? { position: 'absolute', inset: 0, width: '100%', height: '100%', cursor: dragRef.current ? 'grabbing' : 'grab' }
+          : { width: '100%', height: 'auto', borderRadius: 10, cursor: 'default' }),
       }}
       onMouseDown={interactive ? (e => { if (e.button === 0) { cancelAnim(); movedRef.current = false; dragRef.current = { x: e.clientX, y: e.clientY }; } }) : undefined}
     >
+      <style>{MAP_CSS}</style>
       <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+        <path className="atlas-sphere" d={spherePath} />
+        <path className="atlas-grat" d={gratPath} aria-hidden="true" />
         <g aria-hidden="true">{inertEls}</g>
-        <g>{shapeEls}</g>
-        <g>{markerEls}</g>
+        <g className={`atlas-layer scope--${scope}${interactive ? '' : ' is-static'}`}>
+          <g>{shapeEls}</g>
+          <g>{markerEls}</g>
+        </g>
       </g>
     </svg>
   );
 
+  // Static locator: bare 2:1 SVG (profile page sizes it).
   if (!interactive) return svg;
 
-  return (
-    <div>
-      {/* Continent focus — horizontally scrollable so it fits ~320px. */}
-      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-1" role="group" aria-label="Focus a continent">
-        {CONTINENTS.map(name => (
-          <button
-            key={name}
-            onClick={() => focusContinent(name)}
-            className="flex-shrink-0 px-3 rounded-lg text-[10px] font-bold uppercase tracking-widest text-text-muted transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-warning"
-            style={{ minHeight: TOUCH_MIN, background: '#0f1623', border: '1px solid #1e2333' }}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
-
-      <div className="relative">
-        {svg}
-        {/* Zoom + reset — ≥44px touch targets with a compact inner visual. */}
-        <div className="absolute right-2 bottom-2 flex flex-col gap-0.5">
-          {([
-            { label: 'Zoom in', on: () => zoomButton(1), node: <span className="font-bold text-lg text-text">+</span> },
-            { label: 'Zoom out', on: () => zoomButton(-1), node: <span className="font-bold text-lg text-text">−</span> },
-            { label: 'Reset view', on: () => focusContinent('World'), node: (
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-9 9z" /><path d="M3 3v6h6" />
-              </svg>
-            ) },
-          ] as const).map(b => (
-            <button key={b.label} onClick={b.on} aria-label={b.label}
-              className="flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-warning rounded-lg"
-              style={{ minWidth: TOUCH_MIN, minHeight: TOUCH_MIN }}>
-              <span className="w-[34px] h-[34px] rounded-lg flex items-center justify-center" style={{ background: '#0f1623ee', border: '1px solid #1e2333' }}>
-                {b.node}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Gesture hint + non-gesture alternative. */}
-      <p className="text-[9px] text-text-muted mt-1.5 px-1">
-        Drag to move · pinch with two fingers to zoom · tap a country to open it · or use search &amp; the list below.
-      </p>
-    </div>
-  );
-}
+  // Interactive: a headless surface that fills its positioned parent; the page
+  // HUD/rail drives continent focus, zoom, and recenter via the imperative handle.
+  return <div ref={wrapperRef} style={{ position: 'absolute', inset: 0 }}>{svg}</div>;
+});

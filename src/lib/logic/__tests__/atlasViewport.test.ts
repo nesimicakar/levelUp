@@ -4,6 +4,7 @@ import {
   clampScale, clampTranslate, zoomAtPoint, applyWheel, panBy,
   distance, midpoint, beginPinch, updatePinch, shouldPinch, fitBox,
   tweenDuration, lerpTransform, dragPan, exceedsTapThreshold, TAP_MOVE_THRESHOLD,
+  boundsToBox, pointBox,
   type Transform, type Point, type Box,
 } from '../atlasViewport';
 import { matchFeatureToAtlasId } from '../atlasGeo';
@@ -179,6 +180,25 @@ describe('one-finger pan ↔ two-finger pinch transitions', () => {
     expect(dragPan(t, remaining, remaining)).toEqual(t); // re-anchored → no jump
     // and a subsequent real move pans by exactly its delta
     expect(dragPan(t, remaining, { x: 460, y: 210 })).toEqual(panBy(t, 10, -10));
+  });
+});
+
+describe('boundsToBox / pointBox (fly-to geometry)', () => {
+  it('converts d3 bounds to a Box', () => {
+    expect(boundsToBox([[10, 20], [110, 80]])).toEqual({ x: 10, y: 20, w: 100, h: 60 });
+  });
+  it('never yields a zero/negative dimension (degenerate bounds)', () => {
+    const b = boundsToBox([[5, 5], [5, 5]]);
+    expect(b.w).toBeGreaterThan(0);
+    expect(b.h).toBeGreaterThan(0);
+  });
+  it('pointBox is a centered square', () => {
+    expect(pointBox({ x: 100, y: 100 }, 20)).toEqual({ x: 80, y: 80, w: 40, h: 40 });
+  });
+  it('fitBox on a pointBox stays within zoom bounds (fly-to a marker)', () => {
+    const t = fitBox(pointBox({ x: 200, y: 200 }, 24));
+    expect(t.k).toBeGreaterThanOrEqual(MIN_K);
+    expect(t.k).toBeLessThanOrEqual(MAX_K);
   });
 });
 
