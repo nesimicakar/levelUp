@@ -218,10 +218,13 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     <path key={`i-${i}`} d={d} fill="#121826" stroke="#0b1120" strokeWidth={0.3} />
   )), [inert]);
 
-  // The selected shape is painted LAST so its glow raises above its neighbors.
+  // The selected shape(s) are painted LAST so the glow raises above neighbors.
+  // An atlasId can map to MULTIPLE polygons (e.g. a mainland + an external
+  // territory share one ISO id) — collect ALL selected pieces, not just one,
+  // or the mainland would be dropped when a territory piece overwrites it.
   const shapeEls = useMemo(() => {
     const out: React.ReactNode[] = [];
-    let selectedEl: React.ReactNode = null;
+    const selectedEls: React.ReactNode[] = [];
     shapes.forEach((piece, i) => {
       const hasProfile = profileIds.has(piece.atlasId);
       const isSelected = selectedAtlasId === piece.atlasId;
@@ -235,9 +238,9 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
           <title>{ENTITY_NAME.get(piece.atlasId) ?? piece.atlasId}</title>
         </path>
       );
-      if (isSelected) selectedEl = el; else out.push(el);
+      if (isSelected) selectedEls.push(el); else out.push(el);
     });
-    if (selectedEl) out.push(selectedEl);
+    out.push(...selectedEls);
     return out;
   }, [shapes, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
