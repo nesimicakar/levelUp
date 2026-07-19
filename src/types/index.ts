@@ -611,6 +611,18 @@ export interface AtlasCountry {
   updatedAt: number;
 }
 
+/**
+ * A single self-directed review event for a profiled country. Stored separately
+ * from the profile (AtlasCountry) so review history is never touched when a
+ * profile is deleted or re-imported. Multiple reviews of the same country are
+ * allowed; latest date and total count are DERIVED from the events, never stored.
+ */
+export interface AtlasReview {
+  id?: number;          // auto-increment primary key
+  atlasId: string;      // the profiled entity that was reviewed
+  reviewedAt: number;   // epoch ms the review was marked
+}
+
 export const STAT_LABELS: Record<StatType, string> = {
   STR: 'Strength',
   AGI: 'Agility',

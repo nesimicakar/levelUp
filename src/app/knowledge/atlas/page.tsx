@@ -3,8 +3,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { getAtlasCountryIds, getAtlasCountry } from '@/lib/db';
+import { getAtlasCountryIds, getAtlasCountry, getAllAtlasReviews } from '@/lib/db';
 import { filterEntities, filterByScope, type AtlasScope } from '@/lib/logic/atlasGeo';
+import {
+  indexReviews, applyReviewFilter, reviewStatusLabel, unreviewedCount,
+  REVIEW_FILTERS, type ReviewFilter, type ReviewSummary,
+} from '@/lib/logic/atlasReview';
 import { getEntityByAtlasId } from '@/lib/data/atlasEntities';
 import { isCoreAtlas } from '@/lib/data/coreAtlas';
 import {
@@ -13,7 +17,7 @@ import {
 } from '@/lib/logic/atlasSheet';
 import { WorldMap, type WorldMapHandle } from '@/components/WorldMap';
 import { useAtlasTopology } from '@/lib/logic/atlasTopology';
-import type { AtlasCountry, AtlasEntity, AtlasEntityStatus } from '@/types';
+import type { AtlasCountry, AtlasEntity, AtlasEntityStatus, AtlasReview } from '@/types';
 
 const STATUS_LABEL: Record<AtlasEntityStatus, string> = {
   sovereign: 'Sovereign state',
@@ -47,6 +51,8 @@ export default function AtlasPage() {
   const mainRef = useRef<HTMLElement>(null);
 
   const [profileIds, setProfileIds] = useState<Set<string>>(new Set());
+  const [reviews, setReviews] = useState<AtlasReview[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<ReviewFilter>('all');
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<AtlasScope>('all');
   const [selected, setSelected] = useState<string | null>(null);
@@ -72,6 +78,7 @@ export default function AtlasPage() {
   useEffect(() => () => { if (dragRafRef.current) cancelAnimationFrame(dragRafRef.current); }, []);
 
   useEffect(() => { getAtlasCountryIds().then(setProfileIds).catch(() => {}); }, []);
+  useEffect(() => { getAllAtlasReviews().then(setReviews).catch(() => {}); }, []);
   // Gesture hint: only for a genuinely new user; auto-hides, and its dismissal is
   // persisted permanently once the user first interacts with the map.
   useEffect(() => {
@@ -147,10 +154,15 @@ export default function AtlasPage() {
     return () => { cancelled = true; };
   }, [selected, profileIds]);
 
-  const results = useMemo(
-    () => filterEntities(query, filterByScope(scope, profileIds)),
-    [query, scope, profileIds],
-  );
+  const reviewIndex = useMemo(() => indexReviews(reviews), [reviews]);
+  const unreviewed = useMemo(() => unreviewedCount(profileIds, reviewIndex), [profileIds, reviewIndex]);
+  const reviewEntryLabel = unreviewed > 0 ? `Review · ${unreviewed}` : 'Review countries';
+
+  const results = useMemo(() => {
+    const base = filterEntities(query, filterByScope(scope, profileIds));
+    // Review filters/sorts apply only to the Profiled scope (the review list).
+    return scope === 'profiled' ? applyReviewFilter(base, reviewIndex, reviewFilter) : base;
+  }, [query, scope, profileIds, reviewFilter, reviewIndex]);
   const selectedEntity = selected ? getEntityByAtlasId(selected) : undefined;
   const activeProfile = profile && selectedEntity && profile.atlasId === selectedEntity.atlasId ? profile : null;
   const ready = topo.status === 'ready';
@@ -173,6 +185,17 @@ export default function AtlasPage() {
 
   const handleMapSelect = (atlasId: string) => {
     setSelected(atlasId);
+    if (!hasInteracted) setHasInteracted(true);
+  };
+
+  // Review entry: open the Profiled-country review list (no random pick / no
+  // forced daily review). Switches to the Profiled scope, clears any selection,
+  // and (on mobile) raises the sheet so the list is visible.
+  const openReview = () => {
+    setSelected(null);
+    setScope('profiled');
+    setReviewFilter('all');
+    if (!isDesktop) setSnap('medium');
     if (!hasInteracted) setHasInteracted(true);
   };
 
@@ -255,10 +278,19 @@ export default function AtlasPage() {
   };
 
   const directoryList = (
-    <DirectoryList results={results} onSelectRow={selectAndFocus} profileIds={profileIds} />
+    <DirectoryList
+      results={results}
+      onSelectRow={selectAndFocus}
+      profileIds={profileIds}
+      reviewIndex={scope === 'profiled' ? reviewIndex : null}
+    />
   );
 
   const scopeSeg = <ScopeSeg scope={scope} onScope={setScope} />;
+  // Review filter/sort — only meaningful in the Profiled review list.
+  const reviewFilterSeg = scope === 'profiled'
+    ? <ReviewFilterSeg value={reviewFilter} onChange={setReviewFilter} />
+    : null;
 
   const legend = (
     <div className="map-legend" aria-hidden="true">
@@ -335,7 +367,7 @@ export default function AtlasPage() {
 
             {!isDesktop && snap !== 'collapsed' && (
               <div className="hud-r3">
-                <ReviewPlaceholder variant="pill" />
+                <ReviewButton variant="pill" label={reviewEntryLabel} onClick={openReview} />
               </div>
             )}
           </div>
@@ -367,9 +399,10 @@ export default function AtlasPage() {
             </div>
             {manage}
           </div>
-          <ReviewPlaceholder variant="banner" />
+          <ReviewButton variant="banner" label={reviewEntryLabel} count={unreviewed} onClick={openReview} />
           <div className="rail-scope">
             {scopeSeg}
+            {reviewFilterSeg}
             {searchField}
           </div>
           {card}
@@ -412,11 +445,16 @@ export default function AtlasPage() {
                   <Search />
                   <span>Search or browse {results.length} {results.length === 1 ? 'entity' : 'entities'}</span>
                 </button>
+                <button onClick={openReview} className="collapsed-review" aria-label="Review profiled countries">
+                  <span className="cr-play" aria-hidden="true">▶</span>
+                  <span>{reviewEntryLabel}</span>
+                </button>
               </div>
             )
           ) : selectedEntity ? card : (
             <div className="dir-wrap">
               {scopeSeg}
+              {reviewFilterSeg}
               {searchField}
               {directoryList}
             </div>
@@ -464,28 +502,52 @@ function ScopeSeg({ scope, onScope }: { scope: AtlasScope; onScope: (s: AtlasSco
   );
 }
 
-function ReviewPlaceholder({ variant }: { variant: 'pill' | 'banner' }) {
+// Working review entry — opens the Profiled review list (no random pick / no daily
+// forced review). `count` (unreviewed) drives the banner's status line.
+function ReviewButton({ variant, label, count, onClick }: {
+  variant: 'pill' | 'banner'; label: string; count?: number; onClick: () => void;
+}) {
   if (variant === 'banner') {
     return (
-      <div className="review-banner" role="button" aria-disabled="true" title="Atlas review — coming soon">
+      <button className="review-banner" onClick={onClick} aria-label="Review profiled countries">
         <div className="review-banner__ic">▶</div>
-        <div className="review-banner__t"><b>Map review</b><span>Coming soon</span></div>
-        <span className="review-banner__soon">Soon</span>
-      </div>
+        <div className="review-banner__t">
+          <b>Review countries</b>
+          <span>{count && count > 0 ? `${count} not reviewed yet` : 'Browse your profiled countries'}</span>
+        </div>
+        <span className="review-banner__go" aria-hidden="true">→</span>
+      </button>
     );
   }
   return (
-    <span className="review-pill" role="button" aria-disabled="true" title="Atlas review — coming soon">
-      <span className="rp-play">▶</span> Review <span className="rp-soon">Soon</span>
-    </span>
+    <button className="review-pill" onClick={onClick} aria-label="Review profiled countries">
+      <span className="rp-play" aria-hidden="true">▶</span> {label}
+    </button>
+  );
+}
+
+function ReviewFilterSeg({ value, onChange }: { value: ReviewFilter; onChange: (f: ReviewFilter) => void }) {
+  return (
+    <div className="seg seg--review" role="group" aria-label="Review filter">
+      {REVIEW_FILTERS.map(f => (
+        <button key={f.key} className={value === f.key ? 'is-active' : ''} aria-pressed={value === f.key} onClick={() => onChange(f.key)}>
+          {f.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
 function DirectoryList({
-  results, onSelectRow, profileIds,
+  results, onSelectRow, profileIds, reviewIndex,
 }: {
-  results: AtlasEntity[]; onSelectRow: (atlasId: string) => void; profileIds: Set<string>;
+  results: AtlasEntity[];
+  onSelectRow: (atlasId: string) => void;
+  profileIds: Set<string>;
+  /** When non-null (Profiled scope), each row shows its review status. */
+  reviewIndex: Map<string, ReviewSummary> | null;
 }) {
+  const now = Date.now();
   return (
     <>
       <div className="dir-head">
@@ -497,14 +559,24 @@ function DirectoryList({
         <div className="dir-list">
           {results.map(e => {
             const tier = tierOf(e.atlasId, profileIds.has(e.atlasId));
+            const summary = reviewIndex?.get(e.atlasId);
+            const reviewed = (summary?.count ?? 0) > 0;
             return (
               <button key={e.atlasId} className="dir-row" onClick={() => onSelectRow(e.atlasId)}>
                 <span className={`dir-row__dot dir-row__dot--${tier === 'core' ? 'core' : tier === 'profiled' ? 'prof' : 'none'}`} aria-hidden="true" />
                 <span className="dir-row__txt">
                   <span className="dir-row__name">{e.name}</span>
                   <span className="dir-row__sub">
-                    {tier === 'core' && <span className="dir-row__tag dir-row__tag--core">Core</span>}
-                    {tier === 'profiled' && <span className="dir-row__tag dir-row__tag--prof">Profiled</span>}
+                    {reviewIndex ? (
+                      <span className={`dir-row__rev${reviewed ? ' dir-row__rev--done' : ''}`}>
+                        {reviewStatusLabel(summary, now)}{summary && summary.count > 1 ? ` · ${summary.count}×` : ''}
+                      </span>
+                    ) : (
+                      <>
+                        {tier === 'core' && <span className="dir-row__tag dir-row__tag--core">Core</span>}
+                        {tier === 'profiled' && <span className="dir-row__tag dir-row__tag--prof">Profiled</span>}
+                      </>
+                    )}
                     {e.iso3 ?? 'no ISO'} · {e.region}
                   </span>
                 </span>
@@ -638,9 +710,10 @@ const CSS = `
 .atlas-immersive .seg button+button{border-left:1px solid var(--line)}
 .atlas-immersive .seg button:focus-visible{outline:2px solid var(--amber);outline-offset:-2px}
 .atlas-immersive .seg button.is-active{background:var(--amber-soft);color:var(--amber-br)}
-.atlas-immersive .review-pill{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--line-bright);background:rgba(15,22,38,.6);color:var(--ink-mute);font-size:11px;letter-spacing:.1em;cursor:default;backdrop-filter:blur(6px);white-space:nowrap}
+.atlas-immersive .review-pill{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--line-bright);background:rgba(15,22,38,.6);color:var(--ink-dim);font-family:var(--mono);font-size:11px;letter-spacing:.1em;cursor:pointer;backdrop-filter:blur(6px);white-space:nowrap}
+.atlas-immersive .review-pill:hover{color:var(--ink);border-color:var(--amber)}
+.atlas-immersive .review-pill:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .review-pill .rp-play{font-size:8px;color:var(--amber-br)}
-.atlas-immersive .review-pill .rp-soon{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);border:1px solid var(--line-bright);border-radius:999px;padding:2px 6px}
 
 .atlas-immersive .ai-hud-mid{flex:1 1 auto;min-height:0;display:flex;justify-content:flex-end;align-items:flex-start;padding:12px;pointer-events:none}
 .atlas-immersive .map-tools{display:flex;flex-direction:column;gap:6px}
@@ -667,10 +740,14 @@ const CSS = `
 .atlas-immersive .sheet-grab-btn:active{cursor:grabbing}
 .atlas-immersive .sheet-grab-btn:focus-visible{outline:2px solid var(--amber);outline-offset:-4px;border-radius:10px}
 .atlas-immersive .sheet-grab{width:38px;height:4px;border-radius:999px;background:var(--line-bright);pointer-events:none}
-.atlas-immersive .sheet-collapsed-action{flex:none;display:flex}
-.atlas-immersive .collapsed-browse{flex:1;min-height:48px;display:flex;align-items:center;gap:11px;padding:0 15px;border:1px solid var(--line-bright);background:rgba(12,18,30,.86);color:var(--ink-mute);border-radius:12px;font-family:var(--mono);font-size:14px;letter-spacing:.02em;cursor:pointer;backdrop-filter:blur(8px);text-align:left;box-shadow:0 10px 28px -14px rgba(0,0,0,.85)}
+.atlas-immersive .sheet-collapsed-action{flex:none;display:flex;gap:8px}
+.atlas-immersive .collapsed-browse{flex:1;min-width:0;min-height:48px;display:flex;align-items:center;gap:11px;padding:0 15px;border:1px solid var(--line-bright);background:rgba(12,18,30,.86);color:var(--ink-mute);border-radius:12px;font-family:var(--mono);font-size:14px;letter-spacing:.02em;cursor:pointer;backdrop-filter:blur(8px);text-align:left;box-shadow:0 10px 28px -14px rgba(0,0,0,.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .atlas-immersive .collapsed-browse svg{width:17px;height:17px;color:var(--ink-mute);flex:none}
 .atlas-immersive .collapsed-browse:hover{color:var(--ink);border-color:var(--amber-br)}
+.atlas-immersive .collapsed-review{flex:none;min-height:48px;display:flex;align-items:center;gap:7px;padding:0 14px;border:1px solid var(--amber);background:var(--amber-soft);color:var(--amber-br);border-radius:12px;font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;backdrop-filter:blur(8px);white-space:nowrap;box-shadow:0 10px 28px -14px rgba(0,0,0,.85)}
+.atlas-immersive .collapsed-review .cr-play{font-size:8px}
+.atlas-immersive .collapsed-review:hover{background:rgba(245,166,35,.2)}
+.atlas-immersive .collapsed-review:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .dock-summary{flex:none;display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--line-bright);background:rgba(12,18,30,.86);border-radius:12px;backdrop-filter:blur(8px);box-shadow:0 8px 24px -12px rgba(0,0,0,.8)}
 .atlas-immersive .dock-summary__main{flex:1;min-width:0;display:flex;align-items:center;gap:10px;min-height:44px;padding:0 6px;background:none;border:none;cursor:pointer;text-align:left;font-family:var(--mono)}
 .atlas-immersive .dock-summary__main:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:8px}
@@ -693,12 +770,14 @@ const CSS = `
 .atlas-immersive .rail-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .atlas-immersive .rail-hd .rh-e{font-size:9px;letter-spacing:.24em;color:var(--amber);display:block}
 .atlas-immersive .rail-hd .rh-t{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.04em;color:var(--ink)}
-.atlas-immersive .review-banner{display:flex;align-items:center;gap:12px;padding:13px 15px;border:1px solid var(--line-bright);background:linear-gradient(180deg,rgba(245,166,35,.08),rgba(245,166,35,.02));border-radius:11px;cursor:default}
+.atlas-immersive .review-banner{width:100%;display:flex;align-items:center;gap:12px;padding:13px 15px;border:1px solid var(--line-bright);background:linear-gradient(180deg,rgba(245,166,35,.08),rgba(245,166,35,.02));border-radius:11px;cursor:pointer;text-align:left;font-family:var(--mono)}
+.atlas-immersive .review-banner:hover{border-color:var(--amber)}
+.atlas-immersive .review-banner:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
 .atlas-immersive .review-banner__ic{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:9px;background:var(--amber-soft);color:var(--amber-br);font-size:13px}
 .atlas-immersive .review-banner__t{flex:1;line-height:1.3}
 .atlas-immersive .review-banner__t b{display:block;font-family:var(--display);font-weight:700;font-size:15px;color:var(--ink)}
 .atlas-immersive .review-banner__t span{font-size:10.5px;letter-spacing:.08em;color:var(--ink-dim)}
-.atlas-immersive .review-banner__soon{font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);border:1px solid var(--line-bright);border-radius:999px;padding:3px 8px}
+.atlas-immersive .review-banner__go{flex:none;color:var(--amber-br);font-size:16px}
 .atlas-immersive .rail-scope{display:flex;flex-direction:column;gap:8px}
 .atlas-immersive .rail .seg{width:100%}
 .atlas-immersive .rail .seg button{flex:1}
@@ -741,7 +820,10 @@ const CSS = `
 .atlas-immersive .dir-row__tag{font-size:8.5px;letter-spacing:.1em;padding:1px 5px;border-radius:4px;border:1px solid}
 .atlas-immersive .dir-row__tag--core{color:var(--amber-br);border-color:rgba(245,166,35,.5);background:var(--amber-soft)}
 .atlas-immersive .dir-row__tag--prof{color:var(--blue-bright);border-color:rgba(96,165,250,.45);background:var(--blue-soft)}
+.atlas-immersive .dir-row__rev{font-size:8.5px;letter-spacing:.1em;padding:1px 5px;border-radius:4px;border:1px solid var(--line-bright);color:var(--ink-mute)}
+.atlas-immersive .dir-row__rev--done{color:var(--amber-br);border-color:rgba(245,166,35,.5);background:var(--amber-soft)}
 .atlas-immersive .dir-row__arr{color:var(--ink-faint);font-size:16px;flex:none}
+.atlas-immersive .seg--review button{padding:0 7px;font-size:9.5px;letter-spacing:.05em}
 
 .atlas-immersive .sheet-body{display:flex;flex-direction:column;gap:12px;overflow-y:auto;position:relative;flex:1 1 auto;min-height:0;padding-bottom:4px}
 .atlas-immersive .sheet-close{position:absolute;top:-2px;right:0;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-bright);background:var(--surface);color:var(--ink-dim);border-radius:8px;font-size:16px;cursor:pointer;z-index:2}

@@ -20,6 +20,7 @@ import type {
   KnowledgeReview,
   CaliSession,
   AtlasCountry,
+  AtlasReview,
 } from '@/types';
 
 export class LevelUpDB extends Dexie {
@@ -42,6 +43,7 @@ export class LevelUpDB extends Dexie {
   knowledgeReviews!: Table<KnowledgeReview, number>;
   nafileLogs!: Table<NafileLog, number>;
   atlasCountries!: Table<AtlasCountry, string>;
+  atlasReviews!: Table<AtlasReview, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -177,6 +179,31 @@ export class LevelUpDB extends Dexie {
       // iso3 is optional/non-unique here (entities without an official code
       // store nothing in it), so it is a plain secondary index, not unique.
       atlasCountries: '&atlasId, iso3, name, updatedAt',
+    });
+    this.version(10).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
+      caliSessions: '++id, date, completed, createdAt',
+      nafileLogs: '++id, date, createdAt',
+      atlasCountries: '&atlasId, iso3, name, updatedAt',
+      // Self-directed Atlas review events. Kept in a SEPARATE store from the
+      // profile so review history survives profile delete/re-import. Multiple
+      // rows per atlasId are allowed; latest date + count are derived, not stored.
+      atlasReviews: '++id, atlasId, reviewedAt',
     });
   }
 }
@@ -403,7 +430,28 @@ export async function updateAtlasCountry(
 }
 
 export async function deleteAtlasCountry(atlasId: string): Promise<void> {
+  // Only the profile is removed — review history in atlasReviews is intentionally
+  // left intact so it is never silently erased by deleting/re-importing a profile.
   await db.atlasCountries.delete(atlasId);
+}
+
+// ===== World Atlas Review Helpers =====
+//
+// Review events are append-only and stored separately from profiles. Latest date
+// and total count are DERIVED from the events (see src/lib/logic/atlasReview.ts),
+// never persisted, so multiple reviews of the same country compose naturally.
+
+export async function getAllAtlasReviews(): Promise<AtlasReview[]> {
+  return db.atlasReviews.toArray();
+}
+
+export async function getAtlasReviewsFor(atlasId: string): Promise<AtlasReview[]> {
+  return db.atlasReviews.where('atlasId').equals(atlasId).toArray();
+}
+
+/** Append one review event. Returns the new row id. `reviewedAt` is injectable for tests. */
+export async function addAtlasReview(atlasId: string, reviewedAt: number = Date.now()): Promise<number> {
+  return db.atlasReviews.add({ atlasId, reviewedAt });
 }
 
 // ===== Calisthenics Helpers ===== //

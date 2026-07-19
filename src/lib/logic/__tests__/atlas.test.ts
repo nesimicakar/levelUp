@@ -98,7 +98,7 @@ describe('atlas entity registry', () => {
   });
 });
 
-describe('atlasCountries table (DB v9)', () => {
+describe('atlasCountries table (DB v10)', () => {
   let db: LevelUpDB;
 
   beforeEach(async () => {
@@ -108,9 +108,10 @@ describe('atlasCountries table (DB v9)', () => {
     await db.open();
   });
 
-  it('opens at version 9 with the atlasCountries table', () => {
-    expect(db.verno).toBe(9);
+  it('opens at version 10 with the atlasCountries + atlasReviews tables', () => {
+    expect(db.verno).toBe(10);
     expect(db.atlasCountries).toBeDefined();
+    expect(db.atlasReviews).toBeDefined();
   });
 
   it('round-trips a fully-structured profile without losing nested data', async () => {

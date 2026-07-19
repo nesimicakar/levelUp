@@ -1,18 +1,19 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { getAtlasCountry, getAllConcepts, updateAtlasCountry } from '@/lib/db';
+import { getAtlasCountry, getAllConcepts, updateAtlasCountry, getAtlasReviewsFor, addAtlasReview } from '@/lib/db';
 import { exportAtlasCountry, downloadAtlasPack } from '@/lib/logic/atlasPack';
 import { isNoteDirty } from '@/lib/logic/atlasLinks';
+import { summarizeReviews, reviewStatusLabel, reviewCountLabel } from '@/lib/logic/atlasReview';
 import { touchTargetStyle } from '@/lib/logic/atlasTouch';
 import { getEntityByAtlasId } from '@/lib/data/atlasEntities';
 import { useAtlasTopology, resolveLandNeighbors } from '@/lib/logic/atlasTopology';
 import { buildAtlasProfileView, type AtlasProfileView, type EntityLink, type NeighborLink } from '@/lib/logic/atlasProfile';
 import { WorldMap } from '@/components/WorldMap';
 import { ArticleText } from '@/components/ArticleText';
-import type { AtlasCountry, AtlasEntityStatus, KnowledgeConcept } from '@/types';
+import type { AtlasCountry, AtlasReview, AtlasEntityStatus, KnowledgeConcept } from '@/types';
 
 const STATUS_COLOR: Record<AtlasEntityStatus, string> = {
   sovereign: '#64748b',
@@ -297,6 +298,67 @@ function NoteEditor({ atlasId, saved, onSaved }: { atlasId: string; saved: strin
   );
 }
 
+// ── Review tracker (profiled countries only; self-directed, no scheduling) ────
+
+function formatReviewDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function ReviewSection({ atlasId, reviews, onReviewed }: {
+  atlasId: string; reviews: AtlasReview[]; onReviewed: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const busyRef = useRef(false); // guards against duplicate events from rapid taps
+
+  const summary = summarizeReviews(reviews);
+  const now = Date.now();
+  const statusLabel = reviewStatusLabel(summary, now);
+  const countLabel = reviewCountLabel(summary);
+
+  const markReviewed = async () => {
+    if (busyRef.current) return; // ignore repeated rapid taps while a write is in flight
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await addAtlasReview(atlasId);
+      setJustSaved(true);
+      onReviewed();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section label="Review">
+      <Card>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-text">
+              {justSaved ? 'Reviewed today' : statusLabel}
+            </p>
+            <p className="text-[10px] text-text-muted mt-1">
+              {summary.latestAt !== null
+                ? <>Last reviewed {formatReviewDate(summary.latestAt)}{countLabel ? ` · ${countLabel}` : ''}</>
+                : 'Mark this country reviewed after you read its profile.'}
+            </p>
+          </div>
+          <button
+            onClick={markReviewed}
+            disabled={busy}
+            aria-label="Mark this country as reviewed"
+            className="flex-shrink-0 px-3 rounded-lg text-[10px] font-bold uppercase tracking-widest text-warning disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-warning"
+            style={{ ...touchTargetStyle(), background: '#f59e0b18', border: '1px solid #f59e0b44' }}
+          >
+            {busy ? 'Saving…' : 'Mark reviewed'}
+          </button>
+        </div>
+      </Card>
+    </Section>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AtlasCountryPage() {
@@ -307,12 +369,17 @@ export default function AtlasCountryPage() {
 
   const [profile, setProfile] = useState<AtlasCountry | undefined>(undefined);
   const [concepts, setConcepts] = useState<KnowledgeConcept[]>([]);
+  const [reviews, setReviews] = useState<AtlasReview[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   const reload = useCallback(() => {
-    return Promise.all([getAtlasCountry(atlasId), getAllConcepts()])
-      .then(([p, c]) => { setProfile(p); setConcepts(c); setLoaded(true); })
+    return Promise.all([getAtlasCountry(atlasId), getAllConcepts(), getAtlasReviewsFor(atlasId)])
+      .then(([p, c, r]) => { setProfile(p); setConcepts(c); setReviews(r); setLoaded(true); })
       .catch(() => setLoaded(true));
+  }, [atlasId]);
+
+  const reloadReviews = useCallback(() => {
+    getAtlasReviewsFor(atlasId).then(setReviews).catch(() => {});
   }, [atlasId]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -393,6 +460,7 @@ export default function AtlasCountryPage() {
         <div className="flex flex-col gap-4">
           <ProfileBody view={view} />
           <NoteEditor atlasId={atlasId} saved={profile?.personalNotes} onSaved={reload} />
+          <ReviewSection atlasId={atlasId} reviews={reviews} onReviewed={reloadReviews} />
         </div>
       ) : (
         <div className="flex flex-col gap-4">
