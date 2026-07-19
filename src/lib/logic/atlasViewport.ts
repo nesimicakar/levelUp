@@ -171,6 +171,24 @@ export function heroTransform(size: ViewportSize, band: HeroBand, zoom = HERO_ZO
   return clampTranslate(zoomAtPoint(WORLD_TRANSFORM, k, anchor), size);
 }
 
+/**
+ * Frame a single entity for the non-interactive profile locator: center its box and
+ * zoom so it fills a comfortable share of the view WITH regional context around it.
+ * `growth` reserves context (the framed span is ~growth × the entity), and the scale
+ * is clamped so very large countries don't overflow and tiny ones/markers don't zoom
+ * to street level. Proportions preserved; clamped to pan bounds.
+ */
+export function fitLocator(
+  box: Box,
+  size: ViewportSize = VIEW_SIZE,
+  { growth = 2.2, minK = 1.15, maxK = 5 }: { growth?: number; minK?: number; maxK?: number } = {},
+): Transform {
+  const k = clamp(Math.min(size.width / (box.w * growth), size.height / (box.h * growth)), minK, maxK);
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  return clampTranslate({ k, x: size.width / 2 - k * cx, y: size.height / 2 - k * cy }, size);
+}
+
 export interface ViewInset { top: number; bottom: number; x: number; }
 
 /**

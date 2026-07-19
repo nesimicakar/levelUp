@@ -15,7 +15,7 @@ import {
   VIEW_SIZE, WORLD_TRANSFORM,
   applyWheel, panBy, beginPinch, updatePinch, shouldPinch, fitBox,
   zoomAtPoint, clampTranslate, tweenDuration, lerpTransform,
-  dragPan, exceedsTapThreshold, boundsToBox, pointBox, fitBoxInset, heroTransform,
+  dragPan, exceedsTapThreshold, boundsToBox, pointBox, fitBoxInset, fitLocator, heroTransform,
   type Transform, type Point, type Box, type PinchState, type ViewportSize, type ViewInset,
 } from '@/lib/logic/atlasViewport';
 
@@ -30,7 +30,7 @@ const CONTINENT_LONLAT: Record<string, [number, number, number, number]> = {
   Oceania: [110, -50, 179, 10],
 };
 interface ShapePiece { atlasId: string; d: string; }
-interface MarkerPiece { atlasId: string; name: string; x: number; y: number; }
+interface MarkerPiece { atlasId: string; name: string; x: number; y: number; polygonless: boolean; }
 
 /**
  * Land state class. Visual priority (per approved design): selected > Core >
@@ -174,13 +174,21 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     const interactivePieces: ShapePiece[] = [];
     const inertPieces: string[] = [];
     const boxesById: Record<string, Box> = {};
+    const hasPolygon = new Set<string>();
     for (const f of fc.features) {
       const atlasId = matchFeatureToAtlasId({ id: f.id, name: f.properties?.name });
       const d = path(f as never);
       if (!d) continue;
       if (atlasId) {
         interactivePieces.push({ atlasId, d });
-        boxesById[atlasId] = boundsToBox(path.bounds(f as never) as [[number, number], [number, number]]);
+        hasPolygon.add(atlasId);
+        // Some ISO ids are shared by a mainland + a tiny external territory (e.g.
+        // Australia 036 also carries "Ashmore and Cartier Is." near Indonesia).
+        // Keep the LARGEST-area feature's bounds so focus lands on the mainland,
+        // never on an external-territory fragment. Deterministic (area order).
+        const box = boundsToBox(path.bounds(f as never) as [[number, number], [number, number]]);
+        const prev = boxesById[atlasId];
+        if (!prev || box.w * box.h > prev.w * prev.h) boxesById[atlasId] = box;
       } else {
         inertPieces.push(d);
       }
@@ -189,8 +197,9 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     for (const [atlasId, coord] of Object.entries(MARKER_COORDS)) {
       const p = projection(coord as [number, number]);
       if (p) {
-        markerPieces.push({ atlasId, name: ENTITY_NAME.get(atlasId) ?? atlasId, x: p[0], y: p[1] });
-        if (!boxesById[atlasId]) boxesById[atlasId] = pointBox({ x: p[0], y: p[1] }); // polygonless → fly to a point
+        const polygonless = !hasPolygon.has(atlasId);
+        markerPieces.push({ atlasId, name: ENTITY_NAME.get(atlasId) ?? atlasId, x: p[0], y: p[1], polygonless });
+        if (polygonless) boxesById[atlasId] = pointBox({ x: p[0], y: p[1] }); // polygonless → fly to a point
       }
     }
     const boxes: Record<string, Box> = {};
@@ -232,34 +241,24 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     return out;
   }, [shapes, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
 
-  // Only dot the entities worth locating: Core Atlas members, anything with a
-  // profile, or the current selection. Tiny non-Core islands stay in search/list
-  // rather than speckling the map. Each marker is an amber dot + pulsing halo.
+  // No always-visible fallback pins. Tiny / polygonless entities stay in search,
+  // the directory, and their profile routes; a marker is drawn ONLY as a temporary
+  // indicator for the current selection (so it is still locatable when picked).
   const markerEls = useMemo(() => {
-    const out: React.ReactNode[] = [];
-    let selectedEl: React.ReactNode = null;
-    markers.forEach(m => {
-      const hasProfile = profileIds.has(m.atlasId);
-      const isSelected = selectedAtlasId === m.atlasId;
-      if (!hasProfile && !isSelected && !isCoreAtlas(m.atlasId)) return;
-      const dot = isSelected ? 3.6 : 2.6;
-      const halo = isSelected ? 7 : 5.5;
-      const el = (
-        <g
-          key={`m-${m.atlasId}`}
-          className={`atlas-mk${isSelected ? ' is-selected' : ''}`}
-          onClick={interactive && onSelect ? () => handleSelect(m.atlasId) : undefined}
-        >
-          <circle className="atlas-mk__halo" cx={m.x} cy={m.y} r={halo} />
-          <circle className="atlas-mk__dot" cx={m.x} cy={m.y} r={dot} />
-          <title>{m.name}</title>
-        </g>
-      );
-      if (isSelected) selectedEl = el; else out.push(el);
-    });
-    if (selectedEl) out.push(selectedEl);
-    return out;
-  }, [markers, profileIds, selectedAtlasId, interactive, onSelect, handleSelect]);
+    const m = markers.find(mk => mk.atlasId === selectedAtlasId);
+    if (!m) return [];
+    return [(
+      <g
+        key={`m-${m.atlasId}`}
+        className="atlas-mk is-selected"
+        onClick={interactive && onSelect ? () => handleSelect(m.atlasId) : undefined}
+      >
+        <circle className="atlas-mk__halo" cx={m.x} cy={m.y} r={7} />
+        <circle className="atlas-mk__dot" cx={m.x} cy={m.y} r={3.6} />
+        <title>{m.name}</title>
+      </g>
+    )];
+  }, [markers, selectedAtlasId, interactive, onSelect, handleSelect]);
 
   // ── Gesture plumbing ────────────────────────────────────────────────────────
   const tRef = useRef(transform); tRef.current = transform;
@@ -473,6 +472,12 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
     if (animRef.current) cancelAnimationFrame(animRef.current);
   }, []);
 
+  // The interactive map is driven by gestures; the static profile locator instead
+  // frames the selected entity with regional context (bounds-based, zoom-clamped).
+  const renderTransform = !interactive && selectedAtlasId && entityBoxes[selectedAtlasId]
+    ? fitLocator(entityBoxes[selectedAtlasId], projSize)
+    : transform;
+
   const svg = (
     <svg
       ref={svgRef}
@@ -492,7 +497,7 @@ export const WorldMap = forwardRef<WorldMapHandle, WorldMapProps>(function World
       onMouseDown={interactive ? (e => { if (e.button === 0) { cancelAnim(); movedRef.current = false; dragRef.current = { x: e.clientX, y: e.clientY }; } }) : undefined}
     >
       <style>{MAP_CSS}</style>
-      <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+      <g transform={`translate(${renderTransform.x} ${renderTransform.y}) scale(${renderTransform.k})`}>
         <path className="atlas-sphere" d={spherePath} />
         <path className="atlas-grat" d={gratPath} aria-hidden="true" />
         <g aria-hidden="true">{inertEls}</g>
