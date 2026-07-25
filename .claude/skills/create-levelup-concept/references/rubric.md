@@ -53,16 +53,44 @@ against these before returning it.
   clean causal claim that's actually murkier; "Indulgences Were an Early Revenue
   Stream" is honest. Prefer a memorable title that's still *true*.
 
+## Coverage: general knowledge first
+
+The point of a concept is **useful, lasting general knowledge** — foundational
+understanding first, memorable detail second. A **standard** concept should leave
+the reader able to answer all five:
+
+1. What or who is this?
+2. Why does it matter?
+3. What are the main works, events, ideas, or mechanisms?
+4. What broader context should I understand?
+5. What's memorable or useful in conversation?
+
+Aim for roughly **70% foundational understanding, 30% memorable conversation
+hooks**. Cover the essentials before any niche angle, and **never swap
+foundational knowledge for a clever thematic interpretation** — a striking read
+is worthless if the reader still can't say what the thing is. Supplied
+lesson/chapter titles are **must-cover** guidance, not optional.
+
+**People template (standard mode).** For an author, leader, scientist, or artist,
+usually cover: identity and background · main career stages · most important works
+or achievements · distinctive style, idea, or contribution · historical influence
+· one major controversy or nuance · one or two memorable conversation hooks. Drop
+or merge any that genuinely don't apply; don't pad.
+
 ## Length & shape by depth
 
 Use judgment, not a quota. Never split one idea into weak halves to hit a number,
 and never pad a thin topic to look deep.
 
-| depth | key ideas (typical) | feel |
+| depth | key ideas | scope |
 |---|---|---|
-| quick | 2–4 | fast, high-signal orientation |
-| standard | 4–6 | genuine working understanding |
-| deep | 6–9 | broader context, tensions, nuance |
+| quick | 2–4 | orientation and essentials only |
+| standard | 4–6 | balanced general knowledge (the default) |
+| deep | 6–9 | adds specialist detail, debates, lesser-known works, deeper interpretation |
+
+Specialist debates, obscure details, and deep textual analysis belong in **deep**
+mode — they don't earn space in a standard concept at the expense of the five
+questions above.
 
 - **Summary:** 1–2 tight paragraphs. Orients fast and says why the topic matters.
   Not a table of contents, not a teaser.
@@ -118,13 +146,14 @@ factual risk, so they get the most scrutiny. Follow these rules:
 - Separate established fact from interpretation. Attributions like "historians
   generally trace…" are honest where the causation is genuinely debated.
 
-### Final factual-risk pass (run before returning — see SKILL.md step 5)
+### Final factual-risk pass (run before returning)
 
-A dedicated last read of the whole concept, scanning only for factual risk, in
-five categories: **(1) quotations · (2) dates · (3) numbers · (4)
+When a concept leans on risky claims, do a last read scanning only for factual
+risk, in five categories: **(1) quotations · (2) dates · (3) numbers · (4)
 first/only/greatest claims · (5) neat coincidences and anecdotes.** Fix or soften
 anything you can't stand behind. The tidier and more quotable a claim is, the
-harder its evidence must be before it ships.
+harder its evidence must be before it ships. A robust paraphrase beats a fragile
+quote; a hedged range beats false precision.
 
 ## Fast fail list (reject and rewrite if any are true)
 
