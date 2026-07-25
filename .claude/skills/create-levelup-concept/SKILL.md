@@ -25,11 +25,15 @@ concept with no follow-up.
    niche detail for deep mode.
 4. **Apply factual caution** (below) — verify only what's genuinely risky, hedge
    what you can't confirm.
-5. **Emit valid JSON only** — one object, no prose, no fences, quotes and
-   newlines escaped (`\"`, `\n`).
-6. **Validate** (read-only) before returning:
-   `python3 .claude/skills/create-levelup-concept/scripts/validate.py <file>`
-   (or pipe on stdin). `VALID` checks schema, not truth.
+5. **Foundational-coverage check** (below) — a quick pass to confirm the
+   essential general knowledge is present; add only what's clearly missing.
+6. **Validate for real, then return.** Write the pack to a temp file and run
+   `python3 .claude/skills/create-levelup-concept/scripts/validate.py <file>`.
+   If JSON parsing or validation fails, fix the output and rerun — **never return
+   the JSON until the validator actually reports `VALID`.** Don't claim
+   validation you didn't run. Then emit the JSON only: one object, no prose, no
+   fences, quotes and newlines escaped (`\"`, `\n`). `VALID` checks schema, not
+   truth.
 
 ## Coverage & depth — general knowledge first
 
@@ -59,6 +63,14 @@ concept usually covers identity/background, main career stages, most important
 works/achievements, distinctive contribution, historical influence, one major
 controversy or nuance, and one or two memorable hooks. (Fuller template in
 `references/rubric.md`.)
+
+**Foundational-coverage check (before returning).** Supplied lesson/chapter
+titles are must-cover, but they aren't necessarily the whole boundary of the
+topic. Do a quick read and confirm the concept delivers the essentials: what or
+who it is · why it matters · major works/events/achievements/mechanisms · broader
+historical or intellectual context · an important nuance or controversy where
+relevant · one or two memorable hooks. Add only what's **clearly missing** — keep
+the 70/30 balance; don't spin up more research, a checklist, or a new file.
 
 ## Factual caution
 
