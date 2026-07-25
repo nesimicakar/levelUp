@@ -17,19 +17,62 @@ import-ready concept with no follow-up.
 
 1. **Parse the request** (below). Decide title, domain, depth, source, emphasis,
    and whether a trusted catalog of existing Vault titles was provided.
-2. **Ask a clarifying question only if genuinely necessary** (below). Otherwise
-   proceed — don't interrogate the user for a routine topic.
+2. **Anchor source & coverage, then ask a clarifying question only if genuinely
+   necessary** (both below). If the request carries **no** source *and* no
+   coverage/emphasis, ask the one combined source-or-coverage question before
+   generating. Otherwise proceed — don't interrogate the user for a routine
+   topic.
 3. **Write the concept** to the quality bar in `references/rubric.md`. Read that
    file if you have not this session — it is the standard you're graded on, not
    schema validity.
 4. **Verify facts** that are current, disputed, unusually specific, or shaky
    using WebSearch/WebFetch when available (especially at `deep` depth and for
    any hard number, date, or superlative). Never state a guess as settled fact.
-5. **Emit valid JSON only** — one fenced-free JSON object, no prose, no markdown
+   See `references/rubric.md` → *Factual discipline* for the exact rules. In
+   short: verify every **direct quotation, exact number, precise date,
+   superlative, and memorable anecdote** before it ships; scrutinize
+   **conversation hooks hardest**, because a wrong-but-memorable hook is worse
+   than an ordinary error — it's the part the user will repeat out loud.
+5. **Run the factual-risk pass** (below, and in `references/rubric.md`) as a
+   dedicated final scan before emitting. Do not skip it because the concept
+   "feels" solid — the memorable errors are the ones that feel solid.
+6. **Emit valid JSON only** — one fenced-free JSON object, no prose, no markdown
    fences, no explanation. (The exception is a clarifying question in step 2.)
-6. **Self-check** with the validator before returning (read-only):
+   Ensure every quotation, apostrophe, and line break is correctly escaped
+   (`\"`, `\n`) so the object parses.
+7. **Self-check** with the validator before returning (read-only):
    `python3 .claude/skills/create-levelup-concept/scripts/validate.py <file>`
-   or pipe the JSON on stdin. A clean `VALID` is necessary but not sufficient.
+   or pipe the JSON on stdin. A clean `VALID` is necessary but not sufficient —
+   it checks schema, not truth.
+
+## Final factual-risk pass (do this before emitting)
+
+Before returning the JSON, re-read the whole concept once looking **only** for
+factual risk, scanning these five categories in order. Fix or soften anything
+you can't stand behind:
+
+1. **Quotations** — Is every quoted phrase verbatim from a verified source, with
+   the right speaker and work? If wording or attribution is uncertain,
+   paraphrase instead of quoting. Do not include a direct quotation you have not
+   confirmed. (A famous quote is often misremembered — verify, don't trust
+   recall.)
+2. **Dates** — Is each date correct and the *right kind* of event? Do not
+   conflate related-but-distinct events (e.g. a comet's **perihelion** /
+   closest-to-sun vs. its **closest approach to Earth**; publication vs. writing
+   vs. setting; birth vs. baptism). Name the specific event the date belongs to.
+3. **Numbers** — Is each figure supported? When reputable estimates differ, give
+   a **range**, **attribute** it ("by most accounts," "an estimated"), or use
+   cautious wording — never a false-precise single number.
+4. **First / only / greatest claims** — Replace absolutes ("the first," "the
+   only," "the greatest") with precise, qualified language ("among the first,"
+   "one of the earliest major," "widely regarded as") unless priority is firmly
+   and uncontestedly established.
+5. **Neat coincidences and anecdotes** — The tidier and more repeatable a story
+   is, the harder to verify it must be. Confirm the memorable version is the true
+   version; if the clean telling is embroidered, tell the accurate one even if
+   it's slightly less neat. Do not assert **intent** the record doesn't support
+   ("he tossed it off as a joke," "a throwaway title") — describe what happened,
+   not what he privately meant.
 
 ## Schema (summary — full detail in `references/reference.md`)
 
@@ -78,8 +121,9 @@ Only the title is required.
 | title | The topic. | required |
 | domain | Domain name. | infer one fitting single-word domain from the topic |
 | depth | `quick` \| `standard` \| `deep` | `standard` |
-| source | A book, course, note, or app export | none → `sourceType: "manual"`, no `sourceTitle` |
-| emphasis/notes | Angle or aspects to stress | none |
+| source | A book, course, Yuno/Recall/MemoryOS export, or note | none **and** no emphasis → **ask the combined source-or-coverage question** (below); on `skip` → `sourceType: "manual"` |
+| lessons/chapters | `lessons:` or `chapters:` list (e.g. `Career; Tom Sawyer`), `;`- or `,`-separated, or named in a natural-language reply | none → cover the topic normally |
+| emphasis/notes | Angle or topics to stress — from the command or the combined question's reply | none |
 | existing concepts | Vault titles the user pasted/listed | none → omit `relatedConceptTitles` |
 
 **Depth** (guidance, not a quota — never split one idea into weak halves, never
@@ -105,7 +149,83 @@ Ask **one** short question (instead of emitting JSON) only when:
 - **The user's framing would materially change the concept** and you can't tell
   which they want.
 
-Do not ask about domain, depth, or source — infer sensible defaults and proceed.
+Do not ask about domain or depth — infer sensible defaults and proceed. Source
+is different: it gets exactly one optional question, described next.
+
+## Source & coverage anchoring (the one optional question)
+
+If the request carries **no source and no coverage/emphasis information**, ask
+this single combined question *instead of* emitting JSON, then wait for the
+reply:
+
+> Do you have a source or preferred coverage for this concept? You can provide a
+> book, course, Yuno lesson titles, notes, topics to emphasize, or reply "skip."
+
+Rules:
+
+- **Only ask when both are absent.** If the command or earlier conversation
+  already supplies a source (any `source:`/`lessons:`/`chapters:` field, a named
+  book/course, or pasted notes) **or** an emphasis/angle, skip the question and
+  proceed.
+- **Ask at most once.** Never re-prompt or chain follow-ups. Take whatever the
+  reply gives and generate. Only ask a *second* question if the reply is
+  genuinely ambiguous in a way that would materially change the concept (e.g. it
+  names a title that could be one of several different works) — not to tidy up
+  minor gaps you can reasonably infer.
+- **Accept a natural-language reply — no pipe syntax required.** Read the answer
+  as plain prose and infer each field from it. All of these are valid answers to
+  the one question, and you parse them yourself:
+  - *"the Ron Chernow biography"* → `sourceType: book`, `sourceTitle` = that book.
+  - *"Yuno lessons: Career, Tom Sawyer, Huckleberry Finn, The Gilded Age"* →
+    `sourceType: yuno`, lesson titles steer emphasis (see below).
+  - *"just focus on his bankruptcy and the world tour"* → no source
+    (`sourceType: manual`), but set **emphasis** to those topics.
+  - *"here are my notes: …"* → pasted notes become the primary source.
+  - *"skip"* / *"no"* / empty → `sourceType: "manual"`, no `sourceTitle`; infer
+    domain and depth and generate normally.
+- **A reply can carry source, coverage, both, or neither.** Extract whatever is
+  present: `sourceType` + `sourceTitle`, any lesson/chapter titles, and any
+  preferred emphasis. Absent pieces fall back to their normal defaults.
+
+Interpreting the source part — map it to the closed `sourceType` enum (`book |
+course | recall | yuno | memoryos | note | manual`) and a concise `sourceTitle`:
+
+| The reply indicates… | sourceType | sourceTitle |
+|---|---|---|
+| A book | `book` | the book title |
+| A course / lecture series | `course` | the course title |
+| **Yuno** lesson(s) | `yuno` | the lesson or unit title (concise) |
+| Recall / MemoryOS export | `recall` / `memoryos` | that item's title |
+| Their own written notes | `note` | a short note name (optional) |
+| Pasted notes or a transcript with no platform named | `note` | short name if one is clear, else omit |
+| Only emphasis/topics, no source | `manual` | omit |
+| "skip" / nothing | `manual` | omit |
+
+How the source and coverage shape the concept:
+
+- **Preferred emphasis / topics steer coverage and weighting.** When the reply
+  names angles or topics to stress ("focus on X and Y"), make those threads
+  prominent and give them the most room, while still meeting the depth mode's
+  shape. Emphasis changes *what gets attention*, never the factual bar.
+
+- **Lesson / chapter titles guide emphasis and coverage, not claims.** Use them
+  to decide which facets to include and how to weight them (e.g. Yuno lessons
+  `Career; Tom Sawyer; Huckleberry Finn; The Gilded Age` → make sure those
+  threads are covered and prominent). A title is **not** evidence for any
+  specific fact — every detailed claim still goes through normal verification and
+  the factual-risk pass. Never fabricate what a lesson "must have said."
+- **Pasted notes or transcripts are the primary source.** Build the concept from
+  their content, preserving the user's framing and facts; add only the minimum
+  outside context needed to make it stand alone, and verify that added context
+  as usual. Don't contradict the notes silently — if a note looks wrong, note the
+  discrepancy briefly rather than fabricating a correction.
+- **Store a concise, valid `sourceTitle`.** Keep it short and human (a title, not
+  a paragraph). Invent **no** new schema fields — lesson lists and transcripts
+  inform the writing but are never stored as their own keys. If several lessons
+  are given, `sourceTitle` names the source/unit, not the whole semicolon list.
+- After the reply (source, coverage, both, or "skip"), return the **normal
+  import-ready JSON only** — same rubric, depth modes, factual-risk pass,
+  validator, and conversation-hook standards as any other run.
 
 ## Related concepts
 
