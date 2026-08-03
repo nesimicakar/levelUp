@@ -230,6 +230,8 @@ export async function getSettings(): Promise<UserSettings> {
     if (s.showCharacterVisuals === undefined) s.showCharacterVisuals = true;
     if (s.langCompletions === undefined) s.langCompletions = [];
     if (s.expressionCompletions === undefined) s.expressionCompletions = [];
+    if (s.graceTokensAvailable === undefined) s.graceTokensAvailable = 1;
+    if (s.graceTokensGrantedQuarters === undefined) s.graceTokensGrantedQuarters = [];
     return s;
   }
   const defaults: UserSettings = {
@@ -255,6 +257,8 @@ export async function getSettings(): Promise<UserSettings> {
     finishedBooks: [],
     dailyReadingMinutesTarget: 5,
     strSessionsPerWeek: 3,
+    graceTokensAvailable: 1,
+    graceTokensGrantedQuarters: [],
   };
   await db.settings.add(defaults);
   return defaults;

@@ -52,12 +52,13 @@ export function getRankColor(rank: Rank): string {
   return colors[rank];
 }
 
-/** Count consecutive evaluated (non-skipped) weeks with >=80%, newest first.
+/** Count consecutive evaluated (non-skipped, non-grace) weeks with >=80%, newest first.
+ *  Skipped and graced weeks are streak-neutral — they don't count, but don't break it either.
  *  Stops at a promoted/demoted record — the streak was consumed or reset at that point. */
 export function countConsecutiveWeeksAbove80(records: RankRecord[]): number {
   let count = 0;
   for (const r of records) {
-    if (r.reason === 'skipped') continue;
+    if (r.reason === 'skipped' || r.reason === 'grace') continue;
     if (r.reason === 'promoted' || r.reason === 'demoted') break;
     if (r.completionPct >= 80) {
       count++;

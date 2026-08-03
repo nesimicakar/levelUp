@@ -1,6 +1,6 @@
 import { db, getWeekStart, getSettings, updateSettings, getActiveStrWeekSessions } from '@/lib/db';
 import type { UserSettings } from '@/types';
-import { computeWeeklyCompletionPct, computeRankUpdate } from '@/lib/logic/rank';
+import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
 import { RANK_ORDER } from '@/types';
 import type { Rank, RankRecord } from '@/types';
 
@@ -82,24 +82,9 @@ async function gatherWeekCompletions(weekStart: string, strRequired: number, set
   return { strCompleted, agiCompleted, vitCompleted, intCompleted, perCompleted };
 }
 
-/**
- * Count consecutive evaluated weeks (not skipped) ending with >=80%,
- * reading backwards from the most recent rankHistory records.
- * Stops at a promoted/demoted record — the streak was consumed or reset at that point.
- */
 async function getConsecutiveWeeksAbove80(): Promise<number> {
   const records = await db.rankHistory.orderBy('weekStart').reverse().toArray();
-  let count = 0;
-  for (const r of records) {
-    if (r.reason === 'skipped') continue;
-    if (r.reason === 'promoted' || r.reason === 'demoted') break;
-    if (r.completionPct >= 80) {
-      count++;
-    } else {
-      break;
-    }
-  }
-  return count;
+  return countConsecutiveWeeksAbove80(records);
 }
 
 /**
@@ -150,8 +135,107 @@ async function repairSpuriousPromotion(): Promise<void> {
   localStorage.setItem(repairKey, 'done');
 }
 
+export const MAX_GRACE_TOKENS = 2;
+
+/**
+ * One-time compensating credit: an early version of applyGraceToken's forward-recompute
+ * treated a later already-'grace' week like any other record, silently re-deriving it
+ * from raw completionPct and re-demoting it — burning the token that had been spent on
+ * it for nothing. Refunds exactly one token, once, so affected users aren't out a token
+ * for a bug that ate its own effect. Safe no-op for anyone who never hit it (their count
+ * was never below cap, so this just tops them back up).
+ */
+async function refundGraceTokenClobberedByCascadeBug(): Promise<void> {
+  const repairKey = 'graceClobberRefund_v1';
+  if (localStorage.getItem(repairKey) === 'done') return;
+
+  const settings = await getSettings();
+  const available = settings.graceTokensAvailable ?? 0;
+  await updateSettings({ graceTokensAvailable: Math.min(available + 1, MAX_GRACE_TOKENS) });
+
+  localStorage.setItem(repairKey, 'done');
+}
+
+/** Calendar-quarter key for a date, e.g. "2026-Q3". Used to grant at most one grace token per quarter. */
+export function getQuarterKey(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00');
+  const q = Math.floor(d.getMonth() / 3) + 1;
+  return `${d.getFullYear()}-Q${q}`;
+}
+
+/**
+ * Grants at most one grace token per calendar quarter, capped at MAX_GRACE_TOKENS.
+ * Idempotent — tracks which quarters have already been checked so re-running
+ * (e.g. multiple app loads within the same quarter) never double-grants.
+ */
+export async function ensureGraceTokenGrant(today: string): Promise<void> {
+  const settings = await getSettings();
+  const available = settings.graceTokensAvailable ?? 1;
+  const granted = settings.graceTokensGrantedQuarters ?? [];
+  const quarterKey = getQuarterKey(today);
+
+  if (granted.includes(quarterKey)) return;
+
+  if (available >= MAX_GRACE_TOKENS) {
+    await updateSettings({ graceTokensGrantedQuarters: [...granted, quarterKey] });
+    return;
+  }
+
+  await updateSettings({
+    graceTokensAvailable: available + 1,
+    graceTokensGrantedQuarters: [...granted, quarterKey],
+  });
+}
+
+/**
+ * Spends one grace token to reverse a single 'demoted' week (life-happens exemption —
+ * illness, bereavement, etc.). The week is marked 'grace' at its pre-demotion rank, and
+ * every later rankHistory record is recomputed forward from there so the whole chain
+ * (rank, rankBefore, reason, promotion streak) stays internally consistent. The graced
+ * week itself is streak-neutral (like a skipped week): it doesn't count toward the next
+ * promotion, but doesn't break a streak in progress either.
+ */
+export async function applyGraceToken(recordId: number): Promise<void> {
+  const settings = await getSettings();
+  const available = settings.graceTokensAvailable ?? 0;
+  if (available <= 0) return;
+
+  const records = await db.rankHistory.orderBy('weekStart').toArray(); // oldest first
+  const idx = records.findIndex(r => r.id === recordId);
+  if (idx === -1 || records[idx].reason !== 'demoted') return;
+
+  const updated = [...records];
+  updated[idx] = { ...updated[idx], rank: updated[idx].rankBefore, reason: 'grace' };
+
+  let currentRank = updated[idx].rank;
+  // Grace is streak-neutral, like a skipped week: it doesn't count toward the next
+  // promotion, but it doesn't break an existing streak either — carry forward whatever
+  // promotion progress existed immediately before this week, unbroken.
+  let consecWeeks = countConsecutiveWeeksAbove80([...updated.slice(0, idx)].reverse());
+
+  for (let i = idx + 1; i < updated.length; i++) {
+    const rec = updated[i];
+    if (rec.reason === 'skipped' || rec.reason === 'grace') {
+      // A later week already skipped/graced — carry rank and streak through it
+      // unchanged. (For 'grace' specifically: re-deriving from raw completionPct
+      // here would silently re-demote it, wasting the token already spent on it.)
+      updated[i] = { ...rec, rankBefore: currentRank, rank: currentRank };
+      continue;
+    }
+    const { newRank, newConsecutiveWeeks } = computeRankUpdate(currentRank, rec.completionPct, consecWeeks);
+    updated[i] = { ...rec, rankBefore: currentRank, rank: newRank, reason: rankReason(currentRank, newRank) };
+    currentRank = newRank;
+    consecWeeks = newConsecutiveWeeks;
+  }
+
+  await db.rankHistory.bulkPut(updated);
+  await updateSettings({ graceTokensAvailable: available - 1 });
+}
+
 export async function evaluateRankIfNeeded(today: string): Promise<void> {
   await repairSpuriousPromotion();
+  await refundGraceTokenClobberedByCascadeBug();
+  await ensureGraceTokenGrant(today);
 
   // 1. Ensure firstUseDate
   const settings = await getSettings();

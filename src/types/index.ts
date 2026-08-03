@@ -138,7 +138,7 @@ export interface RankRecord {
   weekStart: string;
   weekEnd: string;
   completionPct: number;
-  reason: 'promoted' | 'demoted' | 'maintained' | 'skipped';
+  reason: 'promoted' | 'demoted' | 'maintained' | 'skipped' | 'grace';
   createdAt: number;
 }
 
@@ -308,6 +308,10 @@ export interface UserSettings {
   enableDailyExpressions?: boolean;
   expressionBank?: string;
   expressionCompletions?: ExpressionCompletion[];
+  /** "Life happens" passes that can revert a single demoted rank week. Caps at 2, +1 granted per calendar quarter. */
+  graceTokensAvailable?: number;
+  /** Quarter keys (e.g. "2026-Q3") already checked for a grace token grant — prevents double-granting. */
+  graceTokensGrantedQuarters?: string[];
 }
 
 // ── Discipline System ────────────────────────────────────────────────────────

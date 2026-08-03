@@ -8,6 +8,7 @@ import {
   getIntDailyCap, getAgiDailyCap,
 } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
+import { applyGraceToken, MAX_GRACE_TOKENS } from '@/lib/logic/rankOrchestrator';
 import type { StatLevel, StatType, RankRecord, Rank } from '@/types';
 
 interface StatGrowthData {
@@ -41,6 +42,7 @@ const RANK_REASON_LABEL: Record<RankRecord['reason'], string> = {
   demoted:    'DEMOTED',
   maintained: 'MAINTAINED',
   skipped:    'SKIPPED',
+  grace:      'GRACE',
 };
 
 function fmtWeek(weekStart: string) {
@@ -64,11 +66,14 @@ export default function GrowthPage() {
   const [rankHistory, setRankHistory] = useState<RankRecord[]>([]);
   const [strRequired, setStrRequired] = useState(3);
   const [loaded, setLoaded] = useState(false);
+  const [graceTokens, setGraceTokens] = useState(0);
+  const [graceConfirmId, setGraceConfirmId] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     const settings = await getSettings();
     const reqStr = settings.strSessionsPerWeek ?? 3;
     setStrRequired(reqStr);
+    setGraceTokens(settings.graceTokensAvailable ?? 1);
 
     // ── Levels ──────────────────────────────────────────────────────────────
     const allStr = await getActiveStrAllSessions(settings);
@@ -174,6 +179,12 @@ export default function GrowthPage() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const handleUseGraceToken = async (id: number) => {
+    await applyGraceToken(id);
+    setGraceConfirmId(null);
+    await loadData();
+  };
 
   if (!loaded) return null;
 
@@ -368,7 +379,12 @@ export default function GrowthPage() {
         {/* ── Rank History ──────────────────────────────────────────────────── */}
         {rankHistory.length > 0 && (
           <>
-            <div className="section-heading text-text-muted">// RANK HISTORY</div>
+            <div className="section-heading text-text-muted flex items-center justify-between">
+              <span>// RANK HISTORY</span>
+              <span style={{ color: 'var(--color-grace)', fontSize: 10 }}>
+                🕊 GRACE {graceTokens}/{MAX_GRACE_TOKENS}
+              </span>
+            </div>
             <div className="frame-cut p-2">
               {rankHistory.map((r, i) => {
                 const c = `var(--color-rank-${r.rank.toLowerCase()})`;
@@ -376,15 +392,18 @@ export default function GrowthPage() {
                   r.reason === 'promoted' ? 'var(--color-success)'
                   : r.reason === 'demoted' ? 'var(--color-danger)'
                   : r.reason === 'skipped' ? 'var(--color-text-muted)'
+                  : r.reason === 'grace' ? 'var(--color-grace)'
                   : 'var(--color-text-dim)';
+                const canGrace = r.reason === 'demoted' && graceTokens > 0 && r.id !== undefined;
                 return (
                   <div
                     key={r.id ?? i}
-                    className="flex items-center justify-between px-2 py-2"
+                    className="flex flex-col px-2 py-2"
                     style={{
                       borderBottom: i < rankHistory.length - 1 ? '1px dashed var(--color-border)' : 'none',
                     }}
                   >
+                  <div className="flex items-center justify-between">
                     {/* Week date */}
                     <span className="text-text-muted font-display" style={{ fontSize: 10, width: 38, flexShrink: 0 }}>
                       {fmtWeek(r.weekStart)}
@@ -427,6 +446,36 @@ export default function GrowthPage() {
                     >
                       {RANK_REASON_LABEL[r.reason]}
                     </span>
+                  </div>
+
+                  {canGrace && (
+                    <div className="flex items-center justify-end gap-2 mt-1.5">
+                      {graceConfirmId === r.id ? (
+                        <>
+                          <span style={{ fontSize: 9, color: 'var(--color-text-muted)' }}>USE 1 GRACE TOKEN TO RESTORE {r.rankBefore}?</span>
+                          <button
+                            onClick={() => handleUseGraceToken(r.id!)}
+                            style={{ fontSize: 9, padding: '3px 7px', color: 'var(--color-grace)', background: 'rgba(56,189,248,0.1)', border: '1px solid color-mix(in srgb, var(--color-grace) 40%, transparent)' }}
+                          >
+                            CONFIRM
+                          </button>
+                          <button
+                            onClick={() => setGraceConfirmId(null)}
+                            style={{ fontSize: 9, padding: '3px 7px', color: 'var(--color-text-muted)', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--color-border)' }}
+                          >
+                            ✕
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setGraceConfirmId(r.id!)}
+                          style={{ fontSize: 9, padding: '3px 7px', color: 'var(--color-grace)', background: 'transparent', border: '1px solid color-mix(in srgb, var(--color-grace) 40%, transparent)' }}
+                        >
+                          🕊 USE GRACE TOKEN
+                        </button>
+                      )}
+                    </div>
+                  )}
                   </div>
                 );
               })}
