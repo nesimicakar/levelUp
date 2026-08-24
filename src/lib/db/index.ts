@@ -21,7 +21,11 @@ import type {
   CaliSession,
   AtlasCountry,
   AtlasReview,
+  Character,
+  CharacterStatsSnapshot,
+  Rank,
 } from '@/types';
+import { STARTER_CHARACTER, CHARACTER_DEFS } from '@/lib/data/characterDefs';
 
 export class LevelUpDB extends Dexie {
   strSessions!: Table<StrSession, number>;
@@ -44,6 +48,7 @@ export class LevelUpDB extends Dexie {
   nafileLogs!: Table<NafileLog, number>;
   atlasCountries!: Table<AtlasCountry, string>;
   atlasReviews!: Table<AtlasReview, number>;
+  characters!: Table<Character, number>;
 
   constructor() {
     super('LevelUpDB');
@@ -205,6 +210,50 @@ export class LevelUpDB extends Dexie {
       // rows per atlasId are allowed; latest date + count are derived, not stored.
       atlasReviews: '++id, atlasId, reviewedAt',
     });
+    // Character Prestige: rank progression becomes per-character instead of a single
+    // lifetime ladder. Additive only — adds the `characters` table and a `characterId`
+    // index on rankHistory; no existing Vault/Atlas/discipline/log data is touched.
+    this.version(11).stores({
+      strSessions: '++id, date, template, completed, isRestDay, createdAt',
+      agiLogs: '++id, date, completed, createdAt',
+      vitLogs: '++id, date, completed, createdAt',
+      intLogs: '++id, date, completed, createdAt',
+      perLogs: '++id, date, completed, createdAt',
+      weeklySummaries: '++id, weekStart, createdAt',
+      courseProgress: '++id, courseId',
+      rankHistory: '++id, &weekStart, rank, createdAt, characterId',
+      achievements: '++id, key, stat, unlockedAt',
+      settings: '++id',
+      customTaskLogs: '++id, [date+taskId], date, taskId',
+      disciplineStreaks: '&id, status, createdAt',
+      disciplineLogs: '++id, streakId, date, [streakId+date]',
+      knowledgeDomains: '&id, name, createdAt',
+      knowledgeConcepts: '&id, primaryDomainId, nextReviewAt, createdAt',
+      knowledgeReviews: '++id, conceptId, date, createdAt',
+      caliSessions: '++id, date, completed, createdAt',
+      nafileLogs: '++id, date, createdAt',
+      atlasCountries: '&atlasId, iso3, name, updatedAt',
+      atlasReviews: '++id, atlasId, reviewedAt',
+      characters: '++id, status, startedAt',
+    }).upgrade(async tx => {
+      const settingsRow = await tx.table('settings').toCollection().first();
+      const startedAt = settingsRow?.firstUseDate
+        ? new Date(settingsRow.firstUseDate + 'T12:00:00').getTime()
+        : Date.now();
+
+      const warriorId = await tx.table('characters').add({
+        ...STARTER_CHARACTER,
+        status: 'active',
+        startedAt,
+      });
+
+      // Every rankHistory row so far belongs to the seeded Warrior character.
+      await tx.table('rankHistory').toCollection().modify({ characterId: warriorId });
+
+      if (settingsRow?.id !== undefined) {
+        await tx.table('settings').update(settingsRow.id, { activeCharacterId: warriorId });
+      }
+    });
   }
 }
 
@@ -268,6 +317,151 @@ export async function updateSettings(partial: Partial<UserSettings>): Promise<vo
   const existing = await db.settings.toCollection().first();
   if (existing && existing.id) {
     await db.settings.update(existing.id, partial);
+  }
+}
+
+// ===== Character Prestige Helpers ===== //
+
+/** The character currently in progress. Self-healing: a fresh install (or a DB that
+ *  somehow lost its pointer) gets the Warrior seeded lazily, same pattern as getSettings(). */
+export async function getActiveCharacter(): Promise<Character> {
+  const settings = await getSettings();
+  if (settings.activeCharacterId !== undefined) {
+    const existing = await db.characters.get(settings.activeCharacterId);
+    if (existing) return existing;
+  }
+  const warrior: Character = { ...STARTER_CHARACTER, status: 'active', startedAt: Date.now() };
+  const id = await db.characters.add(warrior);
+  await updateSettings({ activeCharacterId: id });
+  return { ...warrior, id };
+}
+
+export async function getAllCharacters(): Promise<Character[]> {
+  return db.characters.orderBy('startedAt').toArray();
+}
+
+/** Starts a new character from the mastery pool and makes it the active one.
+ *  Does NOT touch the previous (mastered) character's row. */
+export async function createCharacter(slug: string): Promise<Character> {
+  const def = CHARACTER_DEFS.find(d => d.slug === slug);
+  if (!def) throw new Error(`Unknown character slug: ${slug}`);
+  const character: Character = { ...def, status: 'active', startedAt: Date.now() };
+  const id = await db.characters.add(character);
+  await updateSettings({ activeCharacterId: id });
+  return { ...character, id };
+}
+
+/** Marks a character as mastered. Does not create or select the next character —
+ *  that only happens once the user chooses one at the mastery moment. Takes an
+ *  explicit characterId (rather than reading "active" from settings) so it's safe
+ *  to call from contexts that may touch a past, already-mastered character's
+ *  records (e.g. a grace-token cascade) without accidentally mastering whichever
+ *  character happens to be active right now. */
+export async function masterCharacter(characterId: number, finalRank: Rank, snapshot: CharacterStatsSnapshot): Promise<void> {
+  await db.characters.update(characterId, {
+    status: 'mastered',
+    masteredAt: Date.now(),
+    finalRank,
+    finalStatsSnapshot: snapshot,
+  });
+}
+
+/**
+ * Repairs character↔rankHistory linkage. Safe and idempotent — returns immediately
+ * when everything is already consistent, so it's cheap to run on every app load.
+ *
+ * Why this exists separately from the v11 migration: a backup restore writes rows
+ * DIRECTLY into tables at the current schema version, so Dexie's upgrade function
+ * never fires. Restoring a pre-v11 backup therefore lands rankHistory rows with no
+ * `characterId` and a settings row with no `activeCharacterId` — which silently
+ * strands the user on a fresh E ladder while their real history sits unreferenced.
+ * This re-applies the same linkage the migration would have, and additionally
+ * cleans up the duplicate characters that a wiped `activeCharacterId` causes
+ * getActiveCharacter() to lazily seed.
+ */
+export async function reconcileCharacterLinkage(): Promise<void> {
+  const settings = await getSettings();
+  const characters = await db.characters.orderBy('startedAt').toArray();
+  const orphans = await db.rankHistory.filter(r => r.characterId === undefined).toArray();
+  const actives = characters.filter(c => c.status === 'active');
+
+  const pointerValid = settings.activeCharacterId !== undefined
+    && characters.some(c => c.id === settings.activeCharacterId);
+
+  // Healthy: nothing unattributed, pointer resolves, no duplicate active rows.
+  if (orphans.length === 0 && pointerValid && actives.length <= 1) return;
+
+  // Owner of unattributed history — the earliest active character, else the
+  // earliest of any (covers "all mastered, awaiting next pick"), else a freshly
+  // seeded Warrior anchored to the restored firstUseDate so the orchestrator's
+  // mid-week fairness check still lines up with the real history.
+  let owner = actives[0] ?? characters[0];
+  if (!owner) {
+    const startedAt = settings.firstUseDate
+      ? new Date(settings.firstUseDate + 'T12:00:00').getTime()
+      : Date.now();
+    const seeded: Character = { ...STARTER_CHARACTER, status: 'active', startedAt };
+    const id = await db.characters.add(seeded);
+    owner = { ...seeded, id };
+  }
+
+  if (orphans.length > 0) {
+    await db.rankHistory.bulkPut(orphans.map(r => ({ ...r, characterId: owner.id })));
+  }
+
+  // Drop stray duplicate active characters that own no history. Guarded on the
+  // owned-row count so a character with real history is never deleted.
+  for (const c of actives) {
+    if (c.id === owner.id || c.id === undefined) continue;
+    const owned = await db.rankHistory.where('characterId').equals(c.id).count();
+    if (owned === 0) await db.characters.delete(c.id);
+  }
+
+  await updateSettings({ activeCharacterId: owner.id });
+}
+
+/**
+ * Enforces the invariant that a character cannot have started AFTER evidence of its
+ * own activity — i.e. `startedAt` must not be later than the earliest rank week it
+ * owns, nor (for the starter character) later than the app's firstUseDate.
+ *
+ * Why this is separate from the linkage repair: `startedAt` is only ever assigned
+ * when a character is SEEDED. If a restore swaps in a different settings row, an
+ * already-seeded character keeps a start date derived from the pre-restore
+ * firstUseDate — leaving it claiming to have started months after its own history.
+ * Linkage can be perfectly consistent in that state, so this must not sit behind
+ * the linkage early-return.
+ *
+ * Only ever moves a date EARLIER, to a value the data itself proves.
+ */
+export async function repairCharacterStartDates(): Promise<void> {
+  const settings = await getSettings();
+  const characters = await db.characters.toArray();
+
+  for (const c of characters) {
+    if (c.id === undefined) continue;
+
+    const owned = await db.rankHistory.where('characterId').equals(c.id).toArray();
+    const candidates: number[] = [];
+
+    if (owned.length > 0) {
+      const earliestWeek = owned
+        .map(r => r.weekStart)
+        .reduce((min, w) => (w < min ? w : min));
+      candidates.push(new Date(earliestWeek + 'T12:00:00').getTime());
+    }
+
+    // The starter character is the one the app began with, so it can never post-date
+    // firstUseDate. Later characters legitimately start long after it.
+    if (c.slug === STARTER_CHARACTER.slug && settings.firstUseDate) {
+      candidates.push(new Date(settings.firstUseDate + 'T12:00:00').getTime());
+    }
+
+    if (candidates.length === 0) continue;
+    const earliest = Math.min(...candidates);
+    if (c.startedAt > earliest) {
+      await db.characters.update(c.id, { startedAt: earliest });
+    }
   }
 }
 

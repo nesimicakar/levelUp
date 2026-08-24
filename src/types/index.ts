@@ -140,6 +140,10 @@ export interface RankRecord {
   completionPct: number;
   reason: 'promoted' | 'demoted' | 'maintained' | 'skipped' | 'grace';
   createdAt: number;
+  /** Which character's ladder this week belongs to. Optional for backward compat with
+   *  pre-Character-Prestige rows — the v11 migration backfills all existing rows to
+   *  the seeded "Warrior" character, so in practice this is always set going forward. */
+  characterId?: number;
 }
 
 export interface Achievement {
@@ -312,6 +316,36 @@ export interface UserSettings {
   graceTokensAvailable?: number;
   /** Quarter keys (e.g. "2026-Q3") already checked for a grace token grant — prevents double-granting. */
   graceTokensGrantedQuarters?: string[];
+  /** Single source of truth for which `characters` row is currently in progress. */
+  activeCharacterId?: number;
+}
+
+// ── Character Prestige ──────────────────────────────────────────────────────
+
+/** A frozen copy of a character's rank-relevant history at the moment of mastery.
+ *  Intentionally minimal — derived from rankHistory, not a duplicate of it. */
+export interface CharacterStatsSnapshot {
+  weeksActive: number;
+  promotions: number;
+  demotions: number;
+  graceWeeksUsed: number;
+  bestWeekPct: number;
+}
+
+export interface Character {
+  id?: number;
+  /** Stable key into CHARACTER_DEFS, e.g. 'warrior', 'mage'. */
+  slug: string;
+  name: string;
+  icon: string;
+  /** Per-character art availability — independent of the global showCharacterVisuals
+   *  preference, so a character with no art yet never shows broken/wrong art. */
+  hasArtwork: boolean;
+  status: 'active' | 'mastered';
+  startedAt: number;
+  masteredAt?: number;
+  finalRank?: Rank;
+  finalStatsSnapshot?: CharacterStatsSnapshot;
 }
 
 // ── Discipline System ────────────────────────────────────────────────────────

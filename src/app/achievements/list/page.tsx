@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getSettings, getActiveStrAllCompleted } from '@/lib/db';
+import { db, getToday, getSettings, getActiveStrAllCompleted, getAllCharacters } from '@/lib/db';
 import { getCourseProgress } from '@/lib/db';
 import { getAllAchievementDefs, checkAndUnlockAchievements } from '@/lib/logic/achievements';
+import { computePeakRank } from '@/lib/logic/characters';
 import { computeAgiStreak, computeStatCompletedDays } from '@/lib/logic/streaks';
 import { RANK_ORDER } from '@/types';
 import type { Achievement, StatType } from '@/types';
@@ -37,7 +38,10 @@ export default function AchievementsListPage() {
     const totalMinutes = allIntLogs.reduce((s, l) => s + (l.learningMinutes ?? 0), 0);
     const reCourse = await getCourseProgress('real-estate');
     const saCourse = await getCourseProgress('stage-academy');
-    const latestRank = await db.rankHistory.orderBy('createdAt').last();
+    // Rank achievements ("Reach Rank C/A/S") are LIFETIME accomplishments — using
+    // the active character's rank would make them look unearnable after a prestige
+    // reset the ladder to E.
+    const peakRank = computePeakRank(await db.rankHistory.toArray(), await getAllCharacters());
 
     const ctx = {
       strSessions,
@@ -48,7 +52,7 @@ export default function AchievementsListPage() {
       intCourseUnits: reCourse.completedUnits,
       perLessons: saCourse.completedUnits,
       totalWeeks: 0,
-      currentRankIdx: latestRank ? RANK_ORDER.indexOf(latestRank.rank) : 0,
+      currentRankIdx: RANK_ORDER.indexOf(peakRank),
     };
 
     const newOnes = await checkAndUnlockAchievements(ctx);

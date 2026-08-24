@@ -14,6 +14,7 @@ function makeRankRecord(overrides: Partial<RankRecord> = {}): RankRecord {
     completionPct: 40,
     reason: 'demoted',
     createdAt: 1_700_000_000_000,
+    characterId: 1,
     ...overrides,
   };
 }

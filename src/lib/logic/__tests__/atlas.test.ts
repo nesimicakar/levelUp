@@ -108,8 +108,8 @@ describe('atlasCountries table (DB v10)', () => {
     await db.open();
   });
 
-  it('opens at version 10 with the atlasCountries + atlasReviews tables', () => {
-    expect(db.verno).toBe(10);
+  it('opens at the latest version with the atlasCountries + atlasReviews tables', () => {
+    expect(db.verno).toBe(11);
     expect(db.atlasCountries).toBeDefined();
     expect(db.atlasReviews).toBeDefined();
   });

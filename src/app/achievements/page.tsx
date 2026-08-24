@@ -3,22 +3,18 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { db, getToday, getWeekStart, getSettings, getActiveStrAllCompleted, getActiveStrWeekSessions } from '@/lib/db';
-import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, type WeeklyCompletionInput } from '@/lib/logic/rank';
+import {
+  db, getToday, getWeekStart, getSettings, getActiveStrAllCompleted, getActiveStrWeekSessions,
+  getActiveCharacter, getAllCharacters, getAllConcepts,
+} from '@/lib/db';
+import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, computeStrWeekCredit, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { checkAndUnlockAchievements } from '@/lib/logic/achievements';
+import { computePeakRank } from '@/lib/logic/characters';
+import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
 import { computeAgiStreak, computeStatCompletedDays, daysBetween } from '@/lib/logic/streaks';
 import { getCourseProgress } from '@/lib/db';
 import type { Achievement, Rank } from '@/types';
 import { RANK_ORDER } from '@/types';
-
-const RANK_TITLES: Record<Rank, string> = {
-  E: 'Weak Hunter',
-  D: 'Initiate Hunter',
-  C: 'Rising Hunter',
-  B: 'Elite Hunter',
-  A: 'Awakened Hunter',
-  S: 'Ascendant Hunter',
-};
 
 type DayStatus = 'done' | 'active' | 'empty';
 
@@ -34,6 +30,9 @@ export default function RecordPage() {
   const [dayCount, setDayCount] = useState(0);
   const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
   const [spiritualityEnabled, setSpiritualityEnabled] = useState(false);
+  const [charactersMastered, setCharactersMastered] = useState(0);
+  const [characterSlug, setCharacterSlug] = useState('warrior');
+  const [conceptsLearned, setConceptsLearned] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -50,7 +49,20 @@ export default function RecordPage() {
     const totalMinutes = allIntLogs.reduce((s, l) => s + (l.learningMinutes ?? 0), 0);
     const reCourse = await getCourseProgress('real-estate');
     const saCourse = await getCourseProgress('stage-academy');
-    const latestRank = await db.rankHistory.orderBy('createdAt').last();
+
+    // Character Prestige: rank progression is scoped to the active character's own
+    // ladder — a fresh character never inherits a previous one's rank.
+    const activeCharacter = await getActiveCharacter();
+    const characterHistory = activeCharacter.id !== undefined
+      ? await db.rankHistory.where('characterId').equals(activeCharacter.id).toArray()
+      : [];
+    const sortedHistory = [...characterHistory].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    const latestRank = sortedHistory.at(-1);
+
+    const allCharacters = await getAllCharacters();
+    setCharactersMastered(allCharacters.filter(c => c.status === 'mastered').length);
+    const allConcepts = await getAllConcepts();
+    setConceptsLearned(allConcepts.length);
 
     const ctx = {
       strSessions,
@@ -61,22 +73,28 @@ export default function RecordPage() {
       intCourseUnits: reCourse.completedUnits,
       perLessons: saCourse.completedUnits,
       totalWeeks: 0,
-      currentRankIdx: latestRank ? RANK_ORDER.indexOf(latestRank.rank) : 0,
+      // Lifetime peak, not the active character's rank — see list/page.tsx.
+      currentRankIdx: RANK_ORDER.indexOf(computePeakRank(await db.rankHistory.toArray(), allCharacters)),
     };
     const newOnes = await checkAndUnlockAchievements(ctx);
     const updated = [...all, ...newOnes].sort((a, b) => b.unlockedAt - a.unlockedAt);
     setAchievements(updated);
 
     // Day count — same source and math as Profile: settings.firstUseDate + daysBetween()
+    // (global lifetime counter, unaffected by character resets)
     const firstUse = settings.firstUseDate ?? today;
     setDayCount(daysBetween(firstUse, today));
-    setShowCharacterVisuals(settings.showCharacterVisuals ?? true);
+    // Art requires BOTH the global preference AND this character having artwork.
+    setShowCharacterVisuals((settings.showCharacterVisuals ?? true) && characterHasArtwork(activeCharacter.slug));
+    setCharacterSlug(activeCharacter.slug);
     setSpiritualityEnabled(settings.enableSpirituality ?? false);
     const weekStart = getWeekStart(today);
 
     // STR for current week — routes to caliSessions or strSessions based on active mode
     const weekStrSessions = await getActiveStrWeekSessions(weekStart, today + '￿', settings);
-    const strCompleted = weekStrSessions.filter(s => s.completed || s.isRestDay).length;
+    // Shared with gatherWeekCompletions() in rankOrchestrator — this week's preview
+    // must use the exact same credit rule as the rank it will actually earn.
+    const strCompleted = computeStrWeekCredit(weekStrSessions, settings.strSessionsPerWeek ?? 3);
 
     // All 7 days of current week
     const weekDays: string[] = [];
@@ -131,18 +149,16 @@ export default function RecordPage() {
 
     const strRequired = settings.strSessionsPerWeek ?? 3;
     const input: WeeklyCompletionInput = {
-      strCompleted: Math.min(strCompleted, strRequired),
+      strCompleted,
       agiCompleted: agiComp,
       vitCompleted: vitComp,
       intCompleted: intComp,
       perCompleted: perComp,
     };
-    setWeeklyPct(computeWeeklyCompletionPct(input, strRequired));
+    setWeeklyPct(computeWeeklyCompletionPct(input));
     setWeeklyStatCounts({ str: input.strCompleted, agi: agiComp, vit: vitComp, int: intComp, per: perComp, strRequired });
     setRank(latestRank?.rank ?? 'E');
-
-    const rankRecords = await db.rankHistory.orderBy('weekStart').reverse().toArray();
-    setPromotionWeeks(countConsecutiveWeeksAbove80(rankRecords));
+    setPromotionWeeks(countConsecutiveWeeksAbove80([...sortedHistory].reverse()));
 
     setLoaded(true);
   }, []);
@@ -166,7 +182,7 @@ export default function RecordPage() {
   const weeklyStatusBorder = weeklyPct >= 80 ? 'rgba(34,197,94,0.4)' : weeklyPct >= 60 ? 'rgba(245,158,11,0.4)' : 'var(--color-border)';
   const dayQualified = daysElapsed > 0 && daysCompleted / daysElapsed >= 0.8;
 
-  const titleWords = RANK_TITLES[rank].split(' ');
+  const titleWords = getRankTitle(characterSlug, rank).split(' ');
 
   return (
     <div>
@@ -193,8 +209,8 @@ export default function RecordPage() {
             <div className="frame-cut" style={{ padding: 0 }}>
               <div className="relative" style={{ height: 'clamp(480px, 62vh, 620px)' }}>
                 <Image
-                  src={`/${rank.toLowerCase()}-rank.png`}
-                  alt={RANK_TITLES[rank]}
+                  src={characterArtSrc(characterSlug, rank)}
+                  alt={getRankTitle(characterSlug, rank)}
                   fill
                   style={{ objectFit: 'cover', objectPosition: 'top center' }}
                   priority
@@ -307,7 +323,7 @@ export default function RecordPage() {
               </div>
               {nextRank && (
                 <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.16em', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                  {weeksRemaining > 0 ? `${weeksRemaining} weeks to ${RANK_TITLES[nextRank]}` : `Ready for promotion`}
+                  {weeksRemaining > 0 ? `${weeksRemaining} weeks to ${getRankTitle(characterSlug, nextRank)}` : `Ready for promotion`}
                 </div>
               )}
             </div>
@@ -472,7 +488,7 @@ export default function RecordPage() {
           >
             {(
               [
-                { key: 'STR', val: weeklyStatCounts.str, max: weeklyStatCounts.strRequired },
+                { key: 'STR', val: weeklyStatCounts.str, max: 7 },
                 { key: 'AGI', val: weeklyStatCounts.agi, max: 7 },
                 { key: 'VIT', val: weeklyStatCounts.vit, max: 7 },
                 { key: 'INT', val: weeklyStatCounts.int, max: 7 },
@@ -492,6 +508,23 @@ export default function RecordPage() {
           </div>
         </div>
 
+        {/* ── Lifetime Level ───────────────────────────────────────────────── */}
+        <div className="section-heading text-text-muted">// Lifetime Level</div>
+        <div className="frame-cut p-4 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="font-display font-bold text-lg leading-none">{charactersMastered}</p>
+            <p className="text-text-muted text-[10px] tracking-[0.12em] uppercase mt-1">Mastered</p>
+          </div>
+          <div>
+            <p className="font-display font-bold text-lg leading-none">{dayCount}</p>
+            <p className="text-text-muted text-[10px] tracking-[0.12em] uppercase mt-1">Total Days</p>
+          </div>
+          <div>
+            <p className="font-display font-bold text-lg leading-none">{conceptsLearned}</p>
+            <p className="text-text-muted text-[10px] tracking-[0.12em] uppercase mt-1">Concepts</p>
+          </div>
+        </div>
+
         {/* ── Quick Access ─────────────────────────────────────────────────── */}
         <div className="section-heading text-text-muted mt-1">// Quick Access</div>
         <div className="grid grid-cols-2 gap-3">
@@ -503,6 +536,16 @@ export default function RecordPage() {
               icon: (
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <path d="M12 2a4 4 0 0 1 4 4v2H8V6a4 4 0 0 1 4-4z" /><path d="M8 8v2a4 4 0 0 0 8 0V8" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" />
+                </svg>
+              ),
+            },
+            {
+              label: 'Roster',
+              sub: `${charactersMastered} mastered`,
+              href: '/achievements/roster',
+              icon: (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
               ),
             },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getSettings, getToday, updateSettings, deleteCustomTask } from '@/lib/db';
+import { db, getSettings, getToday, updateSettings, deleteCustomTask, reconcileCharacterLinkage, repairCharacterStartDates } from '@/lib/db';
 import { validateIdeaBank } from '@/lib/logic/expressions';
 import type { UserSettings, CustomTask, StatType } from '@/types';
 
@@ -120,7 +120,7 @@ export default function SettingsPage() {
       courseProgress, rankHistory, achievements, settingsArr, customTaskLogs,
       disciplineStreaks, disciplineLogs,
       knowledgeDomains, knowledgeConcepts, knowledgeReviews,
-      caliSessions, nafileLogs, atlasCountries, atlasReviews] = await Promise.all([
+      caliSessions, nafileLogs, atlasCountries, atlasReviews, characters] = await Promise.all([
       db.strSessions.toArray(),
       db.agiLogs.toArray(),
       db.vitLogs.toArray(),
@@ -141,11 +141,12 @@ export default function SettingsPage() {
       db.nafileLogs.toArray(),
       db.atlasCountries.toArray(),
       db.atlasReviews.toArray(),
+      db.characters.toArray(),
     ]);
     const data = {
       appVersion: 'dev',
       exportedAt: new Date().toISOString(),
-      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews, caliSessions, nafileLogs, atlasCountries, atlasReviews },
+      tables: { strSessions, agiLogs, vitLogs, intLogs, perLogs, weeklySummaries, courseProgress, rankHistory, achievements, settings: settingsArr, customTaskLogs, disciplineStreaks, disciplineLogs, knowledgeDomains, knowledgeConcepts, knowledgeReviews, caliSessions, nafileLogs, atlasCountries, atlasReviews, characters },
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -184,7 +185,7 @@ export default function SettingsPage() {
         db.achievements, db.settings, db.customTaskLogs,
         db.disciplineStreaks, db.disciplineLogs,
         db.knowledgeDomains, db.knowledgeConcepts, db.knowledgeReviews,
-        db.caliSessions, db.nafileLogs, db.atlasCountries, db.atlasReviews],
+        db.caliSessions, db.nafileLogs, db.atlasCountries, db.atlasReviews, db.characters],
         async () => {
           await db.strSessions.clear();        await db.strSessions.bulkPut(arr('strSessions') as never[]);
           await db.agiLogs.clear();            await db.agiLogs.bulkPut(arr('agiLogs') as never[]);
@@ -206,8 +207,20 @@ export default function SettingsPage() {
           await db.nafileLogs.clear();         await db.nafileLogs.bulkPut(arr('nafileLogs') as never[]);
           await db.atlasCountries.clear();     await db.atlasCountries.bulkPut(arr('atlasCountries') as never[]);
           await db.atlasReviews.clear();       await db.atlasReviews.bulkPut(arr('atlasReviews') as never[]);
+          // Pre-v11 backups have no `characters` key — this clears to empty and
+          // reconcileCharacterLinkage() below re-seeds Warrior + backfills the
+          // rankHistory rows the restore just wrote without a characterId.
+          await db.characters.clear();         await db.characters.bulkPut(arr('characters') as never[]);
         }
       );
+      // Must run AFTER the transaction: a restore writes rows directly at the
+      // current schema version, so Dexie's v11 upgrade (which normally does this
+      // linkage) never fires. Without this, restoring a pre-v11 backup strands
+      // the user on a fresh E ladder with their real history unreferenced.
+      await reconcileCharacterLinkage();
+      // The restored settings row may carry a different firstUseDate than the one
+      // an existing character's startedAt was derived from.
+      await repairCharacterStartDates();
       window.location.reload();
     } catch (err) {
       setImportError(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);

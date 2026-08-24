@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getWeekStart, getCourseProgress, getSettings, getActiveStrAllSessions } from '@/lib/db';
+import { db, getToday, getWeekStart, getCourseProgress, getSettings, getActiveStrAllSessions, getActiveCharacter } from '@/lib/db';
 import {
   computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP,
   getIntDailyCap, getAgiDailyCap,
@@ -172,7 +172,15 @@ export default function GrowthPage() {
     });
 
     // ── Rank history ─────────────────────────────────────────────────────────
-    const rh = await db.rankHistory.orderBy('weekStart').reverse().toArray();
+    // Scoped to the ACTIVE character. rankHistory now holds every character's rows,
+    // and showing them mixed would read as one continuous ladder that jumps S → E at
+    // a prestige boundary. Past characters' frozen history lives on their Roster
+    // detail page instead.
+    const activeCharacter = await getActiveCharacter();
+    const rh = activeCharacter.id !== undefined
+      ? await db.rankHistory.where('characterId').equals(activeCharacter.id).toArray()
+      : [];
+    rh.sort((a, b) => b.weekStart.localeCompare(a.weekStart)); // newest first
     setRankHistory(rh.slice(0, 12));
 
     setLoaded(true);

@@ -94,8 +94,9 @@ describe('daily XP caps', () => {
 
 describe('computeWeeklyCompletionPct', () => {
   it('all complete = 100%', () => {
+    // STR is a full 7-day pillar: every day logged as a workout OR a rest day.
     const result = computeWeeklyCompletionPct({
-      strCompleted: 3, agiCompleted: 7, vitCompleted: 7, intCompleted: 7, perCompleted: 7,
+      strCompleted: 7, agiCompleted: 7, vitCompleted: 7, intCompleted: 7, perCompleted: 7,
     });
     expect(result).toBe(100);
   });
@@ -111,8 +112,8 @@ describe('computeWeeklyCompletionPct', () => {
     const result = computeWeeklyCompletionPct({
       strCompleted: 2, agiCompleted: 5, vitCompleted: 3, intCompleted: 4, perCompleted: 6,
     });
-    // 20/31 = 64.5 -> 65%
-    expect(result).toBe(65);
+    // 20/35 = 57.1 -> 57%
+    expect(result).toBe(57);
   });
 });
 

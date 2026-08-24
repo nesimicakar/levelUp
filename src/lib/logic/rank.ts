@@ -1,18 +1,50 @@
-import type { Rank, RankRecord } from '@/types';
+import type { Rank, RankRecord, StrSession } from '@/types';
 import { RANK_ORDER } from '@/types';
+import { computeRestTokensTotal } from '@/lib/logic/str';
 
 export interface WeeklyCompletionInput {
-  strCompleted: number; // out of strRequired (default 3, range 2–5)
+  strCompleted: number; // out of 7 — days logged as a workout OR a rest day
   agiCompleted: number; // out of 7
   vitCompleted: number; // out of 7
   intCompleted: number; // out of 7
   perCompleted: number; // out of 7
 }
 
-export function computeWeeklyCompletionPct(input: WeeklyCompletionInput, strRequired: number = 3): number {
-  const total = strRequired + 7 + 7 + 7 + 7; // default 31, scales with strRequired
+/** 5 pillars × 7 days. STR is a full-weight pillar like every other one, so
+ *  changing strSessionsPerWeek no longer re-weights the whole formula. */
+export const WEEKLY_TOTAL_UNITS = 35;
+
+export function computeWeeklyCompletionPct(input: WeeklyCompletionInput): number {
   const completed = input.strCompleted + input.agiCompleted + input.vitCompleted + input.intCompleted + input.perCompleted;
-  return Math.round((completed / total) * 100);
+  return Math.round((completed / WEEKLY_TOTAL_UNITS) * 100);
+}
+
+/**
+ * STR days credited for one week, out of 7.
+ *
+ * Rest is part of the process, so a day logged as a rest day is worth exactly as
+ * much as a day logged as a workout — every logged day moves the weekly score.
+ * What keeps this honest is the rest-token allowance (7 − strSessionsPerWeek):
+ * rest credit is capped at it, so reaching 7/7 is impossible without actually
+ * completing your workout target.
+ *
+ * Credit is per calendar DAY. Callers pass rows merged from the gym and
+ * calisthenics tables, so a date present in both must not be counted twice.
+ */
+export function computeStrWeekCredit(sessions: StrSession[], strRequired: number): number {
+  const byDate = new Map<string, StrSession>();
+  for (const s of sessions) {
+    const existing = byDate.get(s.date);
+    // A real workout on a date always wins over a rest row for the same date.
+    if (!existing || (s.completed && !s.isRestDay)) byDate.set(s.date, s);
+  }
+  const days = [...byDate.values()];
+
+  const workouts = days.filter(s => s.completed && !s.isRestDay).length;
+  const restDays = days.filter(s => s.isRestDay).length;
+  const creditedRest = Math.min(restDays, computeRestTokensTotal(strRequired));
+
+  return Math.min(workouts + creditedRest, 7);
 }
 
 export function computeRankUpdate(

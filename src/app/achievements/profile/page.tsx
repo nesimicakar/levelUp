@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getSettings, getActiveStrAllSessions } from '@/lib/db';
+import { db, getToday, getSettings, getActiveStrAllSessions, getActiveCharacter, getAllCharacters } from '@/lib/db';
 import { daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
+import { computePeakRank } from '@/lib/logic/characters';
 import { loadIntCourses } from '@/lib/logic/intCourses';
 import type { Rank, IntCourse, FinishedBook } from '@/types';
 import { RANK_ORDER } from '@/types';
@@ -21,6 +22,11 @@ function formatDate(input: string | number): string {
 
 interface ProfileData {
   rank: Rank;
+  /** Highest rank ever reached across all characters — survives a prestige reset. */
+  peakRank: Rank;
+  characterName: string;
+  characterIcon: string;
+  charactersMastered: number;
   startedDate: string;
   daysSinceStart: number;
   currentStreak: number;
@@ -44,9 +50,17 @@ export default function ProfilePage() {
     const today = getToday();
     const settings = await getSettings();
 
-    // Rank
-    const latestRank = await db.rankHistory.orderBy('createdAt').last();
-    const rank: Rank = latestRank?.rank ?? 'E';
+    // Rank — headline is the ACTIVE character's own ladder, matching how Home,
+    // RECORD and Growth frame rank as the current journey. Peak is kept alongside
+    // as a lifetime stat so a prestige never appears to retract what was earned.
+    const activeCharacter = await getActiveCharacter();
+    const allRankRows = await db.rankHistory.toArray();
+    const allCharacters = await getAllCharacters();
+    const characterRows = allRankRows
+      .filter(r => r.characterId === activeCharacter.id)
+      .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    const rank: Rank = characterRows.at(-1)?.rank ?? 'E';
+    const peakRank = computePeakRank(allRankRows, allCharacters);
 
     // Identity
     const firstUse = settings.firstUseDate ?? today;
@@ -112,6 +126,10 @@ export default function ProfilePage() {
 
     setData({
       rank,
+      peakRank,
+      characterName: activeCharacter.name,
+      characterIcon: activeCharacter.icon,
+      charactersMastered: allCharacters.filter(c => c.status === 'mastered').length,
       startedDate: formatDate(firstUse),
       daysSinceStart,
       currentStreak,
@@ -167,6 +185,9 @@ export default function ProfilePage() {
                 <p className="text-text-muted text-[10px] tracking-[0.18em] uppercase mt-2">
                   Tier {currentIdx + 1} / {RANK_ORDER.length}
                 </p>
+                <p className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-1">
+                  {data.characterIcon} {data.characterName}
+                </p>
               </div>
               <div className="text-right space-y-2">
                 <div>
@@ -183,6 +204,33 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
+
+            {/* Lifetime context — a prestige resets the ladder but must never appear
+                to retract a peak that was genuinely earned. Hidden until there's
+                something to say (nothing mastered and never ranked above current). */}
+            {(data.charactersMastered > 0 || data.peakRank !== data.rank) && (
+              <div
+                className="flex items-center justify-between mt-4 pt-3"
+                style={{ borderTop: '1px dashed var(--color-border)' }}
+              >
+                <span className="text-text-muted text-[10px] tracking-[0.18em] uppercase">
+                  Peak Rank
+                </span>
+                <span className="flex items-center gap-2">
+                  <span
+                    className="font-display font-bold"
+                    style={{ fontSize: 15, color: `var(--color-rank-${data.peakRank.toLowerCase()})` }}
+                  >
+                    {data.peakRank}
+                  </span>
+                  {data.charactersMastered > 0 && (
+                    <span className="text-text-muted text-[10px] tracking-[0.14em] uppercase">
+                      · {data.charactersMastered} mastered
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
           <span className="frame-bracket-bottom" aria-hidden />
         </div>

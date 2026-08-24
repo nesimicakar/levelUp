@@ -5,7 +5,10 @@ import { BottomNav } from '@/components/BottomNav';
 import { DBProvider } from '@/components/DBProvider';
 
 const rajdhani = Rajdhani({
-  subsets: ['latin'],
+  // latin-ext supplies the macrons in character rank titles (Rōnin, Shōgun).
+  // next/font splits subsets by unicode-range, so pages without those glyphs
+  // never download it.
+  subsets: ['latin', 'latin-ext'],
   weight: ['500', '600', '700'],
   variable: '--font-display',
   display: 'swap',

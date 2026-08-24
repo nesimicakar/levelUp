@@ -1,8 +1,35 @@
-import { db, getWeekStart, getSettings, updateSettings, getActiveStrWeekSessions } from '@/lib/db';
+import { db, getWeekStart, getSettings, updateSettings, getActiveStrWeekSessions, getActiveCharacter, masterCharacter } from '@/lib/db';
 import type { UserSettings } from '@/types';
-import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
+import { computeWeeklyCompletionPct, computeRankUpdate, countConsecutiveWeeksAbove80, computeStrWeekCredit } from '@/lib/logic/rank';
+import { buildCharacterStatsSnapshot } from '@/lib/logic/characters';
 import { RANK_ORDER } from '@/types';
 import type { Rank, RankRecord } from '@/types';
+
+/** Ascending by weekStart — the canonical ordering rank cascades rely on. */
+function byWeekStartAsc(records: RankRecord[]): RankRecord[] {
+  return [...records].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
+async function getCharacterRankHistory(characterId: number): Promise<RankRecord[]> {
+  return db.rankHistory.where('characterId').equals(characterId).toArray();
+}
+
+/**
+ * If this character's most recent evaluated week is now S-rank and they aren't
+ * already mastered, freeze them: mark mastered, snapshot final stats. Does NOT
+ * create or select a next character — that only happens once the user chooses
+ * one at the mastery moment.
+ */
+async function checkAndMasterIfReachedS(characterId: number): Promise<void> {
+  const character = await db.characters.get(characterId);
+  if (!character || character.status === 'mastered') return;
+
+  const records = byWeekStartAsc(await getCharacterRankHistory(characterId));
+  const latest = records.at(-1);
+  if (latest?.rank !== 'S') return;
+
+  await masterCharacter(characterId, 'S', buildCharacterStatsSnapshot(records));
+}
 
 export function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00');
@@ -12,6 +39,14 @@ export function addDays(dateStr: string, days: number): string {
 
 function weekEndDate(weekStart: string): string {
   return addDays(weekStart, 6);
+}
+
+function toDateStr(ms: number): string {
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function rankReason(oldRank: Rank, newRank: Rank): RankRecord['reason'] {
@@ -57,10 +92,7 @@ async function gatherWeekCompletions(weekStart: string, strRequired: number, set
   const wEnd = addDays(weekStart, 7);
 
   const strSessions = await getActiveStrWeekSessions(weekStart, wEnd, settings);
-  const strCompleted = Math.min(
-    strSessions.filter(s => s.completed || s.isRestDay).length,
-    strRequired,
-  );
+  const strCompleted = computeStrWeekCredit(strSessions, strRequired);
 
   let agiCompleted = 0;
   let vitCompleted = 0;
@@ -82,8 +114,8 @@ async function gatherWeekCompletions(weekStart: string, strRequired: number, set
   return { strCompleted, agiCompleted, vitCompleted, intCompleted, perCompleted };
 }
 
-async function getConsecutiveWeeksAbove80(): Promise<number> {
-  const records = await db.rankHistory.orderBy('weekStart').reverse().toArray();
+async function getConsecutiveWeeksAbove80(characterId: number): Promise<number> {
+  const records = byWeekStartAsc(await getCharacterRankHistory(characterId)).reverse();
   return countConsecutiveWeeksAbove80(records);
 }
 
@@ -200,9 +232,22 @@ export async function applyGraceToken(recordId: number): Promise<void> {
   const available = settings.graceTokensAvailable ?? 0;
   if (available <= 0) return;
 
-  const records = await db.rankHistory.orderBy('weekStart').toArray(); // oldest first
+  const target = await db.rankHistory.get(recordId);
+  if (!target || target.reason !== 'demoted' || target.characterId === undefined) return;
+
+  // A mastered character's ladder is frozen and its finalRank/finalStatsSnapshot are
+  // already committed. Recomputing its history here would silently desync those
+  // stored values from the underlying rows, so the freeze is enforced at the write
+  // itself rather than relying on the UI never offering the button.
+  const owner = await db.characters.get(target.characterId);
+  if (owner?.status === 'mastered') return;
+
+  // Scope the cascade to the SAME character as the graced record — rankHistory now
+  // holds rows from every character's ladder, and a fix to one character's history
+  // (past or present) must never bleed into another's.
+  const records = byWeekStartAsc(await getCharacterRankHistory(target.characterId));
   const idx = records.findIndex(r => r.id === recordId);
-  if (idx === -1 || records[idx].reason !== 'demoted') return;
+  if (idx === -1) return;
 
   const updated = [...records];
   updated[idx] = { ...updated[idx], rank: updated[idx].rankBefore, reason: 'grace' };
@@ -230,6 +275,11 @@ export async function applyGraceToken(recordId: number): Promise<void> {
 
   await db.rankHistory.bulkPut(updated);
   await updateSettings({ graceTokensAvailable: available - 1 });
+
+  // The cascade could newly reach S for this character (e.g. forgiving a demotion
+  // unblocks a promotion further down the chain). No-ops for an already-mastered
+  // character since checkAndMasterIfReachedS bails out on status first.
+  await checkAndMasterIfReachedS(target.characterId);
 }
 
 export async function evaluateRankIfNeeded(today: string): Promise<void> {
@@ -244,20 +294,43 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
     settings.firstUseDate = today;
   }
 
+  const character = await getActiveCharacter();
+  if (character.id === undefined) return;
+
+  // Self-healing mastery: run on every load, not just after a freshly evaluated
+  // week. Any path can land an S-rank row without going through the weekly
+  // evaluation — a backup restore most notably — and that must still trigger the
+  // mastery moment rather than silently sitting at a static "apex" state.
+  await checkAndMasterIfReachedS(character.id);
+
+  // Re-read: the check above may have just mastered this character. A mastered
+  // character's ladder is frozen — no further weeks accrue until the user chooses
+  // their next character at the mastery moment (which starts a fresh, empty
+  // rankHistory for the new character and resumes evaluation naturally).
+  const currentStatus = (await db.characters.get(character.id))?.status;
+  if (currentStatus === 'mastered') return;
+
   const currentWeekStart = getWeekStart(today);
   const previousWeekStart = addDays(currentWeekStart, -7);
 
-  // 2. Already evaluated?
+  // 2. Already evaluated? weekStart is globally unique across all characters (they
+  // run strictly sequentially in time), so this check needs no character filter.
   const existing = await db.rankHistory
     .where('weekStart').equals(previousWeekStart)
     .first();
 
-  const decision = evaluationDecision(today, settings.firstUseDate, !!existing);
+  // Fairness boundary is THIS character's startedAt, not the app's lifetime
+  // firstUseDate — otherwise a character created mid-week (right after the
+  // previous one is mastered) would get evaluated over a full Mon-Sun week it
+  // wasn't around for. settings.firstUseDate stays untouched for lifetime day-count
+  // display elsewhere; it's unrelated to per-character rank fairness.
+  const decision = evaluationDecision(today, toDateStr(character.startedAt), !!existing);
   if (decision === null) return;
 
-  // 3. Current rank
-  const latestRank = await db.rankHistory.orderBy('weekStart').last();
-  const currentRank: Rank = latestRank?.rank ?? 'E';
+  // 3. Current rank — scoped to this character only, so a freshly started character
+  // never inherits a previous character's rank from the global rankHistory table.
+  const characterHistory = byWeekStartAsc(await getCharacterRankHistory(character.id));
+  const currentRank: Rank = characterHistory.at(-1)?.rank ?? 'E';
 
   if (decision === 'skip_partial') {
     await db.rankHistory.add({
@@ -268,6 +341,7 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
       completionPct: 0,
       reason: 'skipped',
       createdAt: Date.now(),
+      characterId: character.id,
     });
     return;
   }
@@ -275,8 +349,8 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
   // 4. Full week evaluation
   const strRequired = settings.strSessionsPerWeek ?? 3;
   const completions = await gatherWeekCompletions(previousWeekStart, strRequired, settings);
-  const completionPct = computeWeeklyCompletionPct(completions, strRequired);
-  const consecutiveWeeks = await getConsecutiveWeeksAbove80();
+  const completionPct = computeWeeklyCompletionPct(completions);
+  const consecutiveWeeks = await getConsecutiveWeeksAbove80(character.id);
   const { newRank } = computeRankUpdate(currentRank, completionPct, consecutiveWeeks);
 
   await db.rankHistory.add({
@@ -286,6 +360,11 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
     weekEnd: weekEndDate(previousWeekStart),
     completionPct,
     reason: rankReason(currentRank, newRank),
+    characterId: character.id,
     createdAt: Date.now(),
   });
+
+  if (newRank === 'S') {
+    await checkAndMasterIfReachedS(character.id);
+  }
 }

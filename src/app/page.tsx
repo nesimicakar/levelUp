@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate, getActiveStrAllCompleted, getActiveStrWeekSessions } from '@/lib/db';
+import { db, getToday, getWeekStart, getSettings, getCourseProgress, getCustomTaskChecksForDate, getActiveStrAllCompleted, getActiveStrWeekSessions, getActiveCharacter } from '@/lib/db';
 import { computeLevel, computeStrXP, computeAgiXP, computeVitXP, computeIntXP, computePerXP, getIntDailyCap, getAgiDailyCap, computeCustomTaskBonusPct, computePerDomainProgress, computeIntDomainProgress } from '@/lib/logic/levels';
 import { getStrWeeklyStatus } from '@/lib/logic/str';
 import { computeAgiStreak } from '@/lib/logic/streaks';
@@ -13,19 +13,11 @@ import { CircularProgress } from '@/components/CircularProgress';
 import { SystemMessage } from '@/components/SystemMessage';
 import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
 import Link from 'next/link';
-import { RANK_ORDER, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
+import { RANK_ORDER, type Rank, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
+import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
 import { setDisciplineLog, getYesterday } from '@/lib/logic/discipline';
 import { selectExpressionState } from '@/lib/logic/expressions';
 import type { DailyIdea } from '@/types';
-
-const HUNTER_TITLES: Record<string, string> = {
-  E: 'Weak Hunter',
-  D: 'Initiate Hunter',
-  C: 'Rising Hunter',
-  B: 'Elite Hunter',
-  A: 'Awakened Hunter',
-  S: 'Ascendant Hunter',
-};
 
 interface DashboardState {
   str: { level: StatLevel; status: DayStatus; subtitle: string };
@@ -39,6 +31,10 @@ interface DashboardState {
   overcharge: boolean;
   requiredComplete: boolean;
   showCharacterVisuals: boolean;
+  /** Active character's slug — resolves which character's artwork to render. */
+  characterSlug: string;
+  /** Active character has reached S and is awaiting the mastery moment / next pick. */
+  characterMastered: boolean;
   /** Today's Daily Idea preview for the Home discovery card.
    *  null when the feature is disabled or the bank is empty. */
   exprPreview: DailyIdea | null;
@@ -60,6 +56,8 @@ export default function Dashboard() {
     overcharge: false,
     requiredComplete: false,
     showCharacterVisuals: true,
+    characterSlug: 'warrior',
+    characterMastered: false,
     exprPreview: null,
     loaded: false,
   });
@@ -203,10 +201,16 @@ export default function Dashboard() {
       return `${read} · ${pray} · ${quran}`;
     })();
 
-    // Rank + promotion progress
-    const latestRank = await db.rankHistory.orderBy('createdAt').last();
-    const rankHistory = await db.rankHistory.orderBy('weekStart').reverse().toArray();
-    const promotionWeeks = countConsecutiveWeeksAbove80(rankHistory);
+    // Rank + promotion progress — scoped to the active character's own ladder, so a
+    // fresh character never inherits a previous character's rank or streak.
+    const activeCharacter = await getActiveCharacter();
+    const characterHistory = activeCharacter.id !== undefined
+      ? await db.rankHistory.where('characterId').equals(activeCharacter.id).toArray()
+      : [];
+    const sortedCharacterHistory = [...characterHistory].sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+    const latestRank = sortedCharacterHistory.at(-1);
+    const promotionWeeks = countConsecutiveWeeksAbove80([...sortedCharacterHistory].reverse());
+    const characterMastered = activeCharacter.status === 'mastered';
 
     // Weighted daily progress (Model C)
     const strDomainProgress = (strStatus === 'complete' || strStatus === 'rest') ? 1 : 0;
@@ -283,7 +287,10 @@ export default function Dashboard() {
       },
       rank: latestRank?.rank ?? 'E',
       promotionWeeks: Math.min(promotionWeeks, 4),
-      showCharacterVisuals: settings.showCharacterVisuals ?? true,
+      // Art requires BOTH the global preference AND this character having artwork.
+      showCharacterVisuals: (settings.showCharacterVisuals ?? true) && characterHasArtwork(activeCharacter.slug),
+      characterSlug: activeCharacter.slug,
+      characterMastered,
       // Daily Expressions — optional discovery card, no protocol effect. Preview the
       // next unread expression (or null when disabled / bank empty / all read).
       exprPreview: selectExpressionState(settings, today).currentExpression ?? null,
@@ -484,7 +491,7 @@ export default function Dashboard() {
               }}
             >
               <Image
-                src={`/${state.rank.toLowerCase()}-rank.png`}
+                src={characterArtSrc(state.characterSlug, state.rank)}
                 alt=""
                 fill
                 style={{ objectFit: 'cover', objectPosition: 'top center' }}
@@ -526,7 +533,7 @@ export default function Dashboard() {
               className="font-display font-bold uppercase"
               style={{ fontSize: 13, letterSpacing: '0.07em', color: 'var(--color-text)', marginBottom: 8 }}
             >
-              {HUNTER_TITLES[state.rank] ?? 'Hunter'}
+              {getRankTitle(state.characterSlug, state.rank as Rank)}
             </div>
 
             {/* Promotion progress */}
@@ -560,9 +567,27 @@ export default function Dashboard() {
                     textTransform: 'uppercase',
                   }}
                 >
-                  {state.promotionWeeks}/4 WKS → {HUNTER_TITLES[nextRank]}
+                  {state.promotionWeeks}/4 WKS → {getRankTitle(state.characterSlug, nextRank)}
                 </div>
               </div>
+            ) : state.characterMastered ? (
+              <Link
+                href="/achievements/mastery"
+                className="inline-flex items-center gap-1.5 font-display hover:brightness-125 transition-all"
+                style={{
+                  fontSize: 10,
+                  letterSpacing: '0.18em',
+                  textTransform: 'uppercase',
+                  color: rankColor,
+                  padding: '6px 12px',
+                  border: `1px solid color-mix(in srgb, ${rankColor} 50%, transparent)`,
+                  background: `color-mix(in srgb, ${rankColor} 12%, transparent)`,
+                  boxShadow: `0 0 14px color-mix(in srgb, ${rankColor} 25%, transparent)`,
+                  clipPath: 'polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%)',
+                }}
+              >
+                ✦ Mastered — Choose Next →
+              </Link>
             ) : (
               <div
                 style={{

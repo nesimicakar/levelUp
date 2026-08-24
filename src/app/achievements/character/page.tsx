@@ -3,18 +3,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { db } from '@/lib/db';
-import type { Rank } from '@/types';
+import { db, getSettings, getActiveCharacter } from '@/lib/db';
+import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
+import type { Rank, Character } from '@/types';
 import { RANK_ORDER } from '@/types';
-
-const RANK_TITLES: Record<Rank, string> = {
-  E: 'Weak Hunter',
-  D: 'Initiate Hunter',
-  C: 'Rising Hunter',
-  B: 'Elite Hunter',
-  A: 'Awakened Hunter',
-  S: 'Ascendant Hunter',
-};
 
 const RANK_SUBTITLES: Record<Rank, string> = {
   E: 'Awakened · Unranked',
@@ -39,18 +31,30 @@ export default function CharacterPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [rank, setRank] = useState<Rank>('E');
   const [activeIdx, setActiveIdx] = useState(0);
+  const [character, setCharacter] = useState<Character | null>(null);
   const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     async function load() {
-      const latestRank = await db.rankHistory.orderBy('createdAt').last();
-      const r: Rank = latestRank?.rank ?? 'E';
+      const activeCharacter = await getActiveCharacter();
+      setCharacter(activeCharacter);
+
+      // Scoped to this character's own ladder — a mastered character shows their
+      // frozen final rank; a fresh character starts back at E regardless of any
+      // previous character's history.
+      const history = activeCharacter.id !== undefined
+        ? await db.rankHistory.where('characterId').equals(activeCharacter.id).toArray()
+        : [];
+      const latest = [...history].sort((a, b) => a.weekStart.localeCompare(b.weekStart)).at(-1);
+      const r: Rank = latest?.rank ?? 'E';
       setRank(r);
       setActiveIdx(RANK_ORDER.indexOf(r));
-      const { getSettings } = await import('@/lib/db');
+
       const settings = await getSettings();
-      setShowCharacterVisuals(settings.showCharacterVisuals ?? true);
+      // Art requires BOTH the global preference AND this specific character having
+      // artwork — a character with no art yet never shows broken/wrong art.
+      setShowCharacterVisuals((settings.showCharacterVisuals ?? true) && characterHasArtwork(activeCharacter.slug));
       setLoaded(true);
     }
     load();
@@ -169,6 +173,28 @@ export default function CharacterPage() {
         </div>
       </div>
 
+      {/* ── Current Journey label — this is one character's ladder, not the only-ever one ── */}
+      {character && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 52,
+            left: 0,
+            right: 0,
+            textAlign: 'center',
+            zIndex: 29,
+            pointerEvents: 'none',
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: 8,
+            letterSpacing: '0.22em',
+            textTransform: 'uppercase',
+            color: 'var(--color-text-muted)',
+          }}
+        >
+          Current Journey · {character.icon} {character.name}
+        </div>
+      )}
+
       {/* ── Horizontal scroll container ──────────────────────────────── */}
       <div
         ref={containerRef}
@@ -205,8 +231,8 @@ export default function CharacterPage() {
               {/* Portrait artwork or rank-color background */}
               {showCharacterVisuals ? (
                 <Image
-                  src={`/${r.toLowerCase()}-rank.png`}
-                  alt={RANK_TITLES[r]}
+                  src={characterArtSrc(character?.slug ?? '', r)}
+                  alt={getRankTitle(character?.slug ?? '', r)}
                   fill
                   style={{
                     objectFit: 'contain',
@@ -458,7 +484,7 @@ export default function CharacterPage() {
                     marginBottom: 8,
                   }}
                 >
-                  {RANK_TITLES[r].toUpperCase()}
+                  {getRankTitle(character?.slug ?? '', r).toUpperCase()}
                 </div>
 
                 {/* Subtitle */}
