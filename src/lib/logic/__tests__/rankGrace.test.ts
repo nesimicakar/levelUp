@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
-import { db, getSettings, updateSettings } from '../../db';
-import { getQuarterKey, ensureGraceTokenGrant, applyGraceToken, MAX_GRACE_TOKENS } from '../rankOrchestrator';
+import { db, getSettings, updateSettings, getActiveCharacter } from '../../db';
+import { getQuarterKey, ensureGraceTokenGrant, applyGraceToken, evaluateRankIfNeeded, MAX_GRACE_TOKENS } from '../rankOrchestrator';
 import { countConsecutiveWeeksAbove80 } from '../rank';
 import type { RankRecord } from '@/types';
 
@@ -164,6 +164,56 @@ describe('grace token system', () => {
       expect(week2?.rankBefore).toBe('A');
       expect(week2?.rank).toBe('A');
 
+      const s = await getSettings();
+      expect(s.graceTokensAvailable).toBe(0);
+    });
+  });
+
+  describe('rank floor: a failing week at E is a demotion, not "maintained"', () => {
+    const WEEK_START = '2026-01-05'; // Monday
+    const NEXT_MONDAY = '2026-01-12';
+
+    it('reports reason "demoted" (not "maintained") when the drop clamps at the floor, and is grace-eligible', async () => {
+      // evaluateRankIfNeeded's one-time repair helpers gate on localStorage, which
+      // node doesn't provide — stub it per test, same as strWeeklyCredit.test.ts.
+      // Both one-time migration keys are pre-marked "done" so they don't grant an
+      // extra token and confuse the count this test cares about.
+      const store = new Map<string, string>([
+        ['rankRepair_v1', 'done'],
+        ['graceClobberRefund_v1', 'done'],
+      ]);
+      (globalThis as { localStorage?: unknown }).localStorage = {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => { store.set(k, v); },
+        removeItem: (k: string) => { store.delete(k); },
+        clear: () => { store.clear(); },
+      };
+
+      // Pre-mark the quarter as already granted so evaluateRankIfNeeded's own
+      // ensureGraceTokenGrant() call doesn't add an extra token either.
+      await updateSettings({
+        firstUseDate: '2025-12-01',
+        graceTokensAvailable: 1,
+        graceTokensGrantedQuarters: [getQuarterKey(NEXT_MONDAY)],
+      });
+      const character = await getActiveCharacter();
+      // Anchor startedAt before the week under test, or no record is written at all.
+      await db.characters.update(character.id!, { startedAt: new Date('2025-12-01T12:00:00').getTime() });
+
+      // No pillar logs at all this week -> 0% completion, well under the 60% demotion line.
+      await evaluateRankIfNeeded(NEXT_MONDAY);
+
+      const rec = await db.rankHistory.where('weekStart').equals(WEEK_START).first();
+      expect(rec?.rank).toBe('E');
+      expect(rec?.rankBefore).toBe('E');
+      expect(rec?.reason).toBe('demoted');
+
+      // Grace-eligible even though the rank itself never visibly dropped — the
+      // token restores the promotion streak that the failing week would otherwise reset.
+      await applyGraceToken(rec!.id!);
+      const graced = await db.rankHistory.get(rec!.id!);
+      expect(graced?.reason).toBe('grace');
+      expect(graced?.rank).toBe('E');
       const s = await getSettings();
       expect(s.graceTokensAvailable).toBe(0);
     });

@@ -49,11 +49,14 @@ function toDateStr(ms: number): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function rankReason(oldRank: Rank, newRank: Rank): RankRecord['reason'] {
+function rankReason(oldRank: Rank, newRank: Rank, completionPct: number): RankRecord['reason'] {
+  // A <60% week is a demotion even when already at the rank floor ('E') — the
+  // drop clamps to the same rank, but it's still a failed week and must be
+  // reported (and grace-eligible) as such, not silently called 'maintained'.
+  if (completionPct < 60) return 'demoted';
   const oldIdx = RANK_ORDER.indexOf(oldRank);
   const newIdx = RANK_ORDER.indexOf(newRank);
   if (newIdx > oldIdx) return 'promoted';
-  if (newIdx < oldIdx) return 'demoted';
   return 'maintained';
 }
 
@@ -268,7 +271,7 @@ export async function applyGraceToken(recordId: number): Promise<void> {
       continue;
     }
     const { newRank, newConsecutiveWeeks } = computeRankUpdate(currentRank, rec.completionPct, consecWeeks);
-    updated[i] = { ...rec, rankBefore: currentRank, rank: newRank, reason: rankReason(currentRank, newRank) };
+    updated[i] = { ...rec, rankBefore: currentRank, rank: newRank, reason: rankReason(currentRank, newRank, rec.completionPct) };
     currentRank = newRank;
     consecWeeks = newConsecutiveWeeks;
   }
@@ -359,7 +362,7 @@ export async function evaluateRankIfNeeded(today: string): Promise<void> {
     weekStart: previousWeekStart,
     weekEnd: weekEndDate(previousWeekStart),
     completionPct,
-    reason: rankReason(currentRank, newRank),
+    reason: rankReason(currentRank, newRank, completionPct),
     characterId: character.id,
     createdAt: Date.now(),
   });
