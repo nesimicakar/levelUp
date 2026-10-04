@@ -165,15 +165,16 @@ describe('Character Prestige', () => {
         weekStart: '2026-01-12', weekEnd: '2026-01-18', characterId: cid,
         rank: 'B', rankBefore: 'A', completionPct: 0, reason: 'demoted',
       }));
-      // week3-5: three more good weeks, evaluated (at the time) against the wrong B rank.
-      for (const weekStart of ['2026-01-19', '2026-01-26', '2026-02-02']) {
+      // week3-7: five more good weeks, evaluated (at the time) against the wrong B rank.
+      // A->S needs 6 consecutive weeks (escalating curve), so week1 + these 5 = 6.
+      for (const weekStart of ['2026-01-19', '2026-01-26', '2026-02-02', '2026-02-09', '2026-02-16']) {
         await db.rankHistory.add(makeRankRecord({
           weekStart, weekEnd: weekStart, characterId: cid,
           rank: 'B', rankBefore: 'B', completionPct: 85, reason: 'maintained',
         }));
       }
 
-      // Forgiving week2 restores A and lets the streak (week1 + week3-5 = 4 weeks
+      // Forgiving week2 restores A and lets the streak (week1 + week3-7 = 6 weeks
       // >=80%) cascade all the way to a promotion into S.
       await applyGraceToken(demotedId);
 

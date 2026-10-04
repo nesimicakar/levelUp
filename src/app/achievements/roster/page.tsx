@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { db, getAllCharacters } from '@/lib/db';
 import { getAvailableNextCharacters } from '@/lib/logic/characters';
-import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
+import { countConsecutiveWeeksAbove80, getPromotionWeeksRequired } from '@/lib/logic/rank';
 import type { Character, Rank } from '@/types';
 import type { CharacterDef } from '@/lib/data/characterDefs';
 
@@ -84,7 +84,7 @@ export default function RosterPage() {
               <div className="flex-1 min-w-0">
                 <div className="font-display font-bold text-sm text-text">{current.name}</div>
                 <div className="text-text-muted text-[10px] tracking-[0.14em] uppercase mt-0.5">
-                  Rank {currentRank} · {promotionWeeks}/4 wks to next
+                  Rank {currentRank} · {promotionWeeks}/{getPromotionWeeksRequired(currentRank)} wks to next
                 </div>
               </div>
               <span

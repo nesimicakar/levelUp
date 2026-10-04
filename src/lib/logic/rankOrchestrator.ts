@@ -191,6 +191,23 @@ async function refundGraceTokenClobberedByCascadeBug(): Promise<void> {
   localStorage.setItem(repairKey, 'done');
 }
 
+/** Fix historical weeks that showed as 'maintained' but were <60% (should be 'demoted').
+ *  One-time repair: pre-escalating-curve evaluation didn't pass completionPct to rankReason,
+ *  so low weeks got mislabeled. */
+async function fixHistoricalDemotedWeeks(): Promise<void> {
+  const repairKey = 'fixDemotedWeeks_v1';
+  if (localStorage.getItem(repairKey) === 'done') return;
+
+  const records = await db.rankHistory.toArray();
+  const toFix = records.filter(r => r.completionPct < 60 && r.reason === 'maintained');
+
+  if (toFix.length > 0) {
+    await db.rankHistory.bulkPut(toFix.map(r => ({ ...r, reason: 'demoted' })));
+  }
+
+  localStorage.setItem(repairKey, 'done');
+}
+
 /** Calendar-quarter key for a date, e.g. "2026-Q3". Used to grant at most one grace token per quarter. */
 export function getQuarterKey(dateStr: string): string {
   const d = new Date(dateStr + 'T12:00:00');
@@ -288,6 +305,7 @@ export async function applyGraceToken(recordId: number): Promise<void> {
 export async function evaluateRankIfNeeded(today: string): Promise<void> {
   await repairSpuriousPromotion();
   await refundGraceTokenClobberedByCascadeBug();
+  await fixHistoricalDemotedWeeks();
   await ensureGraceTokenGrant(today);
 
   // 1. Ensure firstUseDate

@@ -47,6 +47,15 @@ export function computeStrWeekCredit(sessions: StrSession[], strRequired: number
   return Math.min(workouts + creditedRest, 7);
 }
 
+/** Consecutive >=80% weeks needed to promote OUT of a given rank — escalating,
+ *  not flat: early ranks prove the habit is starting, late ranks prove it's real.
+ *  Indexed by RANK_ORDER position (E,D,C,B,A); S has no next rank so is unused. */
+const PROMOTION_WEEKS_REQUIRED: number[] = [2, 3, 4, 5, 6];
+
+export function getPromotionWeeksRequired(rank: Rank): number {
+  return PROMOTION_WEEKS_REQUIRED[RANK_ORDER.indexOf(rank)] ?? Infinity;
+}
+
 export function computeRankUpdate(
   currentRank: Rank,
   completionPct: number,
@@ -62,7 +71,7 @@ export function computeRankUpdate(
 
   if (completionPct >= 80) {
     const newConsec = consecutiveWeeksAbove80 + 1;
-    if (newConsec >= 4 && idx < RANK_ORDER.length - 1) {
+    if (newConsec >= getPromotionWeeksRequired(currentRank) && idx < RANK_ORDER.length - 1) {
       return { newRank: RANK_ORDER[idx + 1], newConsecutiveWeeks: 0 };
     }
     return { newRank: currentRank, newConsecutiveWeeks: newConsec };

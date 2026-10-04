@@ -11,7 +11,7 @@ import Image from 'next/image';
 import { StatCard } from '@/components/StatCard';
 import { CircularProgress } from '@/components/CircularProgress';
 import { SystemMessage } from '@/components/SystemMessage';
-import { countConsecutiveWeeksAbove80 } from '@/lib/logic/rank';
+import { countConsecutiveWeeksAbove80, getPromotionWeeksRequired } from '@/lib/logic/rank';
 import Link from 'next/link';
 import { RANK_ORDER, type Rank, type DayStatus, type StatLevel, type UserSettings, type DisciplineStreak, type DisciplineLogStatus } from '@/types';
 import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
@@ -27,6 +27,7 @@ interface DashboardState {
   per: { level: StatLevel; status: DayStatus; subtitle: string };
   rank: string;
   promotionWeeks: number;
+  promotionWeeksRequired: number;
   dailyPct: number;
   overcharge: boolean;
   requiredComplete: boolean;
@@ -52,6 +53,7 @@ export default function Dashboard() {
     per: { level: defaultLevel, status: 'incomplete', subtitle: '' },
     rank: 'E',
     promotionWeeks: 0,
+    promotionWeeksRequired: getPromotionWeeksRequired('E'),
     dailyPct: 0,
     overcharge: false,
     requiredComplete: false,
@@ -286,7 +288,8 @@ export default function Dashboard() {
         subtitle: perSubtitle,
       },
       rank: latestRank?.rank ?? 'E',
-      promotionWeeks: Math.min(promotionWeeks, 4),
+      promotionWeeks: Math.min(promotionWeeks, getPromotionWeeksRequired((latestRank?.rank ?? 'E') as Rank)),
+      promotionWeeksRequired: getPromotionWeeksRequired((latestRank?.rank ?? 'E') as Rank),
       // Art requires BOTH the global preference AND this character having artwork.
       showCharacterVisuals: (settings.showCharacterVisuals ?? true) && characterHasArtwork(activeCharacter.slug),
       characterSlug: activeCharacter.slug,
@@ -540,7 +543,7 @@ export default function Dashboard() {
             {nextRank ? (
               <div>
                 <div style={{ display: 'flex', gap: 5, marginBottom: 5 }}>
-                  {[0, 1, 2, 3].map(i => (
+                  {Array.from({ length: state.promotionWeeksRequired }, (_, i) => (
                     <div
                       key={i}
                       style={{
@@ -567,7 +570,7 @@ export default function Dashboard() {
                     textTransform: 'uppercase',
                   }}
                 >
-                  {state.promotionWeeks}/4 WKS → {getRankTitle(state.characterSlug, nextRank)}
+                  {state.promotionWeeks}/{state.promotionWeeksRequired} WKS → {getRankTitle(state.characterSlug, nextRank)}
                 </div>
               </div>
             ) : state.characterMastered ? (

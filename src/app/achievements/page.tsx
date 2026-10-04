@@ -7,7 +7,7 @@ import {
   db, getToday, getWeekStart, getSettings, getActiveStrAllCompleted, getActiveStrWeekSessions,
   getActiveCharacter, getAllCharacters, getAllConcepts,
 } from '@/lib/db';
-import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, computeStrWeekCredit, type WeeklyCompletionInput } from '@/lib/logic/rank';
+import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, computeStrWeekCredit, getPromotionWeeksRequired, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { checkAndUnlockAchievements } from '@/lib/logic/achievements';
 import { computePeakRank } from '@/lib/logic/characters';
 import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
@@ -15,6 +15,7 @@ import { computeAgiStreak, computeStatCompletedDays, daysBetween } from '@/lib/l
 import { getCourseProgress } from '@/lib/db';
 import type { Achievement, Rank } from '@/types';
 import { RANK_ORDER } from '@/types';
+import { VaultSheet } from '@/components/VaultSheet';
 
 type DayStatus = 'done' | 'active' | 'empty';
 
@@ -33,6 +34,7 @@ export default function RecordPage() {
   const [charactersMastered, setCharactersMastered] = useState(0);
   const [characterSlug, setCharacterSlug] = useState('warrior');
   const [conceptsLearned, setConceptsLearned] = useState(0);
+  const [showRankInfo, setShowRankInfo] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -171,10 +173,11 @@ export default function RecordPage() {
   const currentIdx = RANK_ORDER.indexOf(rank);
   const nextIdx = currentIdx + 1;
   const nextRank: Rank | null = nextIdx < RANK_ORDER.length ? RANK_ORDER[nextIdx] : null;
-  const weeksRemaining = Math.max(0, 4 - promotionWeeks);
+  const promotionWeeksRequired = getPromotionWeeksRequired(rank);
+  const weeksRemaining = Math.max(0, promotionWeeksRequired - promotionWeeks);
   const rankColor = `var(--color-rank-${rank.toLowerCase()})`;
   const nextRankColor = nextRank ? `var(--color-rank-${nextRank.toLowerCase()})` : null;
-  const progressPct = Math.round(Math.min(promotionWeeks / 4, 1) * 100);
+  const progressPct = Math.round(Math.min(promotionWeeks / promotionWeeksRequired, 1) * 100);
 
   const qualifyColor = weeklyPct >= 80 ? 'var(--color-success)' : weeklyPct >= 60 ? 'var(--color-warning)' : 'var(--color-danger)';
   const weeklyStatus = weeklyPct >= 80 ? 'QUALIFYING' : weeklyPct >= 60 ? 'BUILDING' : 'BELOW';
@@ -194,12 +197,24 @@ export default function RecordPage() {
             <p className="text-[10px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>‹ HUNTER RECORD ›</p>
             <h1 className="font-display text-xl font-bold glow-text leading-none mt-0.5">RECORD</h1>
           </div>
-          <Link href="/settings" className="text-text-muted hover:text-text transition-colors" aria-label="Settings">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-            </svg>
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowRankInfo(true)}
+              className="text-text-muted hover:text-text transition-colors"
+              aria-label="How ranking works"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4M12 8h.01" />
+              </svg>
+            </button>
+            <Link href="/settings" className="text-text-muted hover:text-text transition-colors" aria-label="Settings">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+              </svg>
+            </Link>
+          </div>
         </div>
 
         {/* ── Hero — character image or text HUD depending on setting ───── */}
@@ -307,7 +322,7 @@ export default function RecordPage() {
                 )}
                 <div>
                   <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.18em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>Promotion</div>
-                  <div className="font-display font-bold" style={{ fontSize: 22, color: rankColor }}>{promotionWeeks}/4 wks</div>
+                  <div className="font-display font-bold" style={{ fontSize: 22, color: rankColor }}>{promotionWeeks}/{promotionWeeksRequired} wks</div>
                 </div>
                 <div>
                   <div style={{ fontFamily: 'ui-monospace, monospace', fontSize: 9, letterSpacing: '0.18em', color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>This week</div>
@@ -317,7 +332,7 @@ export default function RecordPage() {
 
               {/* Promotion bar */}
               <div style={{ display: 'flex', gap: 5, marginBottom: 8 }}>
-                {[0, 1, 2, 3].map(i => (
+                {Array.from({ length: promotionWeeksRequired }, (_, i) => (
                   <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i < promotionWeeks ? rankColor : 'rgba(255,255,255,0.08)', boxShadow: i < promotionWeeks ? `0 0 6px color-mix(in srgb, ${rankColor} 70%, transparent)` : 'none', transition: 'background 0.3s' }} />
                 ))}
               </div>
@@ -349,7 +364,7 @@ export default function RecordPage() {
                 <>
                   <div className="font-display font-bold leading-none" style={{ fontSize: 30 }}>
                     {promotionWeeks}
-                    <span className="font-normal text-text-muted" style={{ fontSize: 15 }}> / 4</span>
+                    <span className="font-normal text-text-muted" style={{ fontSize: 15 }}> / {promotionWeeksRequired}</span>
                   </div>
                   <div
                     className="font-display tracking-[0.16em] uppercase mt-1"
@@ -377,7 +392,7 @@ export default function RecordPage() {
                     strokeWidth={5}
                     strokeLinecap="round"
                     strokeDasharray={2 * Math.PI * 32}
-                    strokeDashoffset={2 * Math.PI * 32 * (1 - Math.min(promotionWeeks / 4, 1))}
+                    strokeDashoffset={2 * Math.PI * 32 * (1 - Math.min(promotionWeeks / promotionWeeksRequired, 1))}
                     transform="rotate(-90 40 40)"
                     style={{
                       filter: `drop-shadow(0 0 5px ${nextRankColor})`,
@@ -606,6 +621,41 @@ export default function RecordPage() {
         </div>
 
       </main>
+
+      {showRankInfo && (
+        <VaultSheet
+          label="// PROMOTION RULES"
+          onClose={() => setShowRankInfo(false)}
+          footer={
+            <button
+              onClick={() => setShowRankInfo(false)}
+              className="w-full py-3 rounded-lg text-sm uppercase tracking-widest font-bold transition-all"
+              style={{ background: 'color-mix(in srgb, var(--color-glow-bright) 15%, transparent)', border: '1px solid var(--color-glow-bright)', color: 'var(--color-glow-bright)' }}
+            >
+              Got it
+            </button>
+          }
+        >
+          <div className="space-y-4" style={{ fontSize: 13, lineHeight: 1.5, color: 'var(--color-text-muted)' }}>
+            <div>
+              <div style={{ color: 'var(--color-success)', fontWeight: 'bold', marginBottom: 4 }}>≥ 80% completion</div>
+              <div>Need {promotionWeeksRequired} consecutive weeks at 80%+ to rank up from {rank}.</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--color-danger)', fontWeight: 'bold', marginBottom: 4 }}>{'<'} 60% completion</div>
+              <div>Drops you one rank. Recoverable with a grace token (Growth page).</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--color-warning)', fontWeight: 'bold', marginBottom: 4 }}>60–79% completion</div>
+              <div>Neutral week — rank stays the same, but your promotion streak resets to 0.</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--color-text)', fontWeight: 'bold', marginBottom: 4 }}>Escalating difficulty</div>
+              <div>Higher ranks need more consecutive weeks: E→D is 2, D→C is 3, C→B is 4, B→A is 5, A→S is 6.</div>
+            </div>
+          </div>
+        </VaultSheet>
+      )}
     </div>
   );
 }
