@@ -1,31 +1,79 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateSettings } from '@/lib/db';
+import { getPromotionWeeksRequired } from '@/lib/logic/rank';
 
-// ── Step 1 & 2: message cards (existing transmission style) ─────────────────
+// ── Info steps: what the app is, what each stat needs, how ranks work ───────
 
-type MessageStep = {
+type InfoRow = { tag?: string; tint?: string; head?: string; text: string };
+
+type InfoStep = {
   channel: string;
   title: string;
-  hero: 'rank-e' | 'stat-row';
+  hero?: 'stat-row';
   frameLabel: string;
-  bullets: string[];
+  rows: InfoRow[];
+  note?: string;
   button: string;
 };
 
-const MESSAGE_STEPS: MessageStep[] = [
+const PROMOTION_LADDER = (['E', 'D', 'C', 'B', 'A'] as const)
+  .map((r, i) => `${r}→${'DCBAS'[i]} ${getPromotionWeeksRequired(r)}w`)
+  .join('  ·  ');
+
+const INFO_STEPS: InfoStep[] = [
   {
     channel: '‹ TRANSMISSION ›',
     title: 'HOW IT\nWORKS',
     hero: 'stat-row',
-    frameLabel: '// OBJECTIVES',
-    bullets: [
-      'Daily protocol across 5 stats. Earn XP, climb ranks.',
-      'Each section is one task. Tap it. Finish it.',
-      'Protocol resets at midnight. Show up tomorrow.',
+    frameLabel: '// THE LOOP',
+    rows: [
+      { tag: '1', text: 'Every day you clear up to 5 stats. Each one is a small, specific task.' },
+      { tag: '2', text: 'Your home screen shows a ring. Each stat you clear fills 20% of it.' },
+      { tag: '3', text: 'Each week, your average decides if you rank up, hold, or drop.' },
     ],
+    note: 'No streak-guilt. Consistency beats intensity — show up and do the minimum.',
+    button: 'CONTINUE',
+  },
+  {
+    channel: '‹ THE 5 STATS ›',
+    title: 'WHAT EACH\nONE NEEDS',
+    frameLabel: '// DAILY PROTOCOL',
+    rows: [
+      { tag: 'STR', tint: 'var(--color-stat-str)', head: 'Strength', text: 'Log a workout on training days. A planned rest day also counts.' },
+      { tag: 'AGI', tint: 'var(--color-stat-agi)', head: 'Movement', text: 'Cardio or movement. Hit your daily minutes target.' },
+      { tag: 'VIT', tint: 'var(--color-stat-vit)', head: 'Health basics', text: '7+ hours of sleep, protein goal met, posture / mobility done.' },
+      { tag: 'INT', tint: 'var(--color-stat-int)', head: 'Learning', text: 'Add a course, then complete its daily units or lessons.' },
+      { tag: 'PER', tint: 'var(--color-stat-per)', head: 'Refinement', text: 'Daily reading minutes. Prayers and Quran if you turn spirituality on.' },
+    ],
+    note: 'Tap a stat on the home screen to open it and log it.',
+    button: 'CONTINUE',
+  },
+  {
+    channel: '‹ RANKS ›',
+    title: 'CLIMB\nTHE LADDER',
+    frameLabel: '// WEEKLY EVALUATION',
+    rows: [
+      { tag: '≥80%', tint: 'var(--color-success)', text: 'Strong week. Enough of these in a row and you rank up.' },
+      { tag: '60–79%', tint: 'var(--color-text-dim)', text: 'Rank holds. Nothing lost, nothing gained.' },
+      { tag: '<60%', tint: 'var(--color-stat-str)', text: 'You drop one rank. A bad week is recoverable.' },
+      { tag: 'GRACE', tint: 'var(--color-glow-bright)', text: 'One grace token per quarter reverses a drop when life gets in the way. Use it from Growth.' },
+    ],
+    note: `Strong weeks needed: ${PROMOTION_LADDER}. Your first partial week is never judged.`,
+    button: 'CONTINUE',
+  },
+  {
+    channel: '‹ BEYOND THE DAILY ›',
+    title: 'VAULT &\nRECORD',
+    frameLabel: '// OPTIONAL',
+    rows: [
+      { tag: 'VAULT', tint: 'var(--color-glow-bright)', text: 'Save concepts and review them on a spaced schedule so they stick. Don’t write cards by hand: tap ✦ Create with AI and let ChatGPT or Claude write them. Also has an Atlas for studying countries.' },
+      { tag: 'RECORD', tint: 'var(--color-glow-bright)', text: 'Your profile, achievements, character and growth history.' },
+      { tag: 'GEAR', tint: 'var(--color-text-dim)', text: 'The gear icon in the header opens settings. You can replay this guide there any time.' },
+    ],
+    note: 'Vault study does not change your daily ring. Ignore it until the daily habit feels solid.',
     button: 'CONTINUE',
   },
 ];
@@ -163,19 +211,31 @@ function buildStatCells(t: PresetTargets) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = MESSAGE_STEPS.length + 1; // +1 for preset selector
+const TOTAL_STEPS = INFO_STEPS.length + 1; // +1 for preset selector
 
 export default function GuidePage() {
   const [step, setStep] = useState(0);
   const [selectedPresetIdx, setSelectedPresetIdx] = useState(2); // BALANCED default
+  const [replay, setReplay] = useState(false);
   const router = useRouter();
 
-  const isPresetStep = step === MESSAGE_STEPS.length; // last step
-  const messageStep = !isPresetStep ? MESSAGE_STEPS[step] : null;
+  // Replay (from Settings) shows the explainer only — never re-applies a preset.
+  useEffect(() => {
+    setReplay(new URLSearchParams(window.location.search).get('replay') === '1');
+  }, []);
+
+  const lastInfoStep = INFO_STEPS.length - 1;
+  const isPresetStep = !replay && step === INFO_STEPS.length;
+  const messageStep = !isPresetStep ? INFO_STEPS[step] : null;
   const sel = PRESETS[selectedPresetIdx];
+  const totalSteps = replay ? INFO_STEPS.length : TOTAL_STEPS;
 
   const handleNext = async () => {
-    if (step < TOTAL_STEPS - 1) {
+    if (replay && step === lastInfoStep) {
+      router.push('/settings');
+      return;
+    }
+    if (step < totalSteps - 1) {
       setStep(s => s + 1);
       return;
     }
@@ -200,6 +260,27 @@ export default function GuidePage() {
     }
   };
 
+  const topBar = (
+    <div className="flex items-center justify-between h-6 mb-2">
+      {step > 0 ? (
+        <button
+          onClick={() => setStep(s => s - 1)}
+          className="font-mono-hud text-[10px] tracking-[0.18em] text-text-muted"
+        >
+          ← BACK
+        </button>
+      ) : <span />}
+      {!replay && !isPresetStep ? (
+        <button
+          onClick={() => setStep(INFO_STEPS.length)}
+          className="font-mono-hud text-[10px] tracking-[0.18em] text-text-muted"
+        >
+          SKIP →
+        </button>
+      ) : <span />}
+    </div>
+  );
+
   return (
     <div
       className="min-h-svh flex flex-col px-6 pt-10"
@@ -208,9 +289,11 @@ export default function GuidePage() {
         paddingBottom: 'calc(2.5rem + env(safe-area-inset-bottom))',
       }}
     >
+      {topBar}
+
       {/* Step indicator */}
       <div className="flex gap-2 justify-center mb-8">
-        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+        {Array.from({ length: totalSteps }).map((_, i) => (
           <div
             key={i}
             className="h-0.5 rounded-full transition-all duration-300"
@@ -402,7 +485,7 @@ export default function GuidePage() {
           </div>
 
           <h1
-            className="text-center font-display font-bold leading-tight mb-8 glow-text"
+            className="text-center font-display font-bold leading-tight mb-6 glow-text"
             style={{
               fontSize: 32,
               color: 'var(--color-glow-bright)',
@@ -413,39 +496,7 @@ export default function GuidePage() {
           </h1>
 
           {/* Hero */}
-          <div className="grid place-items-center my-2 mb-8">
-            {messageStep.hero === 'rank-e' && (
-              <>
-                <div
-                  className="grid place-items-center"
-                  style={{
-                    width: 140, height: 140,
-                    border: '1px solid var(--color-glow-bright)',
-                    background: 'radial-gradient(circle, rgba(59,130,246,0.25), transparent 70%)',
-                    boxShadow: '0 0 32px rgba(59,130,246,0.4), inset 0 0 32px rgba(59,130,246,0.2)',
-                    clipPath: 'polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%)',
-                  }}
-                >
-                  <span
-                    className="font-display font-bold leading-none"
-                    style={{
-                      fontSize: 64,
-                      color: 'var(--color-glow-bright)',
-                      textShadow: '0 0 18px rgba(96,165,250,0.8)',
-                    }}
-                  >
-                    E
-                  </span>
-                </div>
-                <p
-                  className="font-mono-hud text-[10px] tracking-[0.18em] uppercase mt-3"
-                  style={{ color: 'var(--color-glow-bright)' }}
-                >
-                  Starting Rank
-                </p>
-              </>
-            )}
-
+          {messageStep.hero && <div className="grid place-items-center my-2 mb-6">
             {messageStep.hero === 'stat-row' && (
               <div className="flex gap-1.5">
                 {STAT_HUES.map(s => (
@@ -467,7 +518,7 @@ export default function GuidePage() {
                 ))}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* Protocol frame */}
           <div className="frame-bracketed mb-6">
@@ -478,14 +529,29 @@ export default function GuidePage() {
               >
                 {messageStep.frameLabel}
               </div>
-              <div className="space-y-1.5 text-text-dim text-xs leading-relaxed">
-                {messageStep.bullets.map((b, i) => (
-                  <p key={i}>
-                    <span className="mr-2" style={{ color: 'var(--color-glow-bright)' }}>▸</span>
-                    {b}
-                  </p>
+              <div className="space-y-2.5">
+                {messageStep.rows.map((r, i) => (
+                  <div key={i} className="flex gap-3 items-start">
+                    {r.tag && (
+                      <span
+                        className="font-mono-hud text-[10px] font-bold tracking-[0.12em] flex-shrink-0 pt-0.5"
+                        style={{ width: 44, color: r.tint ?? 'var(--color-glow-bright)' }}
+                      >
+                        {r.tag}
+                      </span>
+                    )}
+                    <p className="text-text-dim text-xs leading-relaxed">
+                      {r.head && <span className="text-text font-semibold">{r.head}. </span>}
+                      {r.text}
+                    </p>
+                  </div>
                 ))}
               </div>
+              {messageStep.note && (
+                <p className="text-[10px] text-text-muted leading-relaxed mt-3 pt-3 border-t border-border">
+                  {messageStep.note}
+                </p>
+              )}
             </div>
             <span className="frame-bracket-bottom" aria-hidden />
           </div>

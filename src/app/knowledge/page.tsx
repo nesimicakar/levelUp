@@ -15,6 +15,7 @@ import {
 } from '@/lib/logic/knowledge';
 import { VaultSecondaryNav } from '@/components/VaultSecondaryNav';
 import { VaultSheet } from '@/components/VaultSheet';
+import { CreateWithAISheet } from '@/components/CreateWithAISheet';
 import {
   validateVaultPack, importVaultPack, exportVaultPack, downloadVaultPack,
   type ImportResult,
@@ -316,6 +317,7 @@ export default function KnowledgePage() {
   const [showAddDomain, setShowAddDomain] = useState(false);
   const [showAddConcept, setShowAddConcept] = useState(false);
   const [showPackMenu, setShowPackMenu] = useState(false);
+  const [showCreateAI, setShowCreateAI] = useState(false);
   const [packState, setPackState] = useState<
     | { status: 'importing' }
     | { status: 'exporting' }
@@ -451,8 +453,17 @@ export default function KnowledgePage() {
                 {/* Dropdown */}
                 <div
                   className="absolute right-0 z-50 flex flex-col overflow-hidden"
-                  style={{ top: 26, width: 152, background: '#0f1623', border: '1px solid #1e293b', borderRadius: 10 }}
+                  style={{ top: 26, width: 176, background: '#0f1623', border: '1px solid #1e293b', borderRadius: 10 }}
                 >
+                  <button
+                    onClick={() => { setShowCreateAI(true); setShowPackMenu(false); }}
+                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-[11px] uppercase tracking-widest font-bold hover:bg-white/5 transition-colors text-left"
+                    style={{ color: '#f59e0b' }}
+                  >
+                    <span style={{ width: 13, textAlign: 'center' }}>✦</span>
+                    Create with AI
+                  </button>
+                  <div style={{ height: 1, background: '#1e293b' }} />
                   <button
                     onClick={() => { fileInputRef.current?.click(); setShowPackMenu(false); }}
                     disabled={packState?.status === 'importing'}
@@ -695,12 +706,20 @@ export default function KnowledgePage() {
           <span className="font-display text-sm font-bold text-text">{domains.length}</span>
         </div>
         {domains.length > 0 && (
-          <button
-            onClick={() => setShowAddConcept(true)}
-            className="text-[10px] font-bold uppercase tracking-widest text-warning"
-          >
-            + ADD CONCEPT
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowCreateAI(true)}
+              className="text-[10px] font-bold uppercase tracking-widest text-warning"
+            >
+              ✦ CREATE WITH AI
+            </button>
+            <button
+              onClick={() => setShowAddConcept(true)}
+              className="text-[10px] font-bold uppercase tracking-widest text-text-muted"
+            >
+              + MANUAL
+            </button>
+          </div>
         )}
       </div>
 
@@ -720,14 +739,20 @@ export default function KnowledgePage() {
             Vault Empty
           </p>
           <p className="text-[11px] text-text-muted leading-relaxed mb-5 max-w-[220px]">
-            Create your first domain to begin building your personal knowledge archive.
+            Add your first concept. The fastest way is to let an AI write it for you.
           </p>
           <button
-            onClick={() => setShowAddDomain(true)}
-            className="py-2.5 px-5 rounded-lg text-[11px] font-bold uppercase tracking-widest text-warning"
+            onClick={() => setShowCreateAI(true)}
+            className="py-2.5 px-5 rounded-lg text-[11px] font-bold uppercase tracking-widest text-warning mb-3"
             style={{ background: '#f59e0b22', border: '1px solid #f59e0b' }}
           >
-            + Create First Domain
+            ✦ Create with AI
+          </button>
+          <button
+            onClick={() => setShowAddDomain(true)}
+            className="text-[10px] uppercase tracking-widest text-text-muted underline"
+          >
+            or create a domain manually
           </button>
         </div>
       ) : (
@@ -754,6 +779,18 @@ export default function KnowledgePage() {
       )}
 
       {/* ── Modals ──────────────────────────────────────────────────────── */}
+      {showCreateAI && (
+        <CreateWithAISheet
+          existingDomains={domains.map(d => d.name)}
+          onClose={() => setShowCreateAI(false)}
+          onImported={loadData}
+          onManual={() => {
+            setShowCreateAI(false);
+            if (domains.length > 0) setShowAddConcept(true);
+            else setShowAddDomain(true);
+          }}
+        />
+      )}
       {showAddDomain && (
         <AddDomainModal onClose={() => setShowAddDomain(false)} onSave={handleAddDomain} />
       )}

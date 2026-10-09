@@ -29,6 +29,9 @@ const NAV_ITEMS = [
 export function BottomNav() {
   const pathname = usePathname();
 
+  // Onboarding is a focused flow — no tabs to wander off to mid-setup.
+  if (pathname === '/guide') return null;
+
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 bg-surface/95 backdrop-blur border-t border-border z-50"

@@ -180,6 +180,16 @@ export default function StrPage() {
     await loadData();
   };
 
+  // Reverses a rest day or a Session-mode completion by removing that day's row.
+  // Rest tokens are derived from rest-day rows, so deleting one refunds the token.
+  // Workout-mode completions are not touched here — those undo by unchecking sets.
+  const undoDay = async () => {
+    if (!todaySession?.id) return;
+    if (!todaySession.isRestDay && !isSessionModeEntry(todaySession)) return;
+    await db.strSessions.delete(todaySession.id);
+    await loadData();
+  };
+
   const cancelSession = async () => {
     if (!todaySession?.id || todaySession.completed || todaySession.isRestDay) return;
     await db.strSessions.delete(todaySession.id);
@@ -445,11 +455,23 @@ export default function StrPage() {
           <div className="frame-cut p-6 text-center">
             <p className="text-text-muted text-sm tracking-wider">REST DAY</p>
             <p className="text-text-dim text-xs mt-1">Recovery is part of the protocol</p>
+            <button
+              onClick={undoDay}
+              className="mt-4 text-[10px] tracking-[0.18em] uppercase text-text-muted underline"
+            >
+              Undo rest day
+            </button>
           </div>
         ) : todaySession && isSessionModeEntry(todaySession) ? (
           <div className="frame-cut p-6 text-center">
             <p className="text-success text-sm font-medium tracking-wider animate-pulse-glow">STRENGTH SESSION COMPLETE</p>
             <p className="text-text-muted text-xs mt-1">Completed using Session Completion mode</p>
+            <button
+              onClick={undoDay}
+              className="mt-4 text-[10px] tracking-[0.18em] uppercase text-text-muted underline"
+            >
+              Undo
+            </button>
           </div>
         ) : strMode === 'session' ? (
           <div className="space-y-3">

@@ -86,6 +86,9 @@ export default function DisciplinePage() {
 
   // archive confirmation
   const [archiveConfirming, setArchiveConfirming] = useState<string | null>(null);
+  // permanent-delete confirmation — requires typing DELETE
+  const [deleteConfirming, setDeleteConfirming] = useState<string | null>(null);
+  const [deleteText, setDeleteText] = useState('');
 
   const load = useCallback(async () => {
     const allStreaks = await db.disciplineStreaks.toArray();
@@ -209,6 +212,16 @@ export default function DisciplinePage() {
     if (!s) return;
     await db.disciplineStreaks.put({ ...s, status: 'archived', lastUpdated: Date.now() });
     setArchiveConfirming(null);
+    await load();
+  }
+
+  async function deleteStreak(streakId: string) {
+    await db.transaction('rw', db.disciplineStreaks, db.disciplineLogs, async () => {
+      await db.disciplineLogs.where('streakId').equals(streakId).delete();
+      await db.disciplineStreaks.delete(streakId);
+    });
+    setDeleteConfirming(null);
+    setDeleteText('');
     await load();
   }
 
@@ -461,6 +474,7 @@ export default function DisciplinePage() {
     const isExpanded = expanded.has(id);
     const rate = clearRatePct(streak.totalClearDays, streak.totalFailedDays);
     const isConfirmingArchive = archiveConfirming === id;
+    const isConfirmingDelete = deleteConfirming === id;
 
     return (
       <div
@@ -530,8 +544,73 @@ export default function DisciplinePage() {
                 RESTORE
               </button>
             )}
+            <button
+              onClick={() => { setArchiveConfirming(null); setDeleteText(''); setDeleteConfirming(id); }}
+              style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 2, fontSize: 12 }}
+              title="Delete"
+              aria-label="Delete discipline"
+            >
+              🗑
+            </button>
           </div>
         </div>
+
+        {/* Delete confirmation */}
+        {isConfirmingDelete && (
+          <div style={{
+            marginTop: 10, padding: '8px 10px',
+            background: 'rgba(239,68,68,0.06)',
+            border: '1px solid rgba(239,68,68,0.25)',
+            borderRadius: 4,
+          }}>
+            <div style={{ fontSize: 11, color: '#f87171', marginBottom: 8, letterSpacing: 0.5 }}>
+              Permanently delete this discipline and its full history? This cannot be undone. Type DELETE to confirm.
+            </div>
+            <input
+              value={deleteText}
+              onChange={e => setDeleteText(e.target.value)}
+              autoCapitalize="characters"
+              autoComplete="off"
+              placeholder="DELETE"
+              style={{
+                width: '100%', marginBottom: 8, padding: '5px 8px',
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: 4, color: '#f9fafb',
+                fontSize: 12, fontFamily: 'monospace', letterSpacing: 1,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => deleteStreak(id)}
+                disabled={deleteText.trim() !== 'DELETE'}
+                style={{
+                  flex: 1, padding: '5px 0',
+                  background: 'rgba(239,68,68,0.12)',
+                  border: '1px solid rgba(239,68,68,0.35)',
+                  borderRadius: 4, color: '#f87171',
+                  fontSize: 10, letterSpacing: 1, fontFamily: 'monospace',
+                  cursor: deleteText.trim() === 'DELETE' ? 'pointer' : 'not-allowed',
+                  opacity: deleteText.trim() === 'DELETE' ? 1 : 0.4,
+                }}
+              >
+                DELETE FOREVER
+              </button>
+              <button
+                onClick={() => { setDeleteConfirming(null); setDeleteText(''); }}
+                style={{
+                  flex: 1, padding: '5px 0',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.12)',
+                  borderRadius: 4, color: '#6b7280',
+                  fontSize: 10, letterSpacing: 1, cursor: 'pointer', fontFamily: 'monospace',
+                }}
+              >
+                CANCEL
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Archive confirmation */}
         {isConfirmingArchive && (
@@ -595,7 +674,7 @@ export default function DisciplinePage() {
         {renderMini7(logs)}
 
         {/* Today actions */}
-        {!isArchived && !isConfirmingArchive && renderTodayActions(entry)}
+        {!isArchived && !isConfirmingArchive && !isConfirmingDelete && renderTodayActions(entry)}
 
         {/* Expand toggle */}
         <button

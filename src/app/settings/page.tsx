@@ -640,6 +640,15 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* HELP */}
+        <SectionHeader label="Help" />
+        <CompactActionRow
+          label="How it works"
+          actionLabel="REPLAY"
+          actionAccent="glow"
+          onAction={() => router.push('/guide?replay=1')}
+        />
+
         {/* DATA */}
         <SectionHeader label="Data" />
         <CompactActionRow

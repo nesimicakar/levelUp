@@ -284,6 +284,14 @@ export default function CaliPage({ onModeChange }: { onModeChange?: () => Promis
     await loadData();
   };
 
+  // Reverses a rest day by removing its row (the rest token is derived, so it's refunded).
+  const undoDay = async () => {
+    if (!todaySession?.id || !todaySession.isRestDay) return;
+    await db.caliSessions.delete(todaySession.id);
+    setTodaySession(null);
+    await loadData();
+  };
+
   const useRestDay = async () => {
     const session: CaliSession = {
       date: today,
@@ -502,6 +510,12 @@ export default function CaliPage({ onModeChange }: { onModeChange?: () => Promis
           <div className="frame-cut p-6 text-center">
             <p className="text-text-muted text-sm tracking-wider">REST DAY</p>
             <p className="text-text-dim text-xs mt-1">Recovery is part of the protocol</p>
+            <button
+              onClick={undoDay}
+              className="mt-4 text-[10px] tracking-[0.18em] uppercase text-text-muted underline"
+            >
+              Undo rest day
+            </button>
           </div>
         ) : todaySession?.completed ? (
           <div className="frame-cut p-6 text-center">
