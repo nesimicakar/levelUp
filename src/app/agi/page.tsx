@@ -6,11 +6,10 @@ import { db, getToday, getSettings, updateSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computeAgiXP, getAgiDailyCap } from '@/lib/logic/levels';
 import { computeAgiStreak } from '@/lib/logic/streaks';
+import { matchModality, saveAgiMinutes, syncAgiDayCompleted, type Modality } from '@/lib/logic/agi';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import type { AgiLog, StatLevel, UserSettings } from '@/types';
-
-type Modality = 'RUN' | 'BIKE' | 'SWIM' | 'ROW' | 'WALK' | 'HIIT';
 
 const MODALITIES: { k: Modality; settingsLabel?: string; icon: React.ReactNode }[] = [
   { k: 'RUN', settingsLabel: 'Running', icon: (<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="14" cy="4" r="2"/><path d="M5 21l4-7 3 2-2 5M9 14l3-4 4 1 4 4M16 8l-3 3 2 4"/></svg>) },
@@ -20,14 +19,6 @@ const MODALITIES: { k: Modality; settingsLabel?: string; icon: React.ReactNode }
   { k: 'WALK', icon: (<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><circle cx="13" cy="4" r="2"/><path d="M9 21l3-7 2 2 2 5M12 14l-2-3 4-3 3 3"/></svg>) },
   { k: 'HIIT', icon: (<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>) },
 ];
-
-function matchModality(activityType: string | undefined): Modality | null {
-  if (!activityType) return null;
-  const upper = activityType.toUpperCase();
-  if (upper === 'RUN' || upper === 'BIKE' || upper === 'SWIM' || upper === 'ROW' || upper === 'WALK' || upper === 'HIIT') return upper;
-  const match = MODALITIES.find(m => m.settingsLabel?.toLowerCase() === activityType.toLowerCase());
-  return match?.k ?? null;
-}
 
 function inferModality(activityType: string | undefined): Modality {
   return matchModality(activityType) ?? 'RUN';
@@ -61,10 +52,27 @@ export default function AgiPage() {
   const [showTimer, setShowTimer] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Autosave plumbing ──
+  // Minutes edits are debounced, then written through a serial queue. Each pending edit
+  // carries its own date + modality so switching either can never save to the wrong place.
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const logDateRef = useRef(logDate);
+  logDateRef.current = logDate;
+  const settingsRef = useRef<UserSettings | null>(null);
+  const pendingRef = useRef<{ date: string; modality: Modality; minutes: number } | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  // True from the first unsaved edit until its save lands. While true, reloads must not
+  // overwrite the minutes input with older saved data.
+  const dirtyRef = useRef(false);
+  const loadDataRef = useRef<() => Promise<void>>(async () => {});
+  const flushRef = useRef<() => Promise<void>>(async () => {});
+
   const loadData = useCallback(async () => {
     const realToday = getToday();
     const s = await getSettings();
     setSettings(s);
+    settingsRef.current = s;
 
     const todayLogs = await db.agiLogs.where('date').equals(logDate).toArray();
     setTodaysLogs(todayLogs);
@@ -126,6 +134,7 @@ export default function AgiPage() {
     setLoaded(true);
   }, [logDate]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  loadDataRef.current = loadData;
   useEffect(() => { loadData(); }, [loadData]);
 
   // Set initial modality once settings is available (only first time)
@@ -138,12 +147,12 @@ export default function AgiPage() {
 
   // Single source of truth: input minutes always reflect the current modality's saved log.
   // Runs after save (todaysLogs changes), date switch (todaysLogs changes), or modality pick.
+  // Skipped while an edit is pending/in flight so it can't clobber newer input.
   useEffect(() => {
+    if (dirtyRef.current) return;
     const existing = todaysLogs.find(l => matchModality(l.activityType) === modality);
     setMinutes(existing?.minutes ?? 0);
   }, [todaysLogs, modality]);
-
-  const pickModality = (m: Modality) => setModality(m);
 
   useEffect(() => {
     if (!yesterday) return;
@@ -155,47 +164,101 @@ export default function AgiPage() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const saveLog = async () => {
-    if (!settings) return;
-    if (minutes <= 0) return;
-    const target = settings.agiMinMinutes;
-    const activityType = modality;
+  const runSave = (p: { date: string; modality: Modality; minutes: number }) => {
+    setSaveState('saving');
+    saveQueue.current = saveQueue.current
+      .then(async () => {
+        const st = settingsRef.current;
+        if (!st) return;
+        await saveAgiMinutes(p.date, p.modality, p.minutes, st.agiMinMinutes);
 
-    // Upsert: one log per (date, modality)
-    const existing = todaysLogs.find(l => matchModality(l.activityType) === modality);
-    if (existing?.id) {
-      await db.agiLogs.update(existing.id, { minutes, activityType });
-    } else {
-      await db.agiLogs.add({
-        date: logDate,
-        minutes,
-        activityType,
-        completed: false, // will be re-set below based on day total
-        createdAt: Date.now(),
+        // Remember the modality as the default for next time if it maps to a settings option
+        const settingsLabel = MODALITIES.find(m => m.k === p.modality)?.settingsLabel;
+        if (p.minutes > 0 && settingsLabel && settingsLabel !== st.agiActivityType) {
+          await updateSettings({ agiActivityType: settingsLabel });
+        }
+
+        // No newer edit queued behind this one → the input may follow the database again.
+        if (pendingRef.current === null) dirtyRef.current = false;
+        // Only repaint if the user is still looking at the day we just saved.
+        if (p.date === logDateRef.current) await loadDataRef.current();
+        setSaveState(pendingRef.current ? 'saving' : 'idle');
+      })
+      .catch(err => {
+        console.error('[AGI] save failed:', err);
+        // Keep the edit queued (and the input protected) so "tap to retry" can resend it.
+        if (!pendingRef.current) pendingRef.current = p;
+        dirtyRef.current = true;
+        setSaveState('error');
       });
-    }
+  };
 
-    // Recompute day total across all logs for this date and update each log's completed flag
-    // (so streak/dashboard logic that filters .completed treats this date as completed
-    //  iff total minutes for the day >= target)
-    const refreshedLogs = await db.agiLogs.where('date').equals(logDate).toArray();
-    const dayTotal = refreshedLogs.reduce((sum, l) => sum + l.minutes, 0);
-    const dayCompleted = dayTotal >= target;
-    await Promise.all(
-      refreshedLogs
-        .filter(l => l.id !== undefined && l.completed !== dayCompleted)
-        .map(l => db.agiLogs.update(l.id!, { completed: dayCompleted }))
-    );
-
-    // Persist modality as default for next session if it maps to a settings option
-    const settingsLabel = MODALITIES.find(m => m.k === modality)?.settingsLabel;
-    if (settingsLabel && settingsLabel !== settings.agiActivityType) {
-      await updateSettings({ agiActivityType: settingsLabel });
+  /** Writes any pending edit now and waits for the queue to drain. */
+  const flush = async () => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
+    const p = pendingRef.current;
+    if (p) {
+      pendingRef.current = null;
+      runSave(p);
+    }
+    await saveQueue.current;
+  };
+  flushRef.current = flush;
+
+  // Save before the page is hidden or left, so a quick edit-then-back never loses data.
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === 'hidden') void flushRef.current(); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onHide);
+      void flushRef.current();
+    };
+  }, []);
+
+  const editMinutes = (raw: number) => {
+    const next = Math.max(0, Math.min(300, raw));
+    if (next === minutes) return;
+    setMinutes(next);
+    dirtyRef.current = true;
+    pendingRef.current = { date: logDate, modality, minutes: next };
+    setSaveState('saving');
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      debounceRef.current = null;
+      const p = pendingRef.current;
+      if (p) {
+        pendingRef.current = null;
+        runSave(p);
+      }
+    }, 1000);
+  };
+
+  const pickModality = async (m: Modality) => {
+    if (m === modality) return;
+    await flush();
+    setModality(m);
+  };
+
+  const changeDate = async (d: string) => {
+    await flush();
+    setLogDate(d);
+  };
+
+  const removeLog = async (id: number) => {
+    const st = settingsRef.current;
+    if (!st) return;
+    await flush();
+    await db.agiLogs.delete(id);
+    await syncAgiDayCompleted(logDate, st.agiMinMinutes);
     await loadData();
   };
 
-  const addQuick = (delta: number) => setMinutes(m => Math.max(0, Math.min(m + delta, 300)));
+  const addQuick = (delta: number) => editMinutes(minutes + delta);
 
   useEffect(() => {
     if (timerRunning) {
@@ -210,7 +273,10 @@ export default function AgiPage() {
   const toggleTimer = () => {
     if (timerRunning) {
       setTimerRunning(false);
-      setMinutes(Math.floor(timerSeconds / 60));
+      // Under a minute isn't a session. Ignoring it keeps an accidental start/stop
+      // from wiping minutes that are already logged.
+      const mins = Math.floor(timerSeconds / 60);
+      if (mins >= 1) editMinutes(mins);
     } else {
       setTimerSeconds(0);
       setTimerRunning(true);
@@ -266,7 +332,7 @@ export default function AgiPage() {
           </div>
         </div>
 
-        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={setLogDate} />
+        <LogDateToggle value={logDate} today={today} yesterday={yesterday} onChange={changeDate} />
 
         {/* Level / XP */}
         <div className="frame-bracketed">
@@ -373,6 +439,13 @@ export default function AgiPage() {
                         >
                           <span className="font-mono-hud font-semibold">{k ?? '·'}</span>
                           <span className="font-display">{l.minutes}m</span>
+                          <button
+                            onClick={() => l.id !== undefined && removeLog(l.id)}
+                            className="ml-0.5 text-text-muted hover:text-text leading-none"
+                            aria-label={`Remove ${k ?? 'session'} ${l.minutes} minutes`}
+                          >
+                            ✕
+                          </button>
                         </span>
                       );
                     })}
@@ -403,7 +476,7 @@ export default function AgiPage() {
               <span className="text-text-muted text-[10px] tracking-[0.18em] uppercase">Custom</span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setMinutes(m => Math.max(0, m - 5))}
+                  onClick={() => editMinutes(minutes - 5)}
                   className="w-7 h-7 grid place-items-center text-text-dim hover:text-text"
                   style={{ background: 'transparent', border: '1px solid var(--color-border)' }}
                   aria-label="Decrease by 5"
@@ -417,9 +490,9 @@ export default function AgiPage() {
                     value={minutes}
                     onChange={e => {
                       const raw = e.target.value;
-                      if (raw === '') { setMinutes(0); return; }
+                      if (raw === '') { editMinutes(0); return; }
                       const v = parseInt(raw, 10);
-                      if (Number.isFinite(v)) setMinutes(Math.max(0, Math.min(300, v)));
+                      if (Number.isFinite(v)) editMinutes(v);
                     }}
                     onFocus={e => e.target.select()}
                     className="font-display font-bold text-lg bg-transparent border-0 text-center focus:outline-none p-0 w-[3.5ch]"
@@ -429,7 +502,7 @@ export default function AgiPage() {
                   <span className="text-text-muted text-[10px]">min</span>
                 </div>
                 <button
-                  onClick={() => setMinutes(m => Math.min(300, m + 5))}
+                  onClick={() => editMinutes(minutes + 5)}
                   className="w-7 h-7 grid place-items-center"
                   style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid var(--color-stat-agi)', color: 'var(--color-stat-agi)' }}
                   aria-label="Increase by 5"
@@ -441,10 +514,9 @@ export default function AgiPage() {
 
             {/* Save + timer toggle */}
             <div className="flex gap-2">
-              <button
-                onClick={saveLog}
-                disabled={minutes === 0}
-                className="flex-1 p-3 rounded-md font-display font-semibold tracking-wider transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              <div
+                role="status"
+                className="flex-1 p-3 rounded-md font-display font-semibold tracking-wider text-center transition-all"
                 style={{
                   background: completed ? 'rgba(34,197,94,0.15)' : 'rgba(34,197,94,0.08)',
                   border: `1px solid ${completed ? 'var(--color-stat-agi)' : 'rgba(34,197,94,0.4)'}`,
@@ -452,9 +524,21 @@ export default function AgiPage() {
                   boxShadow: completed ? '0 0 12px rgba(34,197,94,0.3)' : 'none',
                 }}
               >
-                {existingForCurrentMod ? `UPDATE ${modality}` : `LOG ${modality}`}
-                {overcharged && <span className="text-[10px] ml-2 opacity-80">+{projectedTotal - target} OVER</span>}
-              </button>
+                {saveState === 'error' ? (
+                  <button onClick={() => void flush()} className="uppercase" style={{ color: 'var(--color-stat-str)' }}>
+                    Couldn&apos;t save · tap to retry
+                  </button>
+                ) : saveState === 'saving' ? (
+                  <span className="opacity-70">SAVING…</span>
+                ) : existingForCurrentMod ? (
+                  <>
+                    ✓ {modality} {existingForCurrentMod.minutes}M LOGGED
+                    {overcharged && <span className="text-[10px] ml-2 opacity-80">+{projectedTotal - target} OVER</span>}
+                  </>
+                ) : (
+                  <span className="opacity-70 text-sm">ADD MINUTES TO LOG {modality}</span>
+                )}
+              </div>
               <button
                 onClick={() => setShowTimer(v => !v)}
                 className="w-12 grid place-items-center rounded-md text-text-muted hover:text-text transition-colors"

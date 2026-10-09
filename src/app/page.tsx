@@ -17,6 +17,7 @@ import { RANK_ORDER, type Rank, type DayStatus, type StatLevel, type UserSetting
 import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
 import { setDisciplineLog, getYesterday } from '@/lib/logic/discipline';
 import { selectExpressionState } from '@/lib/logic/expressions';
+import { getFaithConfig } from '@/lib/logic/faith';
 import type { DailyIdea } from '@/types';
 
 interface DashboardState {
@@ -189,6 +190,7 @@ export default function Dashboard() {
 
     // PER — reading minutes (always required) + prayers/quran (if spirituality enabled)
     const spiritualityEnabled = settings.enableSpirituality ?? false;
+    const faith = getFaithConfig(settings);
     const readingTarget = settings.dailyReadingMinutesTarget ?? 5;
     const todayPer = await db.perLogs.where('date').equals(today).first();
     const perStatus: DayStatus = todayPer?.completed ? 'complete' : 'incomplete';
@@ -198,8 +200,9 @@ export default function Dashboard() {
     const perSubtitle = (() => {
       const read = `READ ${todayPer?.readingMinutes ?? 0}/${readingTarget}`;
       if (!spiritualityEnabled) return read;
-      const pray = `PRAY ${todayPer?.prayersCount ?? 0}/5`;
-      const quran = `QURAN ${todayPer?.quranPages ?? 0}/${settings.quranPagesPerDay}`;
+      const pray = `${faith.practiceShort} ${todayPer?.prayersCount ?? 0}/${faith.prayersPerDay}`;
+      if (!faith.scriptureEnabled) return `${read} · ${pray}`;
+      const quran = `${faith.scriptureName.toUpperCase().slice(0, 8)} ${todayPer?.quranPages ?? 0}/${faith.scriptureTarget}`;
       return `${read} · ${pray} · ${quran}`;
     })();
 
@@ -235,7 +238,9 @@ export default function Dashboard() {
       settings.dailyReadingMinutesTarget ?? 5,
       todayPer?.prayersCount ?? 0,
       todayPer?.quranPages ?? 0,
-      settings.quranPagesPerDay,
+      faith.scriptureTarget,
+      faith.prayersPerDay,
+      faith.scriptureEnabled,
     );
     const domainProgress = [strDomainProgress, agiDomainProgress, vitDomainProgress, intDomainProgress, perDomainProgress];
     const basePctRaw = Math.min(Math.round(domainProgress.reduce((sum, p) => sum + p * 20, 0)), 100);

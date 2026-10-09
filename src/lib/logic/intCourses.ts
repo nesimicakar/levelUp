@@ -1,19 +1,77 @@
-import { getSettings, getCourseProgress, updateSettings } from '@/lib/db';
+import { db, getSettings, getCourseProgress, updateSettings } from '@/lib/db';
 import type { IntCourse, IntLog, PerLog, UserSettings } from '@/types';
 
 export const LEGACY_RE_ID = 'legacy-real-estate';
 export const LEGACY_SA_ID = 'legacy-stage-academy';
 
+// Names/sizes the legacy migration used for the two built-in courses. Anything that
+// still matches these AND has no progress was auto-seeded, never chosen by the user.
+const DEFAULT_RE_NAME = 'Primary Study';
+const DEFAULT_SA_NAME = 'Skill Development';
+const DEFAULT_RE_TOTAL = 200;
+const DEFAULT_SA_TOTAL = 144;
+
+/** True if the user has ever actually used the legacy course system: progress made,
+ *  units logged, or the course names customised. Brand-new installs return false. */
+export async function hasLegacyCourseActivity(settings: UserSettings): Promise<boolean> {
+  if ((settings.intCourseName ?? DEFAULT_RE_NAME) !== DEFAULT_RE_NAME) return true;
+  if ((settings.perProgramName ?? DEFAULT_SA_NAME) !== DEFAULT_SA_NAME) return true;
+  const [progress, intLogs, perLogs] = await Promise.all([
+    db.courseProgress.toArray(),
+    db.intLogs.toArray(),
+    db.perLogs.toArray(),
+  ]);
+  if (progress.some(p => p.completedUnits > 0)) return true;
+  if (intLogs.some(l => (l.courseUnitsCompleted ?? 0) > 0 || Object.values(l.unitsByCourse ?? {}).some(u => u > 0))) return true;
+  if (perLogs.some(l => (l.lessonsCompleted ?? 0) > 0)) return true;
+  return false;
+}
+
+/** Drops the two auto-seeded legacy courses when they were never touched. Courses the
+ *  user renamed, resized, progressed or logged against are always kept. */
+async function removeUntouchedPhantomCourses(courses: IntCourse[]): Promise<IntCourse[]> {
+  const [intLogs, perLogs] = await Promise.all([db.intLogs.toArray(), db.perLogs.toArray()]);
+  const loggedAgainst = (c: IntCourse) =>
+    intLogs.some(l => (l.unitsByCourse?.[c.id] ?? 0) > 0)
+    || (c.id === LEGACY_RE_ID && intLogs.some(l => (l.courseUnitsCompleted ?? 0) > 0))
+    || (c.id === LEGACY_SA_ID && perLogs.some(l => (l.lessonsCompleted ?? 0) > 0));
+
+  return courses.filter(c => {
+    const isRe = c.id === LEGACY_RE_ID;
+    const isSa = c.id === LEGACY_SA_ID;
+    if (!isRe && !isSa) return true;
+    const untouched =
+      c.status === 'active'
+      && c.completedUnits === 0
+      && c.name === (isRe ? DEFAULT_RE_NAME : DEFAULT_SA_NAME)
+      && c.totalUnits === (isRe ? DEFAULT_RE_TOTAL : DEFAULT_SA_TOTAL)
+      && !loggedAgainst(c);
+    return !untouched;
+  });
+}
+
 /**
- * Returns the user's IntCourses, seeding from legacy data the first time only.
- * Migration: pulls Real Estate + Stage Academy from courseProgress + settings into
- * UserSettings.intCourses. No schema change, fully reversible (delete settings.intCourses
- * to reseed).
+ * Returns the user's IntCourses.
+ *
+ * `settings.intCourses === undefined` means "never set up". A brand-new user gets an
+ * empty list (they add their own); only someone with real legacy activity gets the
+ * old Real Estate / Stage Academy data migrated in. An empty list that is saved is the
+ * user's choice and is never reseeded.
  */
 export async function loadIntCourses(): Promise<IntCourse[]> {
   const settings = await getSettings();
-  if (settings.intCourses && settings.intCourses.length > 0) {
-    return settings.intCourses;
+
+  if (settings.intCourses !== undefined) {
+    if (settings.intPhantomCleanupDone) return settings.intCourses;
+    // One-time: remove courses that earlier versions auto-seeded for new users.
+    const cleaned = await removeUntouchedPhantomCourses(settings.intCourses);
+    await updateSettings({ intCourses: cleaned, intPhantomCleanupDone: true });
+    return cleaned;
+  }
+
+  if (!(await hasLegacyCourseActivity(settings))) {
+    await updateSettings({ intCourses: [], intPhantomCleanupDone: true });
+    return [];
   }
 
   const re = await getCourseProgress('real-estate');
@@ -43,7 +101,7 @@ export async function loadIntCourses(): Promise<IntCourse[]> {
     },
   ];
 
-  await updateSettings({ intCourses: seeded });
+  await updateSettings({ intCourses: seeded, intPhantomCleanupDone: true });
   return seeded;
 }
 

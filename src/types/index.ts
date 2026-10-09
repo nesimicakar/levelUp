@@ -50,6 +50,15 @@ export interface AgiLog {
   createdAt: number;
 }
 
+export interface PostureExercise {
+  id: string;
+  name: string;
+  /** Free text, e.g. "1 min" or "10 reps". */
+  duration: string;
+  /** Optional how-to hint shown under the name. */
+  tip?: string;
+}
+
 export interface VitLog {
   id?: number;
   date: string;
@@ -234,15 +243,6 @@ export interface LangCompletion {
   status?: 'learned' | 'known';
 }
 
-export interface RecallItem {
-  id: string;
-  title: string;
-  summary: string;
-  source?: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface ActiveBook {
   id: string;
   title: string;
@@ -286,11 +286,25 @@ export interface UserSettings {
   strictMode?: boolean;
   hasOnboarded?: boolean;
   enableSpirituality?: boolean;
+  /** Which tradition the PER spirituality block follows. Undefined = Islam (the original behaviour). */
+  faithTradition?: 'islam' | 'christianity' | 'judaism' | 'meditation' | 'custom';
+  /** Name of the daily practice for non-Islam traditions, e.g. "Prayers" or "Meditation". */
+  faithPracticeName?: string;
+  /** Whether the daily scripture/reading part is required (non-Islam). Default depends on tradition. */
+  faithScriptureEnabled?: boolean;
+  /** Daily practice target (prayers/sessions) for non-Islam traditions. Islam is always 5. */
+  faithPrayersPerDay?: number;
+  /** Display name of the holy book for non-Islam traditions, e.g. "Bible". */
+  faithScriptureName?: string;
+  /** Unit the reading is counted in for non-Islam traditions, e.g. "chapters". */
+  faithScriptureUnit?: string;
   /** Daily book reading target (minutes). Drives PER completion. Default 5. */
   dailyReadingMinutesTarget?: number;
   /** STR sessions per week target. Range 2–5. Default 3. */
   strSessionsPerWeek?: number;
   exerciseNames?: Record<string, string>; // exercise id → custom display name
+  /** Customised VIT posture routine. Undefined = use DEFAULT_POSTURE_ROUTINE. */
+  vitPostureRoutine?: PostureExercise[];
   strMode?: 'workout' | 'session';
   /** Gym vs Calisthenics STR training mode. Default 'gym'. */
   strTrainingMode?: 'gym' | 'calisthenics';
@@ -301,7 +315,8 @@ export interface UserSettings {
   /** Course list for INT (active + acquired). Seeded from legacy Real Estate +
    *  Stage Academy courseProgress on first load. */
   intCourses?: IntCourse[];
-  recallItems?: RecallItem[];
+  /** True once the one-time removal of untouched auto-seeded courses has run. */
+  intPhantomCleanupDone?: boolean;
   /** Show anime/character artwork on SYSTEM, RECORD, and Character pages. Default true. */
   showCharacterVisuals?: boolean;
   enableLanguageLearning?: boolean;

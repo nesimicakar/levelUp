@@ -22,6 +22,7 @@ import {
 } from '@/lib/logic/intCourses';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
+import { CourseFields } from '@/components/CourseFields';
 import type { IntLog, PerLog, StatLevel, UserSettings, IntCourse, LangSentence, LangCompletion } from '@/types';
 
 function parseSentenceBank(bank: string): LangSentence[] {
@@ -418,12 +419,13 @@ export default function IntPage() {
               className="font-display text-lg font-bold mb-2 glow-text"
               style={{ color: 'var(--color-stat-int)' }}
             >
-              NO ACTIVE COURSES
+              WHAT ARE YOU STUDYING?
             </div>
-            <p className="text-text-dim text-xs leading-relaxed mb-4">
-              The intellect grows through<br />
-              structured study. Acquire a course<br />
-              to begin daily protocols.
+            <p className="text-text-dim text-xs leading-relaxed mb-2">
+              INT is your daily learning. Add anything you&apos;re learning: an online course, a language, a new skill. (Books are tracked under PER.)
+            </p>
+            <p className="text-text-muted text-[11px] leading-relaxed mb-4">
+              Split it into units (a lesson, chapter or video) and pick how many to finish each day. INT counts as done when you clear every course&apos;s daily target. Until you add one, INT can&apos;t be completed.
             </p>
             <button
               onClick={() => setShowAdd(true)}
@@ -435,7 +437,7 @@ export default function IntPage() {
                 boxShadow: '0 0 10px rgba(96,165,250,0.3)',
               }}
             >
-              + ACQUIRE COURSE
+              + ADD YOUR FIRST COURSE
             </button>
           </div>
         )}
@@ -452,6 +454,9 @@ export default function IntPage() {
                   {completedToday} / {totalToday}
                 </span>
               </div>
+              <p className="text-[11px] text-text-muted leading-snug -mt-1.5 mb-3">
+                Tap + each time you finish a unit. Hit every course&apos;s daily target to clear INT.
+              </p>
 
               <div className="flex items-center gap-3.5">
                 {/* Ring */}
@@ -601,6 +606,7 @@ export default function IntPage() {
               <span className="section-heading text-text-dim">// ACTIVE COURSES</span>
               <span className="text-text-muted text-[9px] tracking-[0.16em] uppercase">{activeCourses.length} ACTIVE</span>
             </div>
+            <p className="text-[10px] text-text-muted -mt-1 px-0.5">Tap a course to edit it, mark it finished or delete it.</p>
 
             <div className="space-y-1.5">
               {activeCourses.map(c => {
@@ -611,33 +617,14 @@ export default function IntPage() {
                 if (isEditing) {
                   return (
                     <div key={c.id} className="frame-cut p-3 space-y-2">
-                      <input
-                        type="text"
-                        value={editName}
-                        onChange={e => setEditName(e.target.value)}
-                        placeholder="Course name"
-                        className="w-full bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
+                      <CourseFields
+                        name={editName}
+                        total={editTotal}
+                        daily={editDaily}
+                        onName={setEditName}
+                        onTotal={setEditTotal}
+                        onDaily={setEditDaily}
                       />
-                      <div className="flex gap-2">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          value={editTotal}
-                          onChange={e => setEditTotal(e.target.value)}
-                          placeholder="Total units"
-                          min={1}
-                          className="flex-1 bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
-                        />
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          value={editDaily}
-                          onChange={e => setEditDaily(e.target.value)}
-                          placeholder="Daily target"
-                          min={1}
-                          className="flex-1 bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
-                        />
-                      </div>
                       <div
                         className="grid gap-2"
                         style={{ gridTemplateColumns: '1fr 1fr auto' }}
@@ -677,6 +664,10 @@ export default function IntPage() {
                           ⋯
                         </button>
                       </div>
+
+                      <p className="text-[10px] text-text-muted leading-relaxed">
+                        ACQUIRE marks this course as finished. Use ⋯ to delete it.
+                      </p>
 
                       {/* Overflow menu — Delete is hidden here */}
                       {overflowOpenId === c.id && deletingActiveId !== c.id && (
@@ -802,34 +793,15 @@ export default function IntPage() {
         {/* ADD COURSE button (or form) */}
         {showAdd ? (
           <div className="frame-cut p-3 space-y-2">
-            <input
-              type="text"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              placeholder="Course name"
-              className="w-full bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
+            <CourseFields
+              name={newName}
+              total={newTotal}
+              daily={newDaily}
+              onName={setNewName}
+              onTotal={setNewTotal}
+              onDaily={setNewDaily}
               autoFocus
             />
-            <div className="flex gap-2">
-              <input
-                type="number"
-                inputMode="numeric"
-                value={newTotal}
-                onChange={e => setNewTotal(e.target.value)}
-                placeholder="Total units"
-                min={1}
-                className="flex-1 bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
-              />
-              <input
-                type="number"
-                inputMode="numeric"
-                value={newDaily}
-                onChange={e => setNewDaily(e.target.value)}
-                placeholder="Daily target"
-                min={1}
-                className="flex-1 bg-surface-light border border-border rounded px-3 py-2 text-sm text-text focus:outline-none focus:border-glow"
-              />
-            </div>
             <div className="flex gap-2">
               <button
                 onClick={addCourse}
@@ -978,14 +950,14 @@ export default function IntPage() {
             >
               {langSentences.length === 0 ? (
                 <p className="text-text-muted text-xs text-center py-2">
-                  No sentences yet. Add your sentence bank in Config → Language Learning.
+                  No sentences yet. Add your sentence bank in Settings → Language Learning.
                 </p>
               ) : !langCurrentSentence ? (
                 <div className="text-center py-2 space-y-1">
                   <p className="font-display font-semibold text-sm" style={{ color: 'var(--color-stat-int)' }}>
                     All {langSentences.length} sentences completed
                   </p>
-                  <p className="text-text-muted text-xs">Add more sentences in Config to continue.</p>
+                  <p className="text-text-muted text-xs">Add more sentences in Settings to continue.</p>
                 </div>
               ) : langTodayCompleted && !showExtraPractice ? (
                 /* Required sentence done — offer optional practice */

@@ -7,6 +7,7 @@ import { db, getSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computePerXP } from '@/lib/logic/levels';
 import { isPerComplete } from '@/lib/logic/per';
+import { getFaithConfig } from '@/lib/logic/faith';
 import { LogDateToggle } from '@/components/LogDateToggle';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import { getCourseProgress } from '@/lib/db';
@@ -163,14 +164,15 @@ export default function PerPage() {
 
   const spiritualityEnabled = settings.enableSpirituality ?? false;
   const readingTarget = settings.dailyReadingMinutesTarget ?? 5;
-  const quranTarget = settings.quranPagesPerDay;
+  const faith = getFaithConfig(settings);
+  const quranTarget = faith.scriptureTarget;
   const readingMet = readingMinutes >= readingTarget;
-  const prayersMet = prayers >= 5;
+  const prayersMet = prayers >= faith.prayersPerDay;
   const quranMet = quranPages >= quranTarget;
   const checkCount = spiritualityEnabled
-    ? [readingMet, prayersMet, quranMet].filter(Boolean).length
+    ? [readingMet, prayersMet, ...(faith.scriptureEnabled ? [quranMet] : [])].filter(Boolean).length
     : [readingMet].filter(Boolean).length;
-  const checkTotal = spiritualityEnabled ? 3 : 1;
+  const checkTotal = spiritualityEnabled ? (faith.scriptureEnabled ? 3 : 2) : 1;
   const allMet = checkCount === checkTotal;
 
   // Currently reading: pick the active book most recently engaged with (or simply the first one)
@@ -256,7 +258,7 @@ export default function PerPage() {
 
         {/* Section heading */}
         <div className="section-heading mt-2" style={{ color: 'var(--color-stat-per)' }}>
-          // TODAY · {spiritualityEnabled ? `${checkCount} / 3 PROTOCOLS` : 'READING'}
+          // TODAY · {spiritualityEnabled ? `${checkCount} / ${checkTotal} PROTOCOLS` : 'READING'}
         </div>
 
         {spiritualityEnabled ? (
@@ -278,14 +280,14 @@ export default function PerPage() {
 
             {/* PRAYERS */}
             <ProtocolBlock
-              label="PRAYERS"
+              label={faith.practiceName.toUpperCase()}
               value={prayers}
-              target={5}
+              target={faith.prayersPerDay}
               done={prayersMet}
-              sublabel={prayersMet ? '✓ All completed' : `${5 - prayers} remaining`}
+              sublabel={prayersMet ? '✓ All completed' : `${Math.max(0, faith.prayersPerDay - prayers)} remaining`}
             >
               <div className="flex gap-1 mb-2.5">
-                {Array.from({ length: 5 }).map((_, i) => (
+                {Array.from({ length: faith.prayersPerDay }).map((_, i) => (
                   <div
                     key={i}
                     className="flex-1"
@@ -301,9 +303,10 @@ export default function PerPage() {
               <Stepper onMinus={() => bumpPrayers(-1)} onPlus={() => bumpPrayers(1)} disabledMinus={prayers <= 0} done={prayersMet} />
             </ProtocolBlock>
 
-            {/* QURAN */}
+            {/* SCRIPTURE (Quran for Islam; the holy book of the chosen tradition otherwise; optional for non-Islam) */}
+            {faith.scriptureEnabled && (
             <ProtocolBlock
-              label="QURAN PAGES"
+              label={`${faith.scriptureName} ${faith.scriptureUnit}`.toUpperCase()}
               value={quranPages}
               target={quranTarget}
               done={quranMet}
@@ -311,9 +314,9 @@ export default function PerPage() {
             >
               <Stepper onMinus={() => bumpQuran(-1)} onPlus={() => bumpQuran(1)} disabledMinus={quranPages <= 0} done={quranMet} />
             </ProtocolBlock>
+            )}
 
             <CurrentlyReading book={currentlyReading} pct={currentBookPct} />
-            <RecallLink />
           </>
         ) : (
           // ── SPIRITUALITY OFF: Direction A reading hero ─────────────
@@ -365,7 +368,6 @@ export default function PerPage() {
             </div>
 
             <CurrentlyReading book={currentlyReading} pct={currentBookPct} />
-            <RecallLink />
 
             {/* 7-day cadence */}
             <div className="frame-cut p-3">
@@ -403,7 +405,7 @@ export default function PerPage() {
           </>
         )}
 
-        {spiritualityEnabled && (
+        {spiritualityEnabled && faith.showNafile && (
           <NafilePrayersSection prayers={nafilePrayerState} onToggle={toggleNafilePrayer} />
         )}
 
@@ -533,40 +535,6 @@ function QuickAddRow({ onAdd, compact }: QuickAddRowProps) {
         </button>
       ))}
     </div>
-  );
-}
-
-function RecallLink() {
-  return (
-    <Link
-      href="/recall"
-      className="cut-tile grid items-center gap-3 px-3 py-3 hover:brightness-110 transition-colors"
-      style={{
-        gridTemplateColumns: 'auto 1fr auto',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-      }}
-    >
-      <div
-        className="flex items-center justify-center flex-shrink-0"
-        style={{
-          width: 28, height: 38,
-          background: 'rgba(167,139,250,0.08)',
-          border: '1px solid rgba(167,139,250,0.35)',
-          boxShadow: '0 0 6px rgba(167,139,250,0.15)',
-        }}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'rgba(167,139,250,0.85)' }} aria-hidden>
-          <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
-          <path d="M12 8v4l3 3" />
-        </svg>
-      </div>
-      <div className="min-w-0">
-        <div className="text-[8px] tracking-[0.16em] uppercase text-text-muted mb-0.5">// MEMORY REINFORCEMENT</div>
-        <div className="font-display font-semibold text-sm text-text">RECALL</div>
-      </div>
-      <span className="font-mono-hud text-[9px] tracking-[0.14em] text-text-muted flex-shrink-0">OPEN →</span>
-    </Link>
   );
 }
 

@@ -6,6 +6,7 @@ import { db, getToday, getSettings, getActiveStrAllSessions, getActiveCharacter,
 import { daysBetween, countActiveDays, computeSystemStreak } from '@/lib/logic/streaks';
 import { computePeakRank } from '@/lib/logic/characters';
 import { loadIntCourses } from '@/lib/logic/intCourses';
+import { getFaithConfig, scriptureTitle } from '@/lib/logic/faith';
 import type { Rank, IntCourse, FinishedBook } from '@/types';
 import { RANK_ORDER } from '@/types';
 
@@ -40,6 +41,8 @@ interface ProfileData {
     bookMinutes: number;
     quranPages: number;
   };
+  /** Label for the scripture total, e.g. "Quran Pages" or "Bible Chapters". */
+  scriptureLabel: string | null;
 }
 
 export default function ProfilePage() {
@@ -138,6 +141,10 @@ export default function ProfilePage() {
       acquiredCourses,
       finishedBooks,
       totals: { strSessions, cardioMinutes, bookMinutes, quranPages },
+      scriptureLabel: (() => {
+        const faith = getFaithConfig(settings);
+        return faith.scriptureEnabled ? scriptureTitle(faith) : null;
+      })(),
     });
   }, []);
 
@@ -321,10 +328,12 @@ export default function ProfilePage() {
             <span className="text-text-muted">Book Minutes</span>
             <span className="font-display text-text">{data.totals.bookMinutes.toLocaleString()}</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-text-muted">Quran Pages</span>
-            <span className="font-display text-text">{data.totals.quranPages.toLocaleString()}</span>
-          </div>
+          {data.scriptureLabel && (
+            <div className="flex justify-between">
+              <span className="text-text-muted">{data.scriptureLabel}</span>
+              <span className="font-display text-text">{data.totals.quranPages.toLocaleString()}</span>
+            </div>
+          )}
         </div>
 
       </main>

@@ -10,6 +10,7 @@ import {
 import { computeWeeklyCompletionPct, countConsecutiveWeeksAbove80, computeStrWeekCredit, getPromotionWeeksRequired, type WeeklyCompletionInput } from '@/lib/logic/rank';
 import { checkAndUnlockAchievements } from '@/lib/logic/achievements';
 import { computePeakRank } from '@/lib/logic/characters';
+import { getFaithConfig } from '@/lib/logic/faith';
 import { characterArtSrc, characterHasArtwork, getRankTitle } from '@/lib/data/characterDefs';
 import { computeAgiStreak, computeStatCompletedDays, daysBetween } from '@/lib/logic/streaks';
 import { getCourseProgress } from '@/lib/db';
@@ -31,6 +32,7 @@ export default function RecordPage() {
   const [dayCount, setDayCount] = useState(0);
   const [showCharacterVisuals, setShowCharacterVisuals] = useState(true);
   const [spiritualityEnabled, setSpiritualityEnabled] = useState(false);
+  const [nafileAvailable, setNafileAvailable] = useState(false);
   const [charactersMastered, setCharactersMastered] = useState(0);
   const [characterSlug, setCharacterSlug] = useState('warrior');
   const [conceptsLearned, setConceptsLearned] = useState(0);
@@ -90,6 +92,7 @@ export default function RecordPage() {
     setShowCharacterVisuals((settings.showCharacterVisuals ?? true) && characterHasArtwork(activeCharacter.slug));
     setCharacterSlug(activeCharacter.slug);
     setSpiritualityEnabled(settings.enableSpirituality ?? false);
+    setNafileAvailable(getFaithConfig(settings).showNafile);
     const weekStart = getWeekStart(today);
 
     // STR for current week — routes to caliSessions or strSessions based on active mode
@@ -594,7 +597,7 @@ export default function RecordPage() {
                 </svg>
               ),
             },
-            ...(spiritualityEnabled ? [{
+            ...(spiritualityEnabled && nafileAvailable ? [{
               label: 'Nafile',
               sub: 'Voluntary prayers',
               href: '/achievements/nafile',

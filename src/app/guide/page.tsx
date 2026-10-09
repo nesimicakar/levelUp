@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateSettings } from '@/lib/db';
+import { CourseFields } from '@/components/CourseFields';
+import { genCourseId, loadIntCourses, saveIntCourses } from '@/lib/logic/intCourses';
 import { getPromotionWeeksRequired } from '@/lib/logic/rank';
 
 // ── Info steps: what the app is, what each stat needs, how ranks work ───────
@@ -44,9 +46,9 @@ const INFO_STEPS: InfoStep[] = [
     rows: [
       { tag: 'STR', tint: 'var(--color-stat-str)', head: 'Strength', text: 'Log a workout on training days. A planned rest day also counts.' },
       { tag: 'AGI', tint: 'var(--color-stat-agi)', head: 'Movement', text: 'Cardio or movement. Hit your daily minutes target.' },
-      { tag: 'VIT', tint: 'var(--color-stat-vit)', head: 'Health basics', text: '7+ hours of sleep, protein goal met, posture / mobility done.' },
-      { tag: 'INT', tint: 'var(--color-stat-int)', head: 'Learning', text: 'Add a course, then complete its daily units or lessons.' },
-      { tag: 'PER', tint: 'var(--color-stat-per)', head: 'Refinement', text: 'Daily reading minutes. Prayers and Quran if you turn spirituality on.' },
+      { tag: 'VIT', tint: 'var(--color-stat-vit)', head: 'Health basics', text: '7+ hours of sleep, protein goal met, and a 5-minute posture routine (you can customise the exercises).' },
+      { tag: 'INT', tint: 'var(--color-stat-int)', head: 'Learning', text: 'Add something you’re studying (an online course, a language, a skill), then finish its daily units.' },
+      { tag: 'PER', tint: 'var(--color-stat-per)', head: 'Refinement', text: 'Daily reading minutes. Turn on spirituality for a daily prayer or meditation practice, plus optional scripture reading (Islam, Christianity, Judaism, meditation or your own).' },
     ],
     note: 'Tap a stat on the home screen to open it and log it.',
     button: 'CONTINUE',
@@ -211,12 +213,18 @@ function buildStatCells(t: PresetTargets) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = INFO_STEPS.length + 1; // +1 for preset selector
+// Steps: info slides, then "what are you studying" (INT needs a course), then presets.
+const COURSE_STEP = INFO_STEPS.length;
+const PRESET_STEP = INFO_STEPS.length + 1;
+const TOTAL_STEPS = INFO_STEPS.length + 2;
 
 export default function GuidePage() {
   const [step, setStep] = useState(0);
   const [selectedPresetIdx, setSelectedPresetIdx] = useState(2); // BALANCED default
   const [replay, setReplay] = useState(false);
+  const [courseName, setCourseName] = useState('');
+  const [courseTotal, setCourseTotal] = useState('');
+  const [courseDaily, setCourseDaily] = useState('1');
   const router = useRouter();
 
   // Replay (from Settings) shows the explainer only — never re-applies a preset.
@@ -225,10 +233,33 @@ export default function GuidePage() {
   }, []);
 
   const lastInfoStep = INFO_STEPS.length - 1;
-  const isPresetStep = !replay && step === INFO_STEPS.length;
-  const messageStep = !isPresetStep ? INFO_STEPS[step] : null;
+  const isCourseStep = !replay && step === COURSE_STEP;
+  const isPresetStep = !replay && step === PRESET_STEP;
+  const messageStep = step < INFO_STEPS.length ? INFO_STEPS[step] : null;
+  const courseTotalN = parseInt(courseTotal, 10);
+  const courseDailyN = parseInt(courseDaily, 10);
+  const courseValid = !!courseName.trim() && courseTotalN > 0 && courseDailyN > 0;
   const sel = PRESETS[selectedPresetIdx];
   const totalSteps = replay ? INFO_STEPS.length : TOTAL_STEPS;
+
+  // INT is one of the five stats and can't be completed without a course, so the
+  // first one is created here (at the very end, so going back/forward never duplicates it).
+  const createFirstCourse = async () => {
+    if (!courseValid) return;
+    const existing = await loadIntCourses();
+    await saveIntCourses([
+      ...existing,
+      {
+        id: genCourseId(),
+        name: courseName.trim(),
+        totalUnits: courseTotalN,
+        completedUnits: 0,
+        dailyTargetUnits: courseDailyN,
+        status: 'active',
+        createdAt: Date.now(),
+      },
+    ]);
+  };
 
   const handleNext = async () => {
     if (replay && step === lastInfoStep) {
@@ -250,11 +281,13 @@ export default function GuidePage() {
         lessonsPerDay: sel.targets.lessonsPerDay,
         hasOnboarded: true,
       });
+      await createFirstCourse();
       localStorage.setItem('onboardingComplete', 'true');
       router.push('/');
     } else {
       // Custom: mark onboarded, send to settings
       await updateSettings({ hasOnboarded: true });
+      await createFirstCourse();
       localStorage.setItem('onboardingComplete', 'true');
       router.push('/settings');
     }
@@ -270,9 +303,9 @@ export default function GuidePage() {
           ← BACK
         </button>
       ) : <span />}
-      {!replay && !isPresetStep ? (
+      {!replay && step < INFO_STEPS.length ? (
         <button
-          onClick={() => setStep(INFO_STEPS.length)}
+          onClick={() => setStep(COURSE_STEP)}
           className="font-mono-hud text-[10px] tracking-[0.18em] text-text-muted"
         >
           SKIP →
@@ -306,7 +339,64 @@ export default function GuidePage() {
         ))}
       </div>
 
-      {isPresetStep ? (
+      {isCourseStep ? (
+        // ── First course (INT) ────────────────────────────────────────
+        <>
+          <div className="text-center mb-3">
+            <p className="font-mono-hud text-[10px] tracking-[0.32em]" style={{ color: 'var(--color-glow-bright)' }}>
+              ‹ INTELLECT ›
+            </p>
+          </div>
+          <h1
+            className="text-center font-display font-bold leading-tight mb-4 glow-text"
+            style={{ fontSize: 30, color: 'var(--color-glow-bright)', whiteSpace: 'pre-line' }}
+          >
+            {'WHAT ARE YOU\nSTUDYING?'}
+          </h1>
+          <p className="text-center text-xs text-text-dim leading-relaxed mb-5 px-2">
+            INT is one of your five daily stats. Pick one thing you&apos;re learning right now: an online course, a language, a new skill. (Books go under PER.)
+          </p>
+
+          <div className="frame-bracketed mb-4">
+            <div className="frame-cut p-4">
+              <CourseFields
+                name={courseName}
+                total={courseTotal}
+                daily={courseDaily}
+                onName={setCourseName}
+                onTotal={setCourseTotal}
+                onDaily={setCourseDaily}
+              />
+            </div>
+            <span className="frame-bracket-bottom" aria-hidden />
+          </div>
+
+          <div className="flex-1" />
+
+          <button
+            onClick={handleNext}
+            disabled={!courseValid}
+            className="cut-tile w-full py-3.5 font-display font-bold text-sm tracking-[0.18em] transition-all hover:brightness-125 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{
+              background: 'rgba(96,165,250,0.15)',
+              border: '1px solid var(--color-glow-bright)',
+              color: 'var(--color-glow-bright)',
+              boxShadow: '0 0 12px rgba(96,165,250,0.3)',
+            }}
+          >
+            CONTINUE
+          </button>
+          <button
+            onClick={handleNext}
+            className="mt-3 text-[10px] tracking-[0.18em] uppercase text-text-muted underline self-center"
+          >
+            Skip for now
+          </button>
+          <p className="text-[10px] text-text-muted text-center mt-2 leading-relaxed">
+            Without a course, INT can&apos;t be completed. You can add one any time from the INT page.
+          </p>
+        </>
+      ) : isPresetStep ? (
         // ── Preset selector ───────────────────────────────────────────
         <>
           <div className="text-center mb-2">

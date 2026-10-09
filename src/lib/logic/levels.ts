@@ -74,7 +74,8 @@ export function computeCustomTaskBonusPct(enabledCount: number, checkedCount: nu
  * Stage Academy lessons moved to INT and are NOT part of PER progress anymore.
  *
  * - spiritualityEnabled=false: progress = reading / readingTarget
- * - spiritualityEnabled=true:  progress = avg(reading, prayers/5, quran/quranTarget)
+ * - spiritualityEnabled=true:  progress = avg(reading, prayers/prayersTarget, scripture/target)
+ *   (prayersTarget defaults to 5, the Islamic daily prayers)
  */
 export function computePerDomainProgress(
   enableSpirituality: boolean,
@@ -83,10 +84,13 @@ export function computePerDomainProgress(
   prayersCount: number,
   quranPages: number,
   quranTarget: number,
+  prayersTarget = 5,
+  scriptureEnabled = true,
 ): number {
   const readingProgress = clamp(readingMinutes / Math.max(readingTarget, 1), 0, 1);
   if (!enableSpirituality) return readingProgress;
-  const prayerProgress = clamp(prayersCount / 5, 0, 1);
+  const prayerProgress = clamp(prayersCount / Math.max(prayersTarget, 1), 0, 1);
+  if (!scriptureEnabled) return (readingProgress + prayerProgress) / 2;
   const quranProgress = clamp(quranPages / Math.max(quranTarget, 1), 0, 1);
   return (readingProgress + prayerProgress + quranProgress) / 3;
 }

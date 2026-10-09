@@ -2,8 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { FAITH_TRADITIONS, MAX_PRAYERS_PER_DAY, MIN_PRAYERS_PER_DAY, getFaithConfig } from '@/lib/logic/faith';
 import { db, getSettings, getToday, updateSettings, deleteCustomTask, reconcileCharacterLinkage, repairCharacterStartDates } from '@/lib/db';
 import { validateIdeaBank } from '@/lib/logic/expressions';
+import { buildIdeaBankPrompt, buildSentenceBankPrompt } from '@/lib/logic/bankPrompts';
+import { copyText } from '@/lib/utils/clipboard';
 import type { UserSettings, CustomTask, StatType } from '@/types';
 
 const SKILL_OPTIONS: StatType[] = ['STR', 'AGI', 'VIT', 'INT', 'PER'];
@@ -45,6 +48,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [settings, setSettingsState] = useState<UserSettings | null>(null);
   const [saved, setSaved] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<'ideas' | 'sentences' | null>(null);
   const [newTaskSkill, setNewTaskSkill] = useState<StatType>('STR');
   const [newTaskLabel, setNewTaskLabel] = useState('');
   const [showAddTask, setShowAddTask] = useState(false);
@@ -239,6 +243,9 @@ export default function SettingsPage() {
   }, {} as Record<StatType, CustomTask[]>);
 
   const spiritualityEnabled = settings.enableSpirituality ?? false;
+  const faith = getFaithConfig(settings);
+  // Placeholder text for the editable fields: what you'd get if you left them blank.
+  const faithDefaults = getFaithConfig({ ...settings, faithScriptureName: undefined, faithScriptureUnit: undefined, faithPrayersPerDay: undefined });
   // Live validation of the Idea Bank draft (recomputed each render as the user types).
   const ideaValidation = validateIdeaBank(expressionBankDraft);
   const ideaFormatLabel =
@@ -275,14 +282,26 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {/* HELP */}
+        <CompactActionRow
+          label="How the app works"
+          actionLabel="REPLAY GUIDE"
+          actionAccent="glow"
+          onAction={() => router.push('/guide?replay=1')}
+          last
+        />
+
         {/* DAILY TARGETS */}
-        <SectionHeader label="Daily Targets" />
+        <SectionHeader
+          label="Daily Targets"
+          hint="What you need to do to clear each stat. Change these any time. Courses (INT) and posture exercises (VIT) are edited on their own pages."
+        />
 
         <CompactStepperRow
           stat="STR"
-          label="Sessions / week"
+          label="Workouts per week"
           value={settings.strSessionsPerWeek ?? 3}
-          unit="d"
+          unit="/wk"
           step={1}
           min={2}
           max={5}
@@ -290,7 +309,7 @@ export default function SettingsPage() {
         />
         <CompactStepperRow
           stat="AGI"
-          label="Cardio minutes"
+          label="Daily cardio"
           value={settings.agiMinMinutes}
           unit="min"
           step={5}
@@ -300,7 +319,7 @@ export default function SettingsPage() {
         />
         <CompactStepperRow
           stat="VIT"
-          label="Protein target"
+          label="Daily protein"
           value={settings.proteinGoalGrams}
           unit="g"
           step={10}
@@ -311,7 +330,7 @@ export default function SettingsPage() {
         />
         <CompactStepperRow
           stat="PER"
-          label="Reading minutes"
+          label="Daily reading"
           value={settings.dailyReadingMinutesTarget ?? 5}
           unit="min"
           step={1}
@@ -320,12 +339,12 @@ export default function SettingsPage() {
           onChange={v => update({ dailyReadingMinutesTarget: v })}
           last
         />
-        {spiritualityEnabled && (
+        {spiritualityEnabled && faith.scriptureEnabled && (
           <CompactStepperRow
             stat="PER"
-            label="Quran pages"
+            label={`${faith.scriptureName} ${faith.scriptureUnit}`}
             value={settings.quranPagesPerDay}
-            unit="pg"
+            unit={faith.scriptureUnitShort}
             step={1}
             min={1}
             max={20}
@@ -335,22 +354,116 @@ export default function SettingsPage() {
         )}
 
         {/* MODES */}
-        <SectionHeader label="Modes" />
+        <SectionHeader label="Modes" hint="Optional features you can switch on or off." />
         <CompactToggleRow
           stat="PER"
           label="Spirituality"
+          hint="Adds a daily prayer or meditation practice, and optional scripture reading, to PER."
           on={spiritualityEnabled}
           onChange={v => update({ enableSpirituality: v })}
         />
+        {spiritualityEnabled && (
+          <div className="space-y-3 pt-2 pb-3">
+            <div>
+              <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1.5">Tradition</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {FAITH_TRADITIONS.map(t => {
+                  const active = faith.tradition === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => update({ faithTradition: t.id })}
+                      aria-pressed={active}
+                      className="py-2 rounded text-[9px] font-bold tracking-[0.08em] transition-colors"
+                      style={{
+                        background: active ? 'rgba(167,139,250,0.15)' : 'transparent',
+                        border: `1px solid ${active ? 'var(--color-stat-per)' : 'var(--color-border)'}`,
+                        color: active ? 'var(--color-stat-per)' : 'var(--color-text-muted)',
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-text-muted leading-relaxed mt-1.5">
+                {faith.tradition === 'islam'
+                  ? '5 daily prayers and Quran pages, with Nafile tracking.'
+                  : 'Set your own daily practice below. Your past logs are never changed; only the labels and targets from now on.'}
+              </p>
+            </div>
+
+            {faith.tradition !== 'islam' && (
+              <>
+                <div>
+                  <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">Daily practice</p>
+                  <input
+                    type="text"
+                    value={settings.faithPracticeName ?? ''}
+                    onChange={e => update({ faithPracticeName: e.target.value })}
+                    placeholder={faithDefaults.practiceName}
+                    className="w-full bg-transparent border border-border text-text text-sm px-3 py-1.5 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                    style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+                  />
+                </div>
+                <CompactStepperRow
+                  stat="PER"
+                  label={`${faith.practiceName} per day`}
+                  value={faith.prayersPerDay}
+                  unit="/d"
+                  step={1}
+                  min={MIN_PRAYERS_PER_DAY}
+                  max={MAX_PRAYERS_PER_DAY}
+                  onChange={v => update({ faithPrayersPerDay: v })}
+                  last
+                />
+                <CompactToggleRow
+                  stat="PER"
+                  label="Daily reading"
+                  on={faith.scriptureEnabled}
+                  onChange={v => update({ faithScriptureEnabled: v })}
+                  last={!faith.scriptureEnabled}
+                />
+                {faith.scriptureEnabled && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">Holy book</p>
+                    <input
+                      type="text"
+                      value={settings.faithScriptureName ?? ''}
+                      onChange={e => update({ faithScriptureName: e.target.value })}
+                      placeholder={faithDefaults.scriptureName}
+                      className="w-full bg-transparent border border-border text-text text-sm px-3 py-1.5 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                      style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+                    />
+                  </div>
+                  <div>
+                    <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">Counted in</p>
+                    <input
+                      type="text"
+                      value={settings.faithScriptureUnit ?? ''}
+                      onChange={e => update({ faithScriptureUnit: e.target.value })}
+                      placeholder={faithDefaults.scriptureUnit}
+                      className="w-full bg-transparent border border-border text-text text-sm px-3 py-1.5 outline-none focus:border-glow-bright placeholder:text-text-muted/40 transition-colors"
+                      style={{ clipPath: 'polygon(0 0, calc(100% - 5px) 0, 100% 5px, 100% 100%, 5px 100%, 0 calc(100% - 5px))' }}
+                    />
+                  </div>
+                </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <CompactToggleRow
           label="Character Visuals"
+          hint="Show your character's artwork alongside your rank."
           on={settings.showCharacterVisuals ?? true}
           onChange={v => update({ showCharacterVisuals: v })}
           last
         />
 
         {/* LANGUAGE LEARNING */}
-        <SectionHeader label="Language Learning" />
+        <SectionHeader label="Language Learning" hint="Learn one new sentence a day. When on, it becomes a required item in INT." />
         <CompactToggleRow
           stat="INT"
           label="Enable Language Learning"
@@ -389,6 +502,18 @@ export default function SettingsPage() {
                 Sentence Bank
                 <span className="normal-case tracking-normal text-text-muted/60 ml-1">(target | native, one per line)</span>
               </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(buildSentenceBankPrompt({ target: settings.langTarget ?? '', native: settings.langNative ?? '' }));
+                  setCopiedPrompt(ok ? 'sentences' : null);
+                  if (ok) setTimeout(() => setCopiedPrompt(null), 4000);
+                }}
+                className="font-mono-hud text-[10px] font-bold tracking-[0.14em] uppercase mb-1.5"
+                style={{ color: 'var(--color-stat-int)' }}
+              >
+                {copiedPrompt === 'sentences' ? '✓ PROMPT COPIED' : '✦ COPY AI PROMPT'}
+              </button>
               <textarea
                 value={sentenceBankDraft}
                 onChange={e => setSentenceBankDraft(e.target.value)}
@@ -401,12 +526,15 @@ export default function SettingsPage() {
               <p className="font-mono-hud text-[9px] text-text-muted mt-1">
                 {parseSentenceCount(sentenceBankDraft)} sentences loaded
               </p>
+              <p className="text-[10px] text-text-muted leading-relaxed mt-1">
+                Don&apos;t want to write them? Set your two languages above, copy the AI prompt, paste it into ChatGPT or Claude, then paste its reply here.
+              </p>
             </div>
           </div>
         )}
 
         {/* DAILY EXPRESSIONS */}
-        <SectionHeader label="Daily Ideas" />
+        <SectionHeader label="Daily Ideas" hint="One interesting idea a day on the INT page, from a list you provide. A bonus: it does not affect your ring, rank or streak." />
         <CompactToggleRow
           stat="INT"
           label="Enable Daily Ideas"
@@ -419,10 +547,22 @@ export default function SettingsPage() {
             <div>
               <p className="font-mono-hud text-[10px] tracking-[0.14em] text-text-muted uppercase mb-1">
                 Idea Bank
-                <span className="normal-case tracking-normal text-text-muted/60 ml-1">
-                  (structured JSON preferred; legacy <span className="font-mono">idea | source | meaning</span> also supported)
-                </span>
               </p>
+              <p className="text-[10px] text-text-muted leading-relaxed mb-1.5">
+                Easiest way: copy the AI prompt, paste it into ChatGPT or Claude, then paste its reply below.
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await copyText(buildIdeaBankPrompt());
+                  setCopiedPrompt(ok ? 'ideas' : null);
+                  if (ok) setTimeout(() => setCopiedPrompt(null), 4000);
+                }}
+                className="font-mono-hud text-[10px] font-bold tracking-[0.14em] uppercase mb-1.5"
+                style={{ color: 'var(--color-stat-int)' }}
+              >
+                {copiedPrompt === 'ideas' ? '✓ PROMPT COPIED' : '✦ COPY AI PROMPT'}
+              </button>
               <textarea
                 value={expressionBankDraft}
                 onChange={e => setExpressionBankDraft(e.target.value)}
@@ -464,7 +604,7 @@ export default function SettingsPage() {
               {/* Schema hint */}
               <details className="mt-2">
                 <summary className="font-mono-hud text-[9px] tracking-[0.12em] uppercase text-text-muted cursor-pointer select-none">
-                  Structured JSON schema (preferred)
+                  Format details (for editing by hand)
                 </summary>
                 <pre className="mt-1.5 px-3 py-2 text-[10px] leading-relaxed text-text-muted overflow-x-auto font-mono" style={{ border: '1px solid var(--color-border)', background: 'rgba(255,255,255,0.02)' }}>
 {`{
@@ -529,7 +669,7 @@ export default function SettingsPage() {
         )}
 
         {/* CUSTOM TASKS */}
-        <SectionHeader label="Custom Tasks" />
+        <SectionHeader label="Custom Tasks" hint="Add your own daily checkboxes to any stat, for example “Cold shower” under VIT. They give a small bonus on top of your daily ring." />
 
         {customTasks.length === 0 && !showAddTask && (
           <CompactActionRow
@@ -611,7 +751,7 @@ export default function SettingsPage() {
                 type="text"
                 value={newTaskLabel}
                 onChange={e => setNewTaskLabel(e.target.value)}
-                placeholder="Task label"
+                placeholder="e.g. Cold shower"
                 className="flex-1 bg-surface-light border border-border rounded px-2 py-1.5 text-sm text-text focus:outline-none focus:border-glow"
                 onKeyDown={e => { if (e.key === 'Enter') addCustomTask(); }}
                 autoFocus
@@ -640,17 +780,8 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* HELP */}
-        <SectionHeader label="Help" />
-        <CompactActionRow
-          label="How it works"
-          actionLabel="REPLAY"
-          actionAccent="glow"
-          onAction={() => router.push('/guide?replay=1')}
-        />
-
         {/* DATA */}
-        <SectionHeader label="Data" />
+        <SectionHeader label="Data" hint="Everything is stored only on this device. Export a backup regularly, especially before clearing your browser data or switching phones." />
         <CompactActionRow
           label="Export all data"
           actionLabel="EXPORT"
@@ -661,7 +792,7 @@ export default function SettingsPage() {
           <p className="text-[10px] text-text-muted text-center -mt-1">Saved — keep it in iCloud Drive.</p>
         )}
         <CompactActionRow
-          label="Restore from file"
+          label="Restore from backup"
           actionLabel="IMPORT"
           actionAccent="muted"
           onAction={() => {
@@ -739,7 +870,7 @@ export default function SettingsPage() {
 
 // ─── Building blocks ────────────────────────────────────────────────────
 
-function SectionHeader({ label }: { label: string }) {
+function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
     <div
       className="pb-1.5 mt-4"
@@ -751,6 +882,7 @@ function SectionHeader({ label }: { label: string }) {
       >
         // {label}
       </span>
+      {hint && <p className="text-[11px] text-text-muted leading-snug mt-1">{hint}</p>}
     </div>
   );
 }
@@ -828,9 +960,11 @@ interface CompactToggleRowProps {
   on: boolean;
   onChange: (next: boolean) => void;
   last?: boolean;
+  /** One-line plain-language description shown under the label. */
+  hint?: string;
 }
 
-function CompactToggleRow({ stat, label, on, onChange, last }: CompactToggleRowProps) {
+function CompactToggleRow({ stat, label, on, onChange, last, hint }: CompactToggleRowProps) {
   const c = stat ? STAT_COLOR[stat] : 'var(--color-glow-bright)';
   return (
     <button
@@ -851,7 +985,10 @@ function CompactToggleRow({ stat, label, on, onChange, last }: CompactToggleRowP
       ) : (
         <span className="font-mono-hud text-[9px] text-text-dim text-center">···</span>
       )}
-      <span className="font-display text-sm text-text">{label}</span>
+      <span className="min-w-0">
+        <span className="font-display text-sm text-text block">{label}</span>
+        {hint && <span className="text-[10px] text-text-muted leading-snug block mt-0.5">{hint}</span>}
+      </span>
       <span
         className="relative inline-block flex-shrink-0"
         style={{

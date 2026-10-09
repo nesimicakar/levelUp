@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, getSettings } from '@/lib/db';
 import { getLoggableDates } from '@/lib/utils/dates';
 import { computeLevel, computeVitXP } from '@/lib/logic/levels';
 import { CustomTasksSection } from '@/components/CustomTasksSection';
 import { LogDateToggle } from '@/components/LogDateToggle';
+import { PostureRoutine } from '@/components/PostureRoutine';
+import { POSTURE_MIN_MINUTES, saveVitLog } from '@/lib/logic/vit';
 import type { VitLog, StatLevel, UserSettings } from '@/types';
 
 function addDays(date: string, days: number): string {
@@ -28,8 +30,14 @@ export default function VitPage() {
   const [postureMet, setPostureMet] = useState(false);
   const [last7, setLast7] = useState<VitLog[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const logDateRef = useRef(logDate);
+  logDateRef.current = logDate;
+  // Writes run one at a time so rapid taps can't create duplicate rows for a date.
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const loadData = useCallback(async () => {
+    setSaveState('idle');
     const s = await getSettings();
     setSettings(s);
 
@@ -68,39 +76,59 @@ export default function VitPage() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const save = async () => {
-    const completed = sleepHours >= 7 && proteinMet && postureMet;
-    if (todayLog?.id) {
-      await db.vitLogs.update(todayLog.id, {
-        sleepHours,
-        proteinGoalMet: proteinMet,
-        postureMobilityMet: postureMet,
-        completed,
+  // Refreshes derived stats only. Never touches the tick/sleep inputs, so a reload
+  // landing after a second tap can't overwrite it.
+  const refreshStats = useCallback(async (date: string) => {
+    const [row, all] = await Promise.all([
+      db.vitLogs.where('date').equals(date).first(),
+      db.vitLogs.toArray(),
+    ]);
+    if (date !== logDateRef.current) return; // user switched day meanwhile
+    setTodayLog(row ?? null);
+    setLevel(computeLevel(computeVitXP(all.filter(l => l.completed).length)));
+    const sevenAgo = addDays(date, -6);
+    setLast7(all.filter(l => l.date >= sevenAgo && l.date <= date));
+  }, []);
+
+  // Every change is saved immediately (no separate save step to forget).
+  const persist = (next: { sleepHours: number; proteinMet: boolean; postureMet: boolean }) => {
+    const date = logDate;
+    setSaveState('saving');
+    saveQueue.current = saveQueue.current
+      .then(async () => {
+        await saveVitLog(date, next);
+        await refreshStats(date);
+        setSaveState('saved');
+      })
+      .catch(err => {
+        console.error('[VIT] save failed:', err);
+        setSaveState('error');
       });
-    } else {
-      const log: VitLog = {
-        date: logDate,
-        sleepHours,
-        proteinGoalMet: proteinMet,
-        postureMobilityMet: postureMet,
-        completed,
-        createdAt: Date.now(),
-      };
-      await db.vitLogs.add(log);
-    }
-    await loadData();
   };
 
   const adjustSleep = (delta: number) => {
-    setSleepHours(s => Math.max(0, Math.min(24, +(s + delta).toFixed(1))));
+    const next = Math.max(0, Math.min(24, +(sleepHours + delta).toFixed(1)));
+    if (next === sleepHours) return;
+    setSleepHours(next);
+    persist({ sleepHours: next, proteinMet, postureMet });
+  };
+
+  const toggleProtein = () => {
+    const next = !proteinMet;
+    setProteinMet(next);
+    persist({ sleepHours, proteinMet: next, postureMet });
+  };
+
+  const togglePosture = () => {
+    const next = !postureMet;
+    setPostureMet(next);
+    persist({ sleepHours, proteinMet, postureMet: next });
   };
 
   if (!loaded || !settings) return null;
 
   const sleepMet = sleepHours >= 7;
   const checkCount = [sleepMet, proteinMet, postureMet].filter(Boolean).length;
-  const allMet = checkCount === 3;
-
   // Week rolling
   const sleepAvg = last7.length > 0
     ? (last7.reduce((s, l) => s + l.sleepHours, 0) / last7.length)
@@ -153,16 +181,63 @@ export default function VitPage() {
           <span className="frame-bracket-bottom" aria-hidden />
         </div>
 
-        {/* Today section heading */}
-        <div className="section-heading mt-2" style={{ color: 'var(--color-stat-vit)' }}>
-          // TODAY · {checkCount} / 3 PROTOCOLS
+        {/* Today summary: count, progress, how-to, and save status in one card */}
+        <div className="frame-bracketed mt-2">
+          <div className="frame-cut p-3 flex items-center gap-4">
+            <div className="flex items-baseline flex-shrink-0 leading-none" aria-label={`${checkCount} of 3 protocols complete`}>
+              <span
+                className="font-display font-bold"
+                style={{
+                  fontSize: 44,
+                  color: checkCount === 3 ? 'var(--color-stat-vit)' : 'var(--color-text)',
+                  textShadow: checkCount === 3 ? '0 0 12px rgba(234,179,8,0.5)' : 'none',
+                }}
+              >
+                {checkCount}
+              </span>
+              <span className="font-display font-bold text-lg text-text-muted ml-0.5">/3</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span className="text-[10px] tracking-[0.18em] uppercase font-semibold" style={{ color: 'var(--color-stat-vit)' }}>
+                  Today&apos;s Protocol
+                </span>
+                <span
+                  role="status"
+                  className="text-[9px] tracking-[0.14em] uppercase"
+                  style={{ color: saveState === 'error' ? 'var(--color-stat-str)' : 'var(--color-text-muted)' }}
+                >
+                  {saveState === 'saving' && 'Saving…'}
+                  {saveState === 'saved' && '✓ Saved'}
+                  {saveState === 'error' && 'Couldn’t save. Tap again'}
+                  {saveState === 'idle' && (todayLog ? '✓ Saved' : '')}
+                </span>
+              </div>
+              <div className="flex gap-1 mb-2" aria-hidden>
+                {[sleepMet, proteinMet, postureMet].map((on, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 h-1.5 rounded-sm"
+                    style={{
+                      background: on ? 'var(--color-stat-vit)' : 'var(--color-border)',
+                      boxShadow: on ? '0 0 6px rgba(234,179,8,0.45)' : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+              <p className="text-[11px] text-text-muted leading-snug">
+                Set last night&apos;s sleep, then tick what you&apos;ve done. Saves automatically.
+              </p>
+            </div>
+          </div>
+          <span className="frame-bracket-bottom" aria-hidden />
         </div>
 
         {/* SLEEP */}
         <ProtocolFrame
           symbol="z"
           label="SLEEP"
-          target="≥ 7.0 hours"
+          target="Last night · ≥ 7.0 hours"
           met={sleepMet}
         >
           <div className="flex items-center gap-3 flex-shrink-0">
@@ -191,47 +266,33 @@ export default function VitPage() {
         </ProtocolFrame>
 
         {/* PROTEIN */}
-        <button onClick={() => setProteinMet(v => !v)} className="block w-full text-left">
-          <ProtocolFrame
-            symbol="▲"
-            label="PROTEIN"
-            target={`${settings.proteinGoalGrams} g goal`}
-            met={proteinMet}
-            valueLabel={proteinMet ? 'MET' : 'PENDING'}
-          />
-        </button>
+        <ProtocolFrame
+          symbol="▲"
+          label="PROTEIN"
+          target={`Tick once you hit ${settings.proteinGoalGrams} g`}
+          met={proteinMet}
+          checkbox
+          onToggle={toggleProtein}
+        />
 
-        {/* MOBILITY */}
-        <button onClick={() => setPostureMet(v => !v)} className="block w-full text-left">
-          <ProtocolFrame
-            symbol="↻"
-            label="MOBILITY"
-            target="Posture & mobility block"
-            met={postureMet}
-            valueLabel={postureMet ? 'MET' : 'PENDING'}
-          />
-        </button>
+        {/* POSTURE */}
+        <ProtocolFrame
+          symbol="↻"
+          label="POSTURE"
+          target={`Tick after ${POSTURE_MIN_MINUTES} min of posture work`}
+          met={postureMet}
+          checkbox
+          onToggle={togglePosture}
+          footer={<PostureRoutine settings={settings} />}
+        />
 
         {/* Save */}
-        <button
-          onClick={save}
-          className="w-full p-3 rounded-md font-display font-semibold tracking-wider transition-colors"
-          style={{
-            background: allMet ? 'rgba(234,179,8,0.15)' : 'rgba(234,179,8,0.06)',
-            border: `1px solid ${allMet ? 'var(--color-stat-vit)' : 'rgba(234,179,8,0.4)'}`,
-            color: 'var(--color-stat-vit)',
-            boxShadow: allMet ? '0 0 12px rgba(234,179,8,0.3)' : 'none',
-          }}
-        >
-          {todayLog ? 'UPDATE' : 'LOG TODAY'}
-        </button>
-
         {/* Week rolling averages */}
         <div className="frame-cut p-3 space-y-1.5 text-sm mt-2">
           <div className="text-text-muted text-[10px] tracking-[0.18em] uppercase mb-1">Week · Rolling Avg</div>
           <div className="flex justify-between"><span className="text-text-muted">Sleep</span><span className="font-display" style={{ color: sleepAvg >= 7 ? 'var(--color-stat-agi)' : 'var(--color-text)' }}>{sleepAvg.toFixed(1)} h</span></div>
           <div className="flex justify-between"><span className="text-text-muted">Protein hit-rate</span><span className="font-display text-text">{proteinHits} / {Math.max(last7.length, 1)} d</span></div>
-          <div className="flex justify-between"><span className="text-text-muted">Mobility hit-rate</span><span className="font-display" style={{ color: mobilityHits < 4 ? 'var(--color-stat-str)' : 'var(--color-text)' }}>{mobilityHits} / {Math.max(last7.length, 1)} d</span></div>
+          <div className="flex justify-between"><span className="text-text-muted">Posture hit-rate</span><span className="font-display" style={{ color: mobilityHits < 4 ? 'var(--color-stat-str)' : 'var(--color-text)' }}>{mobilityHits} / {Math.max(last7.length, 1)} d</span></div>
         </div>
 
         <CustomTasksSection skill="VIT" />
@@ -245,15 +306,24 @@ interface ProtocolFrameProps {
   label: string;
   target: string;
   met: boolean;
-  valueLabel?: string;
+  /** Renders a tick box on the right instead of custom children. */
+  checkbox?: boolean;
   children?: React.ReactNode;
+  /** Makes the top row tappable (toggle) without making `footer` part of the tap target. */
+  onToggle?: () => void;
+  /** Extra content rendered inside the same frame, under the main row. */
+  footer?: React.ReactNode;
 }
 
-function ProtocolFrame({ symbol, label, target, met, valueLabel, children }: ProtocolFrameProps) {
+function ProtocolFrame({ symbol, label, target, met, checkbox, children, onToggle, footer }: ProtocolFrameProps) {
+  const Row = onToggle ? 'button' : 'div';
   return (
     <div className={`frame-bracketed ${met ? '' : 'opacity-90'}`}>
       <div className="frame-cut p-3">
-        <div className="flex items-center justify-between gap-3">
+        <Row
+          {...(onToggle ? { type: 'button' as const, onClick: onToggle, 'aria-pressed': met } : {})}
+          className={`flex items-center justify-between gap-3 w-full ${onToggle ? 'text-left' : ''}`}
+        >
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div
               className="cut-tile grid place-items-center font-display font-bold text-lg flex-shrink-0"
@@ -271,14 +341,24 @@ function ProtocolFrame({ symbol, label, target, met, valueLabel, children }: Pro
               <div className="text-text-muted text-[10px] tracking-[0.14em] uppercase">{target}</div>
             </div>
           </div>
-          {valueLabel ? (
-            <div className="font-display font-bold text-lg flex-shrink-0" style={{ color: met ? 'var(--color-stat-agi)' : 'var(--color-text-dim)' }}>
-              {valueLabel}
+          {checkbox ? (
+            <div
+              aria-hidden
+              className="cut-tile grid place-items-center font-display font-bold text-lg flex-shrink-0"
+              style={{
+                width: 32, height: 32,
+                background: met ? 'rgba(234,179,8,0.18)' : 'transparent',
+                border: `1.5px solid ${met ? 'var(--color-stat-vit)' : 'var(--color-text-muted)'}`,
+                color: 'var(--color-stat-vit)',
+              }}
+            >
+              {met ? '✓' : ''}
             </div>
           ) : (
             children
           )}
-        </div>
+        </Row>
+        {footer && <div className="mt-3 pt-1 border-t border-border">{footer}</div>}
       </div>
       <span className="frame-bracket-bottom" aria-hidden />
     </div>
